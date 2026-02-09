@@ -1,0 +1,75 @@
+{
+  "negocio": {
+    "nombre": "NOMBRE_DEL_NEGOCIO",
+    "descripcion": "Tienda especializada en rifles de aire comprimido, accesorios y munición. Ofrecemos asesoría personalizada, servicio técnico y envíos a todo el país.",
+    "horario": "Lunes a Viernes 9:00 AM - 6:00 PM, Sábados 9:00 AM - 2:00 PM",
+    "ubicacion": "Ciudad, Colombia",
+    "contacto": {
+      "telefono": "3001234567",
+      "email": "contacto@ejemplo.com"
+    }
+  },
+  "categorias": {
+    "rifles_resorte": {
+      "titulo": "Rifles de Aire por Resorte (Spring)",
+      "descripcion": "Rifles que funcionan mediante un pistón impulsado por resorte. Son los más comunes para iniciarse. Un solo tiro por cargado (break barrel).",
+      "ventajas": "Económicos, no necesitan CO2 ni compresor, fáciles de mantener",
+      "calibres": [".177 (4.5mm)", ".22 (5.5mm)"],
+      "uso_ideal": "Tiro al blanco, plinking, control de plagas menores",
+      "rango_precio": "Consultar disponibilidad"
+    },
+    "rifles_pcp": {
+      "titulo": "Rifles PCP (Pre-Charged Pneumatic)",
+      "descripcion": "Rifles de alta gama que funcionan con aire comprimido precargado. Ofrecen mayor potencia, precisión y múltiples tiros por carga.",
+      "ventajas": "Alta precisión, múltiples disparos, bajo retroceso, silenciosos",
+      "calibres": [".177 (4.5mm)", ".22 (5.5mm)", ".25 (6.35mm)"],
+      "uso_ideal": "Competición, caza menor, tiro de precisión",
+      "rango_precio": "Consultar disponibilidad",
+      "nota": "Requieren tanque de aire o bomba manual para recargar"
+    },
+    "rifles_co2": {
+      "titulo": "Rifles de CO2",
+      "descripcion": "Funcionan con cápsulas de CO2 desechables. Buenos para tiro recreativo y práctica.",
+      "ventajas": "Semiautomáticos, fáciles de usar, buena cadencia de tiro",
+      "calibres": [".177 (4.5mm)"],
+      "uso_ideal": "Tiro recreativo, práctica, plinking",
+      "rango_precio": "Consultar disponibilidad"
+    },
+    "pistolas_aire": {
+      "titulo": "Pistolas de Aire",
+      "descripcion": "Pistolas de aire comprimido o CO2. Disponibles en varios mecanismos.",
+      "ventajas": "Compactas, buenas para práctica de tiro con pistola",
+      "calibres": [".177 (4.5mm)"],
+      "uso_ideal": "Tiro recreativo, entrenamiento, colección",
+      "rango_precio": "Consultar disponibilidad"
+    },
+    "accesorios": {
+      "titulo": "Accesorios",
+      "descripcion": "Miras telescópicas, miras holográficas, bípodes, fundas, kits de limpieza, blancos, y más.",
+      "subcategorias": ["Miras y ópticas", "Bípodes y soportes", "Fundas y estuches", "Kits de limpieza", "Blancos y dianas"]
+    },
+    "municion": {
+      "titulo": "Munición (Balines/Pellets)",
+      "descripcion": "Balines de diferentes formas y pesos para cada tipo de uso.",
+      "tipos": [
+        "Diabolo: Uso general, buena precisión",
+        "Punta hueca (Hollow Point): Mayor impacto",
+        "Punta plana (Wadcutter): Tiro al blanco, cortes limpios",
+        "Domed (Redondos): Largo alcance, buena penetración"
+      ],
+      "calibres_disponibles": [".177 (4.5mm)", ".22 (5.5mm)", ".25 (6.35mm)"]
+    }
+  },
+  "preguntas_frecuentes": {
+    "necesito_permiso": "Los rifles de aire comprimido en Colombia no son considerados armas de fuego. Sin embargo, te recomendamos consultar la normativa local vigente y usar siempre con responsabilidad.",
+    "envios": "Realizamos envíos a todo el país. El tiempo de entrega varía según la ciudad. Consulta con nuestro equipo para más detalles.",
+    "garantia": "Todos nuestros productos cuentan con garantía. Las condiciones específicas dependen del fabricante y tipo de producto.",
+    "servicio_tecnico": "Ofrecemos servicio técnico para reparaciones y mantenimiento. Consulta disponibilidad.",
+    "como_elegir": "Depende de tu uso principal: para iniciarse recomendamos un rifle de resorte en calibre .177. Para competición o caza menor, un PCP en .22. Nuestros asesores te pueden ayudar a elegir."
+  },
+  "politicas": {
+    "compra": "Para realizar una compra, un asesor te guiará en todo el proceso: selección del producto, método de pago y detalles de envío.",
+    "devoluciones": "Aceptamos devoluciones dentro de los primeros 5 días hábiles si el producto presenta defectos de fábrica.",
+    "metodos_pago": "Transferencia bancaria, Nequi, Daviplata. Consultar otros métodos con el asesor."
+  }
+}
