@@ -28,12 +28,25 @@ function initDatabase() {
       name TEXT DEFAULT '',
       email TEXT DEFAULT '',
       notes TEXT DEFAULT '',
+      memory TEXT DEFAULT '',
       status TEXT DEFAULT 'new',
       source TEXT DEFAULT 'whatsapp',
+      interaction_count INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migración: agregar columnas nuevas si la tabla ya existía
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN memory TEXT DEFAULT ''`);
+    console.log('[DB] Columna memory agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN interaction_count INTEGER DEFAULT 0`);
+    console.log('[DB] Columna interaction_count agregada');
+  } catch (e) { /* ya existe */ }
+  // last_interaction ya no se usa — usamos updated_at
 
   // Tabla de empleados
   db.exec(`
@@ -95,25 +108,27 @@ function upsertClient(phone, data = {}) {
     if (data.name) { fields.push('name = ?'); values.push(data.name); }
     if (data.email) { fields.push('email = ?'); values.push(data.email); }
     if (data.notes) { fields.push('notes = ?'); values.push(data.notes); }
+    if (data.memory) { fields.push('memory = ?'); values.push(data.memory); }
     if (data.status) { fields.push('status = ?'); values.push(data.status); }
 
-    if (fields.length > 0) {
-      fields.push('updated_at = CURRENT_TIMESTAMP');
-      values.push(phone);
-      db.prepare(`UPDATE clients SET ${fields.join(', ')} WHERE phone = ?`).run(...values);
-    }
+    // Siempre incrementar interacciones y actualizar fecha
+    fields.push('interaction_count = interaction_count + 1');
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(phone);
+    db.prepare(`UPDATE clients SET ${fields.join(', ')} WHERE phone = ?`).run(...values);
 
     return getClient(phone);
   } else {
     // Crear nuevo cliente
     db.prepare(`
-      INSERT INTO clients (phone, name, email, notes, status)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO clients (phone, name, email, notes, memory, status, interaction_count)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
     `).run(
       phone,
       data.name || '',
       data.email || '',
       data.notes || '',
+      data.memory || '',
       data.status || 'new'
     );
 
@@ -255,6 +270,171 @@ function getStats() {
 }
 
 // ============================================
+// REPORTES / INFORMES
+// ============================================
+
+// Informe general del negocio
+function getGeneralReport() {
+  const totalClients = db.prepare('SELECT COUNT(*) as count FROM clients').get().count;
+  const newClients = db.prepare("SELECT COUNT(*) as count FROM clients WHERE status = 'new'").get().count;
+  const assignedClients = db.prepare("SELECT COUNT(*) as count FROM clients WHERE status = 'assigned'").get().count;
+  const totalMessages = db.prepare('SELECT COUNT(*) as count FROM conversations').get().count;
+  const activeAssignments = db.prepare("SELECT COUNT(*) as count FROM assignments WHERE status = 'active'").get().count;
+
+  // Clientes hoy
+  const clientsToday = db.prepare(`
+    SELECT COUNT(*) as count FROM clients
+    WHERE date(created_at) = date('now')
+  `).get().count;
+
+  // Clientes esta semana
+  const clientsThisWeek = db.prepare(`
+    SELECT COUNT(*) as count FROM clients
+    WHERE created_at >= datetime('now', '-7 days')
+  `).get().count;
+
+  // Mensajes hoy
+  const messagesToday = db.prepare(`
+    SELECT COUNT(*) as count FROM conversations
+    WHERE date(created_at) = date('now')
+  `).get().count;
+
+  // Derivaciones hoy
+  const handoffsToday = db.prepare(`
+    SELECT COUNT(*) as count FROM assignments
+    WHERE date(assigned_at) = date('now')
+  `).get().count;
+
+  // Productos más consultados (de las conversaciones)
+  const recentClientMessages = db.prepare(`
+    SELECT message FROM conversations
+    WHERE role = 'user' AND created_at >= datetime('now', '-7 days')
+  `).all();
+
+  // Clientes sin atender (new y sin asignación)
+  const unattendedClients = db.prepare(`
+    SELECT c.phone, c.name, c.created_at, c.interaction_count
+    FROM clients c
+    WHERE c.status = 'new'
+    AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.client_phone = c.phone AND a.status = 'active')
+    ORDER BY c.created_at DESC
+    LIMIT 5
+  `).all();
+
+  // Stats por empleado
+  const employeeStats = db.prepare(`
+    SELECT e.name, e.phone, e.assignments_count,
+           (SELECT COUNT(*) FROM assignments WHERE employee_id = e.id AND status = 'active') as active_now,
+           (SELECT COUNT(*) FROM assignments WHERE employee_id = e.id AND date(assigned_at) = date('now')) as today
+    FROM employees e
+    WHERE e.is_active = 1
+    ORDER BY e.id
+  `).all();
+
+  return {
+    totalClients, newClients, assignedClients, totalMessages, activeAssignments,
+    clientsToday, clientsThisWeek, messagesToday, handoffsToday,
+    unattendedClients, employeeStats, recentClientMessages
+  };
+}
+
+// Informe de ventas/pipeline
+function getSalesReport() {
+  // Pipeline por estado
+  const pipeline = db.prepare(`
+    SELECT status, COUNT(*) as count FROM clients GROUP BY status
+  `).all();
+
+  // Clientes asignados pendientes (derivados pero no cerrados)
+  const pendingClients = db.prepare(`
+    SELECT c.phone, c.name, c.memory, a.assigned_at, e.name as employee_name
+    FROM clients c
+    JOIN assignments a ON a.client_phone = c.phone AND a.status = 'active'
+    JOIN employees e ON a.employee_id = e.id
+    ORDER BY a.assigned_at DESC
+    LIMIT 10
+  `).all();
+
+  // Clientes con intención de compra (que tienen memoria con "comprar" o "interesado")
+  const hotLeads = db.prepare(`
+    SELECT phone, name, memory, updated_at
+    FROM clients
+    WHERE memory LIKE '%comprar%' OR memory LIKE '%listo%' OR memory LIKE '%interesado%' OR memory LIKE '%presupuesto%'
+    ORDER BY updated_at DESC
+    LIMIT 10
+  `).all();
+
+  // Carga por empleado
+  const employeeLoad = db.prepare(`
+    SELECT e.name, e.assignments_count,
+           (SELECT COUNT(*) FROM assignments WHERE employee_id = e.id AND status = 'active') as active_now
+    FROM employees e WHERE e.is_active = 1
+  `).all();
+
+  return { pipeline, pendingClients, hotLeads, employeeLoad };
+}
+
+// Actualizar notas de un cliente
+function updateClientNotes(phone, notes) {
+  db.prepare(`
+    UPDATE clients SET notes = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?
+  `).run(notes, phone);
+}
+
+// Resetear cliente (limpiar historial y volver a new)
+function resetClient(phone) {
+  db.prepare('DELETE FROM conversations WHERE client_phone = ?').run(phone);
+  db.prepare("UPDATE assignments SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE client_phone = ? AND status = 'active'").run(phone);
+  db.prepare("UPDATE clients SET status = 'new', memory = '', interaction_count = 0, updated_at = CURRENT_TIMESTAMP WHERE phone = ?").run(phone);
+}
+
+// Cerrar asignación de un cliente
+function closeAssignment(clientPhone) {
+  const assignment = getActiveAssignment(clientPhone);
+  if (!assignment) return null;
+  db.prepare("UPDATE assignments SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE client_phone = ? AND status = 'active'").run(clientPhone);
+  db.prepare("UPDATE clients SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE phone = ?").run(clientPhone);
+  return assignment;
+}
+
+// ============================================
+// MEMORIA DEL CLIENTE
+// ============================================
+
+// Obtener memoria de un cliente
+function getClientMemory(phone) {
+  const client = getClient(phone);
+  return client?.memory || '';
+}
+
+// Actualizar memoria de un cliente (reemplaza completamente)
+function updateClientMemory(phone, memory) {
+  db.prepare(`
+    UPDATE clients SET memory = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?
+  `).run(memory, phone);
+}
+
+// Obtener perfil completo del cliente (para comando !client)
+function getClientProfile(phone) {
+  const client = getClient(phone);
+  if (!client) return null;
+
+  const assignment = getActiveAssignment(phone);
+  const messageCount = db.prepare(
+    'SELECT COUNT(*) as count FROM conversations WHERE client_phone = ?'
+  ).get(phone).count;
+
+  const lastMessages = getConversationHistory(phone, 5);
+
+  return {
+    ...client,
+    assignedTo: assignment ? assignment.employee_name : null,
+    totalMessages: messageCount,
+    recentMessages: lastMessages,
+  };
+}
+
+// ============================================
 // EXPORTAR
 // ============================================
 module.exports = {
@@ -264,6 +444,11 @@ module.exports = {
   getClient,
   upsertClient,
   getAllClients,
+  getClientMemory,
+  updateClientMemory,
+  getClientProfile,
+  updateClientNotes,
+  resetClient,
   // Empleados
   getEmployee,
   getEmployeeByPhone,
@@ -272,10 +457,13 @@ module.exports = {
   // Asignaciones
   getActiveAssignment,
   createAssignment,
+  closeAssignment,
   // Conversaciones
   saveMessage,
   getConversationHistory,
   clearConversation,
-  // Stats
-  getStats
+  // Stats & Reportes
+  getStats,
+  getGeneralReport,
+  getSalesReport,
 };
