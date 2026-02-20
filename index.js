@@ -127,39 +127,93 @@ client.on('disconnected', (reason) => {
 // ============================================
 client.on('message', async (msg) => {
   try {
+    // Ignorar ANTES de getChat() para evitar crash con canales/newsletters
+    if (msg.fromMe) return;
+    if (msg.from === 'status@broadcast') return;
+    if (msg.from.includes('@newsletter')) return;
+    if (msg.from.includes('@broadcast')) return;
+    if (msg.type === 'e2e_notification' || msg.type === 'notification_template') return;
+
     // Ignorar mensajes de grupos si está configurado
     const chat = await msg.getChat();
     if (CONFIG.ignoreGroups && chat.isGroup) return;
 
-    // Ignorar mensajes del propio bot
-    if (msg.fromMe) return;
+    // Ignorar canales por tipo de chat (doble seguro)
+    if (chat.isChannel || chat.type === 'channel') return;
 
-    // Ignorar mensajes de status/broadcast
-    if (msg.from === 'status@broadcast') return;
-
-    // Ignorar bots empresariales y números de notificación automática
-    // para evitar loops infinitos (Bancolombia, Nequi, Daviplata, etc.)
-    const BLOCKED_NUMBERS = [
-      '3307', '85255', '3211234567',           // Bancolombia (cortos y largos)
-      'bancolombia', 'nequi', 'daviplata',      // Por nombre en el ID
-    ];
-    const senderRaw = msg.from.replace('@c.us', '').replace('57', '');
+    // ============================================
+    // FILTRO ANTI-BOTS (evitar loops infinitos)
+    // ============================================
+    const senderRaw = msg.from.replace('@c.us', '');
+    const senderClean = senderRaw.replace('57', '');
     const senderName = (chat.name || '').toLowerCase();
-    const isBlockedBot = BLOCKED_NUMBERS.some(blocked =>
-      senderRaw === blocked ||
-      senderRaw.startsWith(blocked) ||
-      senderName.includes(blocked)
-    );
-    // También bloquear números muy cortos (4-5 dígitos = bots empresariales)
-    if (isBlockedBot || senderRaw.length <= 6) {
-      if (CONFIG.debug) {
-        console.log(`[BOT] 🚫 Mensaje ignorado de bot/empresa: ${msg.from} (${chat.name || 'sin nombre'})`);
-      }
+    const messageBody_check = (msg.body || '').toLowerCase();
+
+    // 1. Lista negra de nombres de bots/empresas conocidas
+    const BLOCKED_NAMES = [
+      'bancolombia', 'nequi', 'daviplata', 'dale', 'rappipay', 'rappi',
+      'movii', 'tpaga', 'bold', 'payvalida', 'payu', 'epayco',
+      'claro', 'movistar', 'tigo', 'wom', 'etb', 'une',
+      'compensar', 'sura', 'eps', 'colmedica', 'sanitas', 'coomeva',
+      'servientrega', 'envia', 'interrapidisimo', 'coordinadora', 'deprisa', 'fedex',
+      'uber', 'didi', 'indriver', 'beat',
+      'taskus', 'task us', 'task_us',
+      'google', 'whatsapp', 'meta', 'facebook', 'instagram', 'telegram',
+      'chatgpt', 'openai', 'gemini', 'copilot', 'claude', 'bot',
+      'verificación', 'verificacion', 'verification', 'security', 'seguridad',
+      'notificación', 'notificacion', 'notification', 'alerta', 'alert',
+    ];
+
+    // 2. Números cortos = bots empresariales (menos de 7 dígitos)
+    const isShortNumber = senderClean.length <= 6;
+
+    // 3. Nombre coincide con empresa/bot conocido
+    const isBlockedName = BLOCKED_NAMES.some(name => senderName.includes(name));
+
+    // 4. Detectar mensajes automáticos por contenido típico de bots
+    const BOT_PATTERNS = [
+      /transacci[oó]n.*aprobada/i,
+      /transferencia.*exitosa/i,
+      /c[oó]digo de verificaci[oó]n/i,
+      /c[oó]digo.*seguridad/i,
+      /tu c[oó]digo es/i,
+      /your.*code.*is/i,
+      /OTP.*\d{4,}/i,
+      /saldo.*disponible/i,
+      /pago.*recibido/i,
+      /factura.*generada/i,
+      /su pedido/i,
+      /tracking.*number/i,
+      /n[uú]mero de gu[ií]a/i,
+      /no responda.*este mensaje/i,
+      /mensaje autom[aá]tico/i,
+      /do not reply/i,
+    ];
+    const isBotMessage = BOT_PATTERNS.some(pattern => pattern.test(msg.body || ''));
+
+    if (isShortNumber || isBlockedName || isBotMessage) {
+      console.log(`[BOT] 🚫 BLOQUEADO: ${senderRaw} (${chat.name || 'sin nombre'})${isBotMessage ? ' [msg automático]' : ''}`);
+      return;
+    }
+
+    // 5. ANTI-LOOP: Si un número manda más de 10 msgs en 5 min, es bot
+    if (!global._msgTracker) global._msgTracker = {};
+    const now = Date.now();
+    const tracker = global._msgTracker;
+    if (!tracker[senderRaw]) tracker[senderRaw] = [];
+    tracker[senderRaw].push(now);
+    // Limpiar mensajes viejos (más de 5 min)
+    tracker[senderRaw] = tracker[senderRaw].filter(t => now - t < 300000);
+    if (tracker[senderRaw].length > 10) {
+      console.log(`[BOT] 🚫 ANTI-LOOP: ${senderRaw} (${chat.name || 'sin nombre'}) — ${tracker[senderRaw].length} msgs en 5 min. Ignorando.`);
       return;
     }
 
     const senderPhone = msg.from.replace('@c.us', '');
     const messageBody = msg.body ? msg.body.trim() : '';
+
+    // Log de todo mensaje entrante (para monitoreo)
+    console.log(`[MSG] 📩 ${chat.name || senderPhone}: "${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}"`);
 
     // --- MANEJO DE AUDIOS Y MEDIA ---
     if (msg.hasMedia || msg.type === 'ptt' || msg.type === 'audio' ||
@@ -173,20 +227,89 @@ client.on('message', async (msg) => {
         console.log(`[DEBUG] Media recibido de ${senderPhone}: tipo=${msg.type}`);
       }
 
+      // IMÁGENES: procesarlas con visión de Claude (multimodal)
+      if (msg.type === 'image' || msg.type === 'sticker') {
+        if (msg.type === 'sticker') return; // ignorar stickers silenciosamente
+
+        try {
+          const media = await msg.downloadMedia();
+          if (media && media.data) {
+            const mediaType = media.mimetype || 'image/jpeg';
+            // Solo pasar imágenes reales (no stickers animados WebP)
+            const isValidImage = mediaType.startsWith('image/');
+            if (!isValidImage) return;
+
+            // Obtener historial y memoria del cliente
+            const history = db.getConversationHistory(senderPhone, 6);
+            const clientMemory = db.getClientMemory(senderPhone);
+            const systemPrompt = buildSystemPrompt('El cliente no está preguntando por un producto específico. Responde de forma conversacional.', clientMemory);
+
+            // Construir mensaje con imagen para Claude vision
+            const visionMessages = [
+              ...buildMessages(history, '').slice(0, -1), // historial sin el último user
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'image',
+                    source: {
+                      type: 'base64',
+                      media_type: mediaType,
+                      data: media.data
+                    }
+                  },
+                  {
+                    type: 'text',
+                    text: msg.body || 'El cliente envió esta imagen.'
+                  }
+                ]
+              }
+            ];
+
+            const visionResponse = await axios.post(
+              'https://api.anthropic.com/v1/messages',
+              {
+                model: 'claude-sonnet-4-6',
+                max_tokens: 1024,
+                system: systemPrompt,
+                messages: visionMessages
+              },
+              {
+                headers: {
+                  'x-api-key': CONFIG.apiKey,
+                  'anthropic-version': '2023-06-01',
+                  'content-type': 'application/json'
+                },
+                timeout: 30000
+              }
+            );
+
+            const reply = visionResponse.data.content[0].text;
+            await msg.reply(reply);
+
+            // Guardar en historial CRM
+            db.saveMessage(senderPhone, 'user', '[imagen enviada]');
+            db.saveMessage(senderPhone, 'assistant', reply);
+            db.updateClientInteraction(senderPhone);
+            console.log(`[IMG] 🖼️ Imagen procesada para ${senderPhone}`);
+          }
+        } catch (imgErr) {
+          console.error(`[IMG] ❌ Error procesando imagen: ${imgErr.message}`);
+          await msg.reply('Vi tu imagen pero tuve un problema al procesarla. ¿Me puedes contar qué necesitas?');
+        }
+        return;
+      }
+
+      // Audios/videos/documentos: pedir que escriban
       const mediaResponses = {
-        'ptt': '🎙️ ¡Gracias por tu mensaje de voz! Por el momento solo puedo leer mensajes de *texto*. ¿Podrías escribirme tu consulta? Así te puedo ayudar mejor. 😊',
-        'audio': '🎵 ¡Gracias por el audio! Por ahora solo proceso mensajes de *texto*. ¿Podrías escribirme lo que necesitas?',
-        'image': '📷 ¡Gracias por la imagen! Por el momento solo puedo leer *texto*. Si tienes alguna consulta, escríbemela y con gusto te ayudo.',
-        'video': '🎥 ¡Gracias por el video! Actualmente solo proceso mensajes de *texto*. ¿En qué puedo ayudarte?',
-        'sticker': '', // No responder a stickers
-        'document': '📄 ¡Gracias por el documento! Por ahora solo puedo leer mensajes de *texto*. ¿Podrías escribirme tu consulta?',
+        'ptt': '🎙️ Los mensajes de voz no los proceso por ahora. ¿Podrías escribirme tu consulta?',
+        'audio': '🎵 No proceso audios aún. ¿Me escribes lo que necesitas?',
+        'video': '🎥 No proceso videos. ¿En qué te puedo ayudar?',
+        'document': '📄 Recibí tu documento pero no puedo leerlo. ¿Me escribes qué necesitas?',
       };
 
-      const response = mediaResponses[msg.type] || '📎 ¡Gracias! Por el momento solo puedo leer mensajes de *texto*. ¿Podrías escribirme tu consulta?';
-
-      if (response) {
-        await msg.reply(response);
-      }
+      const response = mediaResponses[msg.type] || null;
+      if (response) await msg.reply(response);
       return;
     }
 
@@ -275,7 +398,12 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
   // 6. Detectar intención de compra/cotización
   const wantsHuman = detectHandoffIntent(messageBody);
 
-  if (wantsHuman) {
+  // Solo derivar si el cliente ya tuvo mínimo 3 intercambios con el bot
+  // O si explícitamente pide hablar con humano/asesor
+  const hasEnoughHistory = history.length >= 6; // 3 user + 3 assistant = 6
+  const wantsHumanExplicit = detectHandoffIntent(messageBody, true); // solo keywords de "hablar con humano"
+
+  if (wantsHuman && hasEnoughHistory || wantsHumanExplicit) {
     // --- DERIVAR A EMPLEADO ---
     await handleHandoff(msg, senderPhone, messageBody, history);
   } else {
@@ -339,7 +467,7 @@ Responde SOLO con la ficha, sin explicaciones.`;
     const response = await axios.post(
       'https://api.anthropic.com/v1/messages',
       {
-        model: 'claude-3-haiku-20240307',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 256,
         messages: [{ role: 'user', content: memoryPrompt }]
       },
@@ -428,27 +556,24 @@ function generateSimpleMemory(currentMemory, message) {
 // ============================================
 // DETECCIÓN DE INTENCIÓN DE DERIVACIÓN
 // ============================================
-function detectHandoffIntent(message) {
+function detectHandoffIntent(message, humanOnly = false) {
   const lowerMessage = message.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar acentos para comparar
     .replace(/[¿?¡!.,;:()]/g, '');
 
-  // Frases de COMPRA / COTIZACIÓN
+  // Frases de COMPRA CONFIRMADA (el cliente YA decidió, quiere cerrar)
+  // OJO: NO incluir preguntas de precio/info — esas las responde el bot
   const buyKeywords = [
-    'quiero comprar', 'quiero cotizar', 'cuanto cuesta', 'cuanto vale',
-    'disponibilidad', 'tienen en stock', 'quiero hacer un pedido',
-    'me interesa comprar', 'cotizacion', 'hacer pedido',
-    'quiero ordenar', 'como compro', 'como lo compro',
-    'metodo de pago', 'forma de pago', 'medios de pago',
-    'quiero pagar', 'nequi', 'bancolombia', 'bre-b', 'bold',
-    'envio', 'envios', 'hacen envios', 'hacen envio',
-    'lo quiero', 'me lo llevo', 'lo llevo',
-    'comprar', 'compra', 'adquirir',
-    'quiero la pistola', 'quiero el arma', 'quiero una pistola',
-    'quiero el plan', 'quiero el club', 'quiero afiliarme',
-    'afiliacion', 'afiliación', 'inscripcion', 'inscripción',
-    'como me afilio', 'como me inscribo',
-    'precio final', 'valor total', 'cuanto es todo',
+    'quiero comprar', 'quiero comprarlo', 'quiero comprarla',
+    'lo quiero', 'la quiero', 'me lo llevo', 'me la llevo', 'lo llevo',
+    'quiero hacer un pedido', 'hacer pedido', 'quiero ordenar',
+    'me interesa comprar', 'listo para comprar', 'listo para pagar',
+    'quiero pagar', 'ya quiero pagar', 'como pago', 'donde pago',
+    'quiero el plan', 'quiero afiliarme', 'quiero inscribirme',
+    'tomenme los datos', 'tomen mis datos', 'tome mis datos',
+    'ya me decidi', 'ya me decidí', 'va listo', 'dale listo',
+    'hagamosle', 'hagamole', 'vamos con eso', 'cerremos',
+    'separamelo', 'separamela', 'apartamelo', 'apartamela',
   ];
 
   // Frases de QUIERO HABLAR CON HUMANO
@@ -470,11 +595,16 @@ function detectHandoffIntent(message) {
     'humano por favor', 'asesor por favor',
   ];
 
+  // Si humanOnly = true, solo detectar frases de "quiero hablar con humano"
+  if (humanOnly) {
+    return humanKeywords.some(kw => lowerMessage.includes(kw));
+  }
+
   const detected = buyKeywords.some(kw => lowerMessage.includes(kw)) ||
          humanKeywords.some(kw => lowerMessage.includes(kw));
 
-  if (detected && CONFIG.debug) {
-    console.log(`[DEBUG] 🚨 Intención de derivación detectada en: "${message}"`);
+  if (detected) {
+    console.log(`[BOT] 🚨 Intención de compra/derivación: "${message.substring(0, 60)}"`);
   }
 
   return detected;
@@ -660,7 +790,7 @@ async function getClaudeResponse(clientPhone, message, history) {
         const response = await axios.post(
           'https://api.anthropic.com/v1/messages',
           {
-            model: 'claude-3-haiku-20240307',
+            model: 'claude-sonnet-4-6',
             max_tokens: 1024,
             system: systemPrompt,
             messages: messages
@@ -772,10 +902,13 @@ Paso 5 — CIERRE:
   Cuando el cliente muestre intención de compra, guíalo al cierre: "¿Listo para que te aparte el tuyo?" o "¿Te lo separo?". El sistema de derivación a Álvaro es automático.
 
 REGLAS DE CONVERSACIÓN:
+- SIEMPRE estás hablando con un CLIENTE por WhatsApp. NUNCA te hables a ti mismo, NUNCA respondas como si fueras un coach o mentor. Tú VENDES, no te das ánimos.
+- Si el cliente manda emojis, stickers, reacciones o mensajes sin texto claro, responde algo natural como "¡Buena! ¿En qué te puedo ayudar?" o "¿Qué tal? ¿Te interesa algo de nuestro catálogo?"
 - NO hagas todas las preguntas de una vez. UNA pregunta por mensaje. Espera respuesta.
 - Si el cliente ya dijo su nombre o ciudad en un mensaje anterior (o está en la ficha), NO le vuelvas a preguntar.
 - Si el cliente va directo al grano ("quiero una pistola", "cuánto vale la Retay"), salta al punto — no lo hagas esperar con preguntas innecesarias.
 - Si escriben "hola" o "buenas" sin más, ahí sí arranca desde el paso 1.
+- NUNCA uses frases como "como asesor comercial tu rol es...", "recuerda que debes...", "mantén siempre...". Eso es hablar contigo mismo. Tú hablas CON EL CLIENTE, siempre.
 ${memoryBlock}
 ${catalogSummary}
 
@@ -817,14 +950,19 @@ REGLAS CRÍTICAS:
 3. Si el cliente pregunta algo que no sabes con certeza, di: "Déjame verificar ese dato para darte información exacta. ¿Me puedes decir un poco más sobre lo que buscas?"
 4. Responde siempre en español, con el tono de un asesor humano real.
 5. Mantén respuestas concisas para WhatsApp (máximo 3-4 párrafos cortos).
-6. NUNCA inventes URLs ni links de imágenes. Si el producto tiene un "Link del producto" en las REFERENCIAS, compártelo. Si el cliente pide fotos, manda el link del producto donde verá imágenes y detalles.
+6. LINKS DE PRODUCTOS — REGLA IMPORTANTÍSIMA:
+   Cuando recomiendes un producto, SIEMPRE incluye la URL EXACTA y COMPLETA que aparece como "🔗 Link del producto:" en las REFERENCIAS.
+   COPIA Y PEGA la URL tal cual. Ejemplo correcto: https://zonatraumatica.club/producto/retay-g17/
+   NUNCA escribas "[Link de la Retay]" ni "[Ver producto]" ni ningún placeholder. SIEMPRE la URL completa.
+   Si el producto NO tiene URL en las REFERENCIAS, usa la tienda general: https://zonatraumatica.club/tienda
+   Si el cliente pide fotos, manda el link del producto donde verá imágenes, especificaciones y videos.
 7. Links permitidos:
-   - Links de productos del catálogo (aparecen como "🔗 Link del producto" en REFERENCIAS)
+   - Links de productos del catálogo (aparecen como "🔗 Link del producto" en REFERENCIAS) — SIEMPRE copiar URL completa
    - Biblioteca Legal: https://zonatraumatica.club/portelegal/biblioteca
    - Tienda general: https://zonatraumatica.club/tienda
    - YouTube: https://www.youtube.com/@zonatraumatica
    - TikTok: https://www.tiktok.com/@zonatraumaticacolombia
-   NUNCA inventes otro link que no esté en esta lista o en las REFERENCIAS.
+   NUNCA inventes otro link. NUNCA uses placeholders como [Link de...]. SIEMPRE la URL real.
 
 ⚠️ REGLA CRÍTICA — DERIVACIONES:
 - NUNCA simules transferencias ni escribas cosas como "[TRANSFIRIENDO AL ASESOR]".

@@ -63,6 +63,40 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Actualizar memoria/estado de cliente desde el panel
+  if (url.pathname === '/api/update-client' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { phone, note, append } = JSON.parse(body);
+        const client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
+        if (!client) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Cliente no encontrado' }));
+          return;
+        }
+        let newMemory;
+        if (append && client.memory) {
+          // Agregar al final de la memoria existente
+          newMemory = client.memory + '\n[PANEL] ' + note;
+        } else if (append) {
+          newMemory = '[PANEL] ' + note;
+        } else {
+          // Reemplazar memoria completa
+          newMemory = note;
+        }
+        db.prepare('UPDATE clients SET memory = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(newMemory, phone);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, memory: newMemory }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Panel HTML
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(getHTML());
@@ -139,6 +173,18 @@ function getHTML() {
   .detail-item .dv { color: #e6edf3; font-weight: 600; display: block; margin-top: 2px; }
   .memory-box { background: #0a0e13; border: 1px solid #1c2733; border-left: 3px solid #bc8cff; border-radius: 4px; padding: 12px; margin-top: 12px; font-size: 12px; color: #8b949e; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
   .hot-badge { background: #f8514933; color: #f85149; font-size: 10px; padding: 2px 8px; border-radius: 3px; margin-left: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; }
+  .crm-actions { margin-top: 12px; border-top: 1px solid #1c2733; padding-top: 12px; }
+  .crm-actions-title { font-size: 11px; color: #586776; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; font-family: 'Chakra Petch', sans-serif; }
+  .crm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .crm-chip { background: #1c2733; border: 1px solid #30363d; color: #8b949e; font-size: 11px; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-family: 'Chakra Petch', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; transition: all 0.15s; }
+  .crm-chip:hover { background: #238636; border-color: #3fb950; color: #fff; }
+  .crm-chip.danger:hover { background: #b91c1c; border-color: #f85149; color: #fff; }
+  .crm-note-row { display: flex; gap: 6px; }
+  .crm-note-input { flex: 1; background: #0a0e13; border: 1px solid #1c2733; color: #e6edf3; padding: 7px 10px; border-radius: 4px; font-size: 13px; font-family: 'Rajdhani', sans-serif; }
+  .crm-note-input:focus { border-color: #f85149; outline: none; }
+  .crm-note-btn { background: #1f6feb; border: none; color: #fff; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: 'Chakra Petch', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; white-space: nowrap; }
+  .crm-note-btn:hover { background: #388bfd; }
+  .crm-feedback { font-size: 11px; color: #3fb950; margin-top: 5px; height: 14px; font-family: 'Share Tech Mono', monospace; }
   .tabs { display: flex; border-bottom: 1px solid #1c2733; }
   .tab { padding: 10px 18px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: #586776; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; transition: all 0.15s; }
   .tab.active { color: #e6edf3; border-bottom-color: #f85149; }
@@ -259,6 +305,25 @@ async function selectClient(phone) {
         <div class="detail-item"><span class="dl">👔 Asignado:</span> <span class="dv">\${assignment ? assignment.employee_name : 'No'}</span></div>
       </div>
       \${client.memory ? '<div class="memory-box">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : ''}
+
+      <div class="crm-actions">
+        <div class="crm-actions-title">⚡ Acciones rápidas — el bot sabrá esto al responder</div>
+        <div class="crm-chips">
+          <div class="crm-chip" onclick="addNote('\${client.phone}', '✅ Carnet enviado')">🪪 Carnet enviado</div>
+          <div class="crm-chip" onclick="addNote('\${client.phone}', '📦 Dispositivo despachado')">📦 Dispositivo despachado</div>
+          <div class="crm-chip" onclick="addNote('\${client.phone}', '💰 Pago recibido y confirmado')">💰 Pago recibido</div>
+          <div class="crm-chip" onclick="addNote('\${client.phone}', '🏆 Afiliación al club activa')">🏆 Afiliación activa</div>
+          <div class="crm-chip" onclick="addNote('\${client.phone}', '📋 Pendiente: enviar carnet')">🕐 Pendiente carnet</div>
+          <div class="crm-chip" onclick="addNote('\${client.phone}', '📋 Pendiente: despachar dispositivo')">🕐 Pendiente despacho</div>
+          <div class="crm-chip danger" onclick="addNote('\${client.phone}', '🚫 Cliente marcado como NO interesado')">❌ No interesado</div>
+        </div>
+        <div class="crm-note-row">
+          <input class="crm-note-input" id="noteInput_\${client.phone}" type="text" placeholder="Nota interna... (ej: ya le expliqué los precios, espera depósito)" onkeydown="if(event.key==='Enter') saveNote('\${client.phone}')">
+          <button class="crm-note-btn" onclick="saveNote('\${client.phone}')">📝 Guardar</button>
+        </div>
+        <div class="crm-feedback" id="noteFeedback_\${client.phone}"></div>
+      </div>
+
       <div style="margin-top:10px;">
         <a href="https://wa.me/\${client.phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir WhatsApp</a>
       </div>
@@ -288,6 +353,38 @@ function setFilter(filter, el) {
 }
 
 function filterClients() { renderClients(); }
+
+async function addNote(phone, note) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note, append: true })
+    });
+    const data = await res.json();
+    const fb = document.getElementById('noteFeedback_' + phone);
+    if (data.ok) {
+      if (fb) { fb.textContent = '✅ Guardado: ' + note; setTimeout(() => { if(fb) fb.textContent = ''; }, 3000); }
+      // Actualizar memoria en allData sin recargar todo
+      const client = allData.clients.find(c => c.phone === phone);
+      if (client) client.memory = data.memory;
+      // Refrescar solo el detalle
+      selectClient(phone);
+    } else {
+      if (fb) fb.textContent = '❌ Error: ' + data.error;
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+async function saveNote(phone) {
+  const input = document.getElementById('noteInput_' + phone);
+  if (!input || !input.value.trim()) return;
+  const note = input.value.trim();
+  await addNote(phone, note);
+  input.value = '';
+}
 
 // Auto-refresh cada 15 segundos
 loadData();
