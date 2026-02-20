@@ -6,3 +6,10 @@ session/
 *.db
 *.db-shm
 *.db-wal
+
+# Datos personales / contactos
+*.vcf
+*.csv
+contactos_*.html
+recovery_enviados.json
+broadcast_enviados.json

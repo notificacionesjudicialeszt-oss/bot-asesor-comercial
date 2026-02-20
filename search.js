@@ -3,13 +3,6 @@
 // ============================================
 // Busca productos relevantes en el catálogo según lo que
 // pregunte el cliente. Solo envía a Claude los que coincidan.
-//
-// ¿Cómo funciona?
-// 1. Recibe el mensaje del cliente
-// 2. Extrae palabras clave (quita palabras inútiles como "el", "de", "un")
-// 3. Busca cada palabra en título + descripción de cada producto
-// 4. Puntúa: coincidencia en título vale más que en descripción
-// 5. Devuelve los TOP N productos ordenados por relevancia
 
 const fs = require('fs');
 const path = require('path');
@@ -25,17 +18,15 @@ function loadCatalog() {
       fs.readFileSync(path.join(__dirname, 'catalogo_contexto.json'), 'utf8')
     );
 
-    // Aplanar todas las categorías en un solo array
     catalogo = [];
     for (const [categoria, productos] of Object.entries(data.categorias)) {
       productos.forEach(p => {
         catalogo.push({
           ...p,
           categoria,
-          // Pre-calcular texto en minúsculas para búsqueda rápida
           _tituloLower: p.titulo.toLowerCase(),
           _descLower: (p.descripcion || '').toLowerCase(),
-          _searchText: `${p.titulo} ${p.descripcion} ${categoria}`.toLowerCase(),
+          _searchText: `${p.titulo} ${p.descripcion} ${p.marca || ''} ${p.modelo || ''} ${categoria}`.toLowerCase(),
         });
       });
     }
@@ -47,9 +38,8 @@ function loadCatalog() {
 }
 
 // ============================================
-// PALABRAS VACÍAS (stop words en español)
+// PALABRAS VACÍAS
 // ============================================
-// Estas palabras no aportan a la búsqueda, las ignoramos
 const STOP_WORDS = new Set([
   'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
   'de', 'del', 'en', 'con', 'por', 'para', 'al', 'a',
@@ -73,51 +63,53 @@ const STOP_WORDS = new Set([
 // ============================================
 // SINÓNIMOS Y EXPANSIONES
 // ============================================
-// Si el cliente dice "barata" buscamos también "económico", etc.
 const SYNONYMS = {
+  'traumatica': ['traumática', 'trauma', 'pistola', 'arma'],
+  'traumática': ['traumatica', 'trauma', 'pistola', 'arma'],
+  'pistola': ['arma', 'traumática', 'traumatica', 'revolver'],
+  'arma': ['pistola', 'traumática', 'traumatica', 'revolver'],
+  'revolver': ['revólver', 'ekol', 'tambor'],
+  'revólver': ['revolver', 'ekol', 'tambor'],
+  'ekol': ['ekol'],
+  'retay': ['retay'],
+  'blow': ['blow'],
+  'negro': ['negra', 'black'],
+  'negra': ['negro', 'black'],
+  'fume': ['fumé', 'gris', 'plomo'],
+  'cromado': ['cromo', 'plateado', 'silver'],
+  'compacto': ['compacta', 'pequeña', 'pequeño', 'mini'],
+  'mini': ['compacto', 'compacta', 'pequeño', 'pequeña'],
+  'magnum': ['grande', 'largo', 'potente'],
   'barato': ['económico', 'economico', 'precio bajo', 'accesible'],
-  'barata': ['económica', 'economica', 'precio bajo', 'accesible'],
-  'caro': ['premium', 'alta gama', 'profesional'],
-  'cara': ['premium', 'alta gama', 'profesional'],
-  'mira': ['telescopica', 'scope', 'óptica', 'optica', 'visor'],
-  'municion': ['balines', 'pellets', 'diabolo', 'bbs', 'slug', 'proyectil'],
-  'munición': ['balines', 'pellets', 'diabolo', 'bbs', 'slug', 'proyectil'],
-  'balines': ['municion', 'munición', 'pellets', 'diabolo', 'bbs'],
-  'rifle': ['carabina', 'airgun', 'air gun'],
-  'carabina': ['rifle', 'airgun'],
-  'pistola': ['handgun', 'marcadora'],
-  'pcp': ['pre charged', 'precomprimido', 'aire comprimido'],
-  'resorte': ['spring', 'springer', 'nitro piston', 'quiebre'],
-  'co2': ['gas', 'cápsula', 'capsula'],
-  'bomba': ['pump', 'compresor', 'inflador'],
-  'funda': ['estuche', 'maleta', 'case', 'bolso'],
-  'limpieza': ['mantenimiento', 'cleaning', 'aceite', 'lubricante'],
-  'gamo': ['gamo'],
-  'hatsan': ['hatsan'],
-  'snowpeak': ['snowpeak', 'artemis'],
-  '4.5': ['.177', '4.5mm', 'calibre 4.5'],
-  '5.5': ['.22', '5.5mm', 'calibre 5.5', 'calibre 22'],
-  '6.35': ['.25', '6.35mm', 'calibre 6.35'],
-  '.177': ['4.5', '4.5mm'],
-  '.22': ['5.5', '5.5mm'],
-  '.25': ['6.35', '6.35mm'],
+  'caro': ['premium', 'alta gama', 'top'],
+  'club': ['membresía', 'membresia', 'plan', 'plus', 'pro'],
+  'membresia': ['club', 'membresía', 'plan', 'plus', 'pro'],
+  'membresía': ['club', 'membresia', 'plan', 'plus', 'pro'],
+  'legal': ['ley', 'juridico', 'jurídico', 'legalidad'],
+  'juridico': ['legal', 'jurídico', 'ley', 'defensa'],
+  'jurídico': ['legal', 'juridico', 'ley', 'defensa'],
+  'defensa': ['juridico', 'jurídico', 'legal', 'proteccion'],
+  'carnet': ['carnét', 'certificado', 'documento', 'qr'],
+  'municion': ['munición', 'cartuchos', 'balas', 'oskurzan', 'rubber'],
+  'munición': ['municion', 'cartuchos', 'balas', 'oskurzan', 'rubber'],
+  'plan': ['plus', 'pro', 'membresía', 'membresia', 'club'],
+  'plus': ['plan plus', 'plan', 'club'],
+  'pro': ['plan pro', 'plan', 'club'],
 };
 
 // ============================================
 // EXTRAER PALABRAS CLAVE
 // ============================================
 function extractKeywords(message) {
-  // Limpiar: minúsculas, quitar puntuación
   const clean = message
     .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[¿?¡!.,;:(){}[\]"']/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Separar en palabras y filtrar stop words
   const words = clean.split(' ').filter(w => w.length > 1 && !STOP_WORDS.has(w));
 
-  // Expandir sinónimos
   const expanded = new Set(words);
   words.forEach(word => {
     if (SYNONYMS[word]) {
@@ -131,7 +123,7 @@ function extractKeywords(message) {
 // ============================================
 // BUSCAR PRODUCTOS
 // ============================================
-function searchProducts(message, maxResults = 8) {
+function searchProducts(message, maxResults = 6) {
   if (catalogo.length === 0) {
     console.warn('[SEARCH] Catálogo vacío, recargando...');
     loadCatalog();
@@ -140,7 +132,6 @@ function searchProducts(message, maxResults = 8) {
   const keywords = extractKeywords(message);
 
   if (keywords.length === 0) {
-    // Sin palabras clave útiles → devolver productos destacados
     return {
       keywords: [],
       products: getHighlightProducts(),
@@ -149,46 +140,31 @@ function searchProducts(message, maxResults = 8) {
     };
   }
 
-  // Puntuar cada producto
   const scored = catalogo.map(product => {
     let score = 0;
 
     keywords.forEach(keyword => {
-      // Coincidencia en TÍTULO = +10 puntos (más importante)
       if (product._tituloLower.includes(keyword)) {
         score += 10;
-        // Bonus si el título EMPIEZA con la palabra
         if (product._tituloLower.startsWith(keyword)) score += 5;
       }
-
-      // Coincidencia en DESCRIPCIÓN = +3 puntos
-      if (product._descLower.includes(keyword)) {
-        score += 3;
-      }
-
-      // Coincidencia en CATEGORÍA = +5 puntos
-      if (product.categoria.toLowerCase().includes(keyword)) {
-        score += 5;
-      }
+      if (product._descLower.includes(keyword)) score += 3;
+      if (product.categoria.toLowerCase().includes(keyword)) score += 5;
+      if ((product.marca || '').toLowerCase().includes(keyword)) score += 8;
+      if ((product.modelo || '').toLowerCase().includes(keyword)) score += 8;
     });
 
-    // Bonus si está disponible
     if (product.disponible) score += 1;
 
     return { ...product, _score: score };
   });
 
-  // Filtrar los que tienen puntaje > 0 y ordenar por relevancia
   const results = scored
     .filter(p => p._score > 0)
     .sort((a, b) => b._score - a._score)
     .slice(0, maxResults);
 
   console.log(`[SEARCH] "${message}" → ${keywords.length} keywords → ${results.length} productos encontrados`);
-
-  if (results.length > 0) {
-    console.log(`[SEARCH] Top resultado: "${results[0].titulo}" (score: ${results[0]._score})`);
-  }
 
   return {
     keywords,
@@ -199,26 +175,21 @@ function searchProducts(message, maxResults = 8) {
 }
 
 // ============================================
-// PRODUCTOS DESTACADOS (cuando no hay búsqueda clara)
+// PRODUCTOS DESTACADOS
 // ============================================
 function getHighlightProducts() {
-  // Devolver 1 producto de cada categoría principal
-  const mainCategories = [
-    'Rifles de Aire', 'Pistolas de Aire', 'Munición / Balines',
-    'Miras y Ópticas', 'Bombas y Compresores PCP'
-  ];
-
+  // Uno por marca
+  const marcas = ['RETAY', 'EKOL', 'BLOW'];
   const highlights = [];
-  mainCategories.forEach(cat => {
-    const inCat = catalogo.filter(p => p.categoria === cat && p.disponible);
-    if (inCat.length > 0) highlights.push(inCat[0]);
+  marcas.forEach(marca => {
+    const inMarca = catalogo.filter(p => p.categoria === marca && p.disponible);
+    if (inMarca.length > 0) highlights.push(inMarca[0]);
   });
-
   return highlights;
 }
 
 // ============================================
-// FORMATEAR RESULTADOS PARA EL PROMPT DE CLAUDE
+// FORMATEAR PARA EL PROMPT DE CLAUDE
 // ============================================
 function formatForPrompt(searchResult) {
   const { products, totalFound, strategy, keywords } = searchResult;
@@ -230,56 +201,55 @@ function formatForPrompt(searchResult) {
   let text = '';
 
   if (strategy === 'highlights') {
-    text += 'PRODUCTOS DESTACADOS DEL CATÁLOGO:\n\n';
+    text += 'REFERENCIAS DESTACADAS DEL CATÁLOGO:\n\n';
   } else {
-    text += `PRODUCTOS RELEVANTES (${products.length} de ${totalFound} coincidencias):\n\n`;
+    text += `REFERENCIAS RELEVANTES (${products.length} de ${totalFound} coincidencias):\n\n`;
   }
 
   products.forEach((p, i) => {
     text += `${i + 1}. ${p.titulo}\n`;
-    text += `   Categoría: ${p.categoria}\n`;
-    text += `   Precio: ${p.precio}\n`;
+    text += `   Marca: ${p.marca || p.categoria} | Modelo: ${p.modelo || '-'}\n`;
+    text += `   Color(es): ${p.color || '-'}\n`;
+    text += `   Precio Plan Plus: ${p.precio_plus || 'Consultar'}\n`;
+    text += `   Precio Plan Pro: ${p.precio_pro || 'No disponible en Plan Pro'}\n`;
     text += `   Disponible: ${p.disponible ? 'Sí' : 'No'}\n`;
-
+    if (p.url) {
+      text += `   🔗 Link del producto: ${p.url}\n`;
+    }
     if (p.descripcion) {
-      // Limitar descripción a 400 chars para no inflar
-      const desc = p.descripcion.length > 400
-        ? p.descripcion.substring(0, 400) + '...'
+      const desc = p.descripcion.length > 300
+        ? p.descripcion.substring(0, 300) + '...'
         : p.descripcion;
       text += `   Descripción: ${desc}\n`;
     }
-
-    if (p.url) {
-      text += `   Link: ${p.url}\n`;
-    }
-
     text += '\n';
   });
 
-  // Nota para Claude sobre productos no mostrados
   if (totalFound > products.length) {
-    text += `\nNOTA: Hay ${totalFound - products.length} productos más que coinciden. `;
-    text += 'Si el cliente necesita ver más opciones, indícale que puede preguntar con más detalle.\n';
+    text += `\nNOTA: Hay ${totalFound - products.length} referencias más disponibles. `;
+    text += 'Si el cliente quiere ver más opciones, indícale que puede preguntar por marca o características.\n';
   }
 
   return text;
 }
 
 // ============================================
-// RESUMEN RÁPIDO DEL CATÁLOGO (para saludos)
+// RESUMEN DEL CATÁLOGO
 // ============================================
 function getCatalogSummary() {
-  const categorias = {};
+  const marcas = {};
   catalogo.forEach(p => {
-    if (!categorias[p.categoria]) categorias[p.categoria] = 0;
-    categorias[p.categoria]++;
+    if (!marcas[p.categoria]) marcas[p.categoria] = 0;
+    marcas[p.categoria]++;
   });
 
-  let summary = 'RESUMEN DEL CATÁLOGO:\n';
-  for (const [cat, count] of Object.entries(categorias)) {
-    summary += `- ${cat}: ${count} productos\n`;
+  let summary = 'RESUMEN DEL INVENTARIO ZONA TRAUMÁTICA:\n';
+  summary += `- Total de referencias: ${catalogo.length} pistolas traumáticas\n`;
+  for (const [marca, count] of Object.entries(marcas)) {
+    summary += `- ${marca}: ${count} referencias\n`;
   }
-  summary += `\nTotal: ${catalogo.length} productos disponibles.`;
+  summary += `- Rango de precios: $1.150.000 - $1.500.000\n`;
+  summary += `- Todos los precios incluyen Plan de Respaldo (Plus o Pro)\n`;
 
   return summary;
 }
@@ -292,5 +262,5 @@ module.exports = {
   searchProducts,
   formatForPrompt,
   getCatalogSummary,
-  extractKeywords, // exportamos para testing/debug
+  extractKeywords,
 };

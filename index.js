@@ -99,7 +99,7 @@ client.on('qr', (qr) => {
 });
 
 // Bot conectado
-client.on('ready', () => {
+client.on('ready', async () => {
   console.log('\n============================================');
   console.log(`[BOT] ¡${CONFIG.businessName} está en línea!`);
   console.log(`[BOT] Modo: ${CONFIG.mode}`);
@@ -107,6 +107,9 @@ client.on('ready', () => {
   console.log(`[BOT] Empleados activos: ${employees.length}`);
   console.log(`[BOT] Auditores: ${CONFIG.auditors.length > 0 ? CONFIG.auditors.join(', ') : 'ninguno'}`);
   console.log('============================================\n');
+
+  // Recovery COMPLETADO — bot en modo venta
+  // setTimeout(() => recuperarChatsViejos(), 8000);
 });
 
 // Error de autenticación
@@ -133,6 +136,27 @@ client.on('message', async (msg) => {
 
     // Ignorar mensajes de status/broadcast
     if (msg.from === 'status@broadcast') return;
+
+    // Ignorar bots empresariales y números de notificación automática
+    // para evitar loops infinitos (Bancolombia, Nequi, Daviplata, etc.)
+    const BLOCKED_NUMBERS = [
+      '3307', '85255', '3211234567',           // Bancolombia (cortos y largos)
+      'bancolombia', 'nequi', 'daviplata',      // Por nombre en el ID
+    ];
+    const senderRaw = msg.from.replace('@c.us', '').replace('57', '');
+    const senderName = (chat.name || '').toLowerCase();
+    const isBlockedBot = BLOCKED_NUMBERS.some(blocked =>
+      senderRaw === blocked ||
+      senderRaw.startsWith(blocked) ||
+      senderName.includes(blocked)
+    );
+    // También bloquear números muy cortos (4-5 dígitos = bots empresariales)
+    if (isBlockedBot || senderRaw.length <= 6) {
+      if (CONFIG.debug) {
+        console.log(`[BOT] 🚫 Mensaje ignorado de bot/empresa: ${msg.from} (${chat.name || 'sin nombre'})`);
+      }
+      return;
+    }
 
     const senderPhone = msg.from.replace('@c.us', '');
     const messageBody = msg.body ? msg.body.trim() : '';
@@ -229,24 +253,14 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
     db.upsertClient(senderPhone, { name: profileName });
     console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone})`);
 
-    // Guardar como contacto de WhatsApp
-    try {
-      const contactId = await client.getContactById(senderPhone + '@c.us');
-      // whatsapp-web.js no tiene API directa para "agregar contacto",
-      // pero el chat se crea automáticamente al enviar/recibir mensajes.
-      // Lo registramos en la DB que es nuestro CRM real.
-      if (CONFIG.debug) {
-        console.log(`[DEBUG] Contacto registrado en CRM: ${profileName} (${senderPhone})`);
-      }
-    } catch (err) {
-      // No es crítico, el CRM ya lo tiene
-      if (CONFIG.debug) {
-        console.log(`[DEBUG] Contacto creado solo en CRM (no se pudo verificar en WhatsApp)`);
-      }
-    }
+    // Guardar como contacto en el VCF maestro
+    saveContactToVCF(senderPhone, profileName);
+
   } else if (profileName && !existingClient.name) {
     // Ya existía pero sin nombre → actualizar con nombre de perfil
     db.upsertClient(senderPhone, { name: profileName });
+    // Actualizar también en el VCF ahora que tenemos nombre
+    saveContactToVCF(senderPhone, profileName);
   }
 
   // 3. Guardar mensaje del cliente
@@ -298,7 +312,7 @@ async function updateClientMemory(clientPhone, userMessage, botResponse, history
     const clientInfo = db.getClient(clientPhone);
 
     // Construir prompt para que Claude genere la memoria actualizada
-    const memoryPrompt = `Eres un sistema de CRM. Tu tarea es mantener una ficha breve del cliente.
+    const memoryPrompt = `Eres un sistema de CRM para Zona Traumática, tienda de armas traumáticas legales en Colombia. Tu tarea es mantener una ficha breve del cliente.
 
 MEMORIA ACTUAL DEL CLIENTE:
 ${currentMemory || '(Cliente nuevo, sin memoria previa)'}
@@ -308,15 +322,17 @@ ${currentMemory || '(Cliente nuevo, sin memoria previa)'}
 - Bot respondió: "${botResponse.substring(0, 300)}"
 
 INSTRUCCIONES:
-Genera una ficha actualizada del cliente en máximo 5 líneas. Incluye SOLO datos útiles para ventas:
-- Productos de interés (si mencionó alguno)
-- Calibre preferido (si lo indicó)
-- Presupuesto aproximado (si lo mencionó)
-- Nivel de experiencia (principiante/intermedio/experto si se nota)
-- Intención (solo mirando, interesado, listo para comprar)
-- Cualquier dato personal relevante (uso: cacería, tiro al blanco, colección)
+Genera una ficha actualizada del cliente en máximo 6 líneas. Incluye SOLO datos útiles para ventas:
+- Nombre (si lo mencionó)
+- Ciudad o departamento (si lo mencionó)
+- Referencia o modelo de interés (si mencionó alguno)
+- Plan preferido (Plus o Pro, si lo indicó)
+- Motivo de compra (defensa personal, colección, regalo, etc.)
+- Intención (solo consultando, interesado, listo para comprar)
+- Objeciones detectadas (duda del pago virtual, no tiene presupuesto, etc.)
+- Si ya compró: qué compró y si tiene carnet pendiente o dispositivo pendiente
 
-Si la conversación fue solo un saludo o charla sin info útil, devuelve la memoria actual sin cambios.
+Si la conversación fue solo un saludo sin info útil, devuelve la memoria actual sin cambios.
 NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
@@ -368,38 +384,42 @@ function generateSimpleMemory(currentMemory, message) {
   const lower = message.toLowerCase();
   const notes = currentMemory ? currentMemory.split('\n') : [];
 
-  // Detectar productos mencionados
-  if (/rifle|carabina|pcp|springer/.test(lower)) {
-    const note = `- Interesado en: rifles`;
-    if (!notes.some(n => n.includes('rifles'))) notes.push(note);
+  // Detectar referencias de interés
+  if (/ekol/.test(lower)) {
+    const note = `- Marca de interés: EKOL`;
+    if (!notes.some(n => n.includes('EKOL'))) notes.push(note);
   }
-  if (/pistola/.test(lower)) {
-    const note = `- Interesado en: pistolas`;
-    if (!notes.some(n => n.includes('pistolas'))) notes.push(note);
+  if (/retay/.test(lower)) {
+    const note = `- Marca de interés: RETAY`;
+    if (!notes.some(n => n.includes('RETAY'))) notes.push(note);
   }
-  if (/mira|telescop|scope/.test(lower)) {
-    const note = `- Interesado en: miras/ópticas`;
-    if (!notes.some(n => n.includes('miras'))) notes.push(note);
+  if (/blow/.test(lower)) {
+    const note = `- Marca de interés: BLOW`;
+    if (!notes.some(n => n.includes('BLOW'))) notes.push(note);
   }
-  if (/4\.5|\.177/.test(lower)) {
-    const note = `- Calibre preferido: 4.5mm`;
-    if (!notes.some(n => n.includes('4.5'))) notes.push(note);
+  if (/revolver|revólver/.test(lower)) {
+    const note = `- Interesado en: revólver`;
+    if (!notes.some(n => n.includes('revólver'))) notes.push(note);
   }
-  if (/5\.5|\.22/.test(lower)) {
-    const note = `- Calibre preferido: 5.5mm`;
-    if (!notes.some(n => n.includes('5.5'))) notes.push(note);
+  if (/plan pro/.test(lower)) {
+    const note = `- Plan preferido: Pro`;
+    if (!notes.some(n => n.includes('Plan Pro'))) notes.push(note);
   }
-  if (/6\.35|\.25/.test(lower)) {
-    const note = `- Calibre preferido: 6.35mm`;
-    if (!notes.some(n => n.includes('6.35'))) notes.push(note);
+  if (/plan plus/.test(lower)) {
+    const note = `- Plan preferido: Plus`;
+    if (!notes.some(n => n.includes('Plan Plus'))) notes.push(note);
   }
-  if (/caza|cacería|caceria/.test(lower)) {
-    const note = `- Uso: cacería`;
-    if (!notes.some(n => n.includes('cacería'))) notes.push(note);
+  if (/club|membresia|membresía/.test(lower)) {
+    const note = `- Interesado en: Club / Membresía`;
+    if (!notes.some(n => n.includes('Club'))) notes.push(note);
   }
-  if (/tiro al blanco|target|diana/.test(lower)) {
-    const note = `- Uso: tiro al blanco`;
-    if (!notes.some(n => n.includes('tiro al blanco'))) notes.push(note);
+  if (/defensa|seguridad/.test(lower)) {
+    const note = `- Motivo: defensa personal`;
+    if (!notes.some(n => n.includes('defensa'))) notes.push(note);
+  }
+  if (/carnet|carnét/.test(lower)) {
+    const note = `- Solicita: carnet pendiente`;
+    if (!notes.some(n => n.includes('carnet'))) notes.push(note);
   }
 
   return notes.join('\n');
@@ -420,10 +440,15 @@ function detectHandoffIntent(message) {
     'me interesa comprar', 'cotizacion', 'hacer pedido',
     'quiero ordenar', 'como compro', 'como lo compro',
     'metodo de pago', 'forma de pago', 'medios de pago',
-    'quiero pagar', 'nequi', 'daviplata', 'bancolombia',
+    'quiero pagar', 'nequi', 'bancolombia', 'bre-b', 'bold',
     'envio', 'envios', 'hacen envios', 'hacen envio',
     'lo quiero', 'me lo llevo', 'lo llevo',
-    'comprar', // palabra sola
+    'comprar', 'compra', 'adquirir',
+    'quiero la pistola', 'quiero el arma', 'quiero una pistola',
+    'quiero el plan', 'quiero el club', 'quiero afiliarme',
+    'afiliacion', 'afiliación', 'inscripcion', 'inscripción',
+    'como me afilio', 'como me inscribo',
+    'precio final', 'valor total', 'cuanto es todo',
   ];
 
   // Frases de QUIERO HABLAR CON HUMANO
@@ -482,12 +507,11 @@ async function handleHandoff(msg, clientPhone, triggerMessage, history) {
 
   // --- MENSAJE PARA EL CLIENTE ---
   const handoffMsgToClient =
-    `¡Gracias por tu interés! 🎯\n\n` +
-    `Te voy a comunicar con *${assignment.employee_name}*, quien te atenderá personalmente.\n\n` +
-    `${assignment.employee_name} se comunicará contigo pronto. ` +
-    `También puedes escribirle directamente:\n` +
+    `¡Con gusto! 🙌\n\n` +
+    `Voy a conectarte directamente con *Álvaro*, nuestro asesor especializado, quien te va a acompañar personalmente en el proceso.\n\n` +
+    `En breve te escribe. Si quieres, también puedes contactarlo directamente:\n` +
     `📱 https://wa.me/${assignment.employee_phone}\n\n` +
-    `_${CONFIG.businessName} - Atención personalizada_`;
+    `_Zona Traumática — Asesoría real, respaldo real_ 🛡️`;
 
   await msg.reply(handoffMsgToClient);
 
@@ -497,17 +521,22 @@ async function handleHandoff(msg, clientPhone, triggerMessage, history) {
   // Actualizar estado del cliente
   db.upsertClient(clientPhone, { status: 'assigned' });
 
-  // --- MENSAJE PARA EL EMPLEADO ---
+  // --- MENSAJE PARA ÁLVARO (asesor) ---
   const context = summarizeConversation(history);
+  const clientMemory = db.getClientMemory(clientPhone) || 'Sin perfil previo';
 
   const notification =
-    `🔔 *Nueva asignación de cliente*\n\n` +
-    `👤 *Cliente:* ${clientName}\n` +
-    `📱 *Contactar:* ${clientLink}\n\n` +
-    `💬 *Requerimiento del cliente:*\n` +
+    `🔥 *CLIENTE CALIENTE — LISTO PARA CERRAR*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `👤 *Nombre:* ${clientName}\n` +
+    `📱 *WhatsApp:* ${clientLink}\n\n` +
+    `💬 *Lo que disparó la alerta:*\n` +
     `"${triggerMessage}"\n\n` +
-    `📋 *Historial de la conversación:*\n${context}\n\n` +
-    `👆 _Haz clic en el link para contactar al cliente._`;
+    `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
+    `📋 *Últimos mensajes:*\n${context}\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `👆 Toca el link para abrir el chat directamente.\n` +
+    `_El cliente ya sabe que lo vas a contactar._`;
 
   // Enviar notificación al empleado
   const employeeChatId = assignment.employee_phone + '@c.us';
@@ -562,25 +591,30 @@ function summarizeConversation(history) {
 function needsProductSearch(message) {
   const lower = message.toLowerCase().replace(/[¿?¡!.,;:()]/g, '');
 
-  // Palabras que indican que SÍ busca un producto
   const productKeywords = [
-    'rifle', 'rifles', 'pistola', 'pistolas', 'carabina',
-    'pcp', 'co2', 'resorte', 'springer', 'nitro',
-    'mira', 'miras', 'telescop', 'scope', 'punto rojo', 'red dot',
-    'balin', 'balines', 'municion', 'munición', 'pellet', 'diabolo', 'slug',
-    'funda', 'estuche', 'maleta',
-    'bomba', 'compresor', 'tanque',
-    'bipode', 'bipod', 'soporte',
-    'limpieza', 'mantenimiento', 'aceite',
-    'blanco', 'diana', 'target',
-    'cuchillo', 'navaja',
-    'linterna', 'gorra', 'gafas',
-    'calibre', '4.5', '5.5', '6.35', '.177', '.22', '.25',
-    'gamo', 'hatsan', 'snowpeak', 'artemis', 'apolo', 'jsb',
-    'arma', 'armas', 'aire', 'comprimido',
-    'producto', 'productos', 'catalogo', 'catálogo',
-    'qué tienen', 'que tienen', 'qué venden', 'que venden',
-    'qué manejan', 'que manejan', 'mostrar', 'opciones',
+    // Armas traumáticas
+    'traumatica', 'traumática', 'pistola', 'pistolas', 'arma', 'armas',
+    'revolver', 'revólver', 'dispositivo',
+    // Marcas
+    'retay', 'ekol', 'blow',
+    // Modelos
+    's2022', 'g17', 'volga', 'botan', 'mini 9', 'f92', 'tr92', 'tr 92',
+    'dicle', 'firat', 'nig', 'jackal', 'p92', 'magnum', 'compact',
+    // Características
+    'negro', 'negra', 'fume', 'cromado', 'color',
+    // Munición
+    'municion', 'munición', 'cartuchos', 'balas', 'oskurzan', 'rubber ball',
+    // Club / membresía
+    'club', 'membresia', 'membresía', 'plan plus', 'plan pro', 'juridico', 'jurídico',
+    // Catálogo general
+    'catalogo', 'catálogo', 'referencias', 'disponible', 'disponibles',
+    'precio', 'precios', 'cuanto', 'cuánto', 'vale', 'cuesta',
+    'que tienen', 'qué tienen', 'que manejan', 'qué manejan',
+    'que venden', 'qué venden', 'opciones', 'modelos',
+    // Carnet
+    'carnet', 'carnét', 'certificado', 'documento',
+    // Manifiesto de aduana
+    'manifiesto', 'aduana', 'importacion', 'importación', 'dian', 'polfa',
   ];
 
   return productKeywords.some(kw => lower.includes(kw));
@@ -617,28 +651,57 @@ async function getClaudeResponse(clientPhone, message, history) {
     const systemPrompt = buildSystemPrompt(productContext, clientMemory);
     const messages = buildMessages(history, message);
 
-    // 3. Llamar a Claude
-    const response = await axios.post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: messages
-      },
-      {
-        headers: {
-          'x-api-key': CONFIG.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json'
+    // 3. Llamar a Claude con reintentos
+    const MAX_RETRIES = 3;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await axios.post(
+          'https://api.anthropic.com/v1/messages',
+          {
+            model: 'claude-3-haiku-20240307',
+            max_tokens: 1024,
+            system: systemPrompt,
+            messages: messages
+          },
+          {
+            headers: {
+              'x-api-key': CONFIG.apiKey,
+              'anthropic-version': '2023-06-01',
+              'content-type': 'application/json'
+            },
+            timeout: 30000 // 30 segundos de timeout
+          }
+        );
+
+        return response.data.content[0].text;
+      } catch (retryError) {
+        lastError = retryError;
+        const status = retryError.response?.status;
+        const errorMsg = retryError.response?.data?.error?.message || retryError.message;
+        console.error(`[CLAUDE] ⚠️ Intento ${attempt}/${MAX_RETRIES} falló (status: ${status || 'N/A'}): ${errorMsg}`);
+
+        // Si es error 4xx (excepto 429 rate limit), no reintentar
+        if (status && status >= 400 && status < 500 && status !== 429) break;
+
+        // Esperar antes de reintentar (backoff exponencial)
+        if (attempt < MAX_RETRIES) {
+          const wait = attempt * 2000; // 2s, 4s
+          console.log(`[CLAUDE] ⏳ Reintentando en ${wait / 1000}s...`);
+          await new Promise(r => setTimeout(r, wait));
         }
       }
-    );
+    }
 
-    return response.data.content[0].text;
+    // Si todos los intentos fallaron
+    const finalStatus = lastError?.response?.status;
+    const finalMsg = lastError?.response?.data?.error?.message || lastError?.message;
+    console.error(`[CLAUDE] ❌ Falló después de ${MAX_RETRIES} intentos. Status: ${finalStatus || 'N/A'}, Error: ${finalMsg}`);
+    return 'Disculpa, estoy teniendo un problema momentáneo. Dame unos segundos e inténtalo de nuevo. 🙏';
   } catch (error) {
-    console.error('[CLAUDE] Error:', error.response?.data || error.message);
-    return 'Disculpa, tuve un problema técnico. ¿Podrías repetir tu consulta?';
+    console.error('[CLAUDE] Error general:', error.message);
+    return 'Disculpa, tuve un inconveniente. ¿Podrías repetir tu consulta?';
   }
 }
 
@@ -674,39 +737,99 @@ function buildSystemPrompt(productContext, clientMemory = '') {
     ? `\nFICHA DEL CLIENTE (memoria de interacciones previas):\n${clientMemory}\nUsa esta información para personalizar tu respuesta. Si ya sabes qué busca, sé más directo.\n`
     : '\nCLIENTE NUEVO: No hay interacciones previas. Preséntate brevemente y pregunta en qué puedes ayudar.\n';
 
-  return `Eres el asistente virtual de "${CONFIG.businessName}", una tienda especializada en rifles de aire comprimido, accesorios, munición y más.
+  return `Eres un asesor comercial de *Zona Traumática*, la tienda líder en Colombia especializada en armas traumáticas legales, defensa personal y respaldo jurídico.
 
-TU ROL:
-- Atender clientes por WhatsApp de forma amable y profesional
-- Responder preguntas sobre productos usando ÚNICAMENTE la información proporcionada abajo
-- Ayudar al cliente a encontrar lo que busca y resolver sus dudas
-- Mantener respuestas cortas y claras (máximo 2-3 párrafos para WhatsApp)
+TU PERSONALIDAD Y ESTILO:
+- Eres humano, cálido, cercano y profesional. NUNCA debes parecer un bot.
+- Hablas como un colombiano real — natural, con confianza, sin ser vulgar. Puedes tutear.
+- Usas emojis con moderación (1-2 por mensaje máximo). No pongas emojis en cada frase.
+- Respuestas CORTAS y al punto. WhatsApp no es un email. Máximo 2-3 párrafos cortos.
+- Nunca eres genérico. Cada respuesta es personalizada a lo que dijo el cliente.
+- NUNCA listes todo el catálogo de una. Solo muestra lo relevante a lo que pregunta.
+
+FLUJO DE VENTA CONSULTIVA — SIGUE ESTE ORDEN:
+Paso 1 — SALUDO Y NOMBRE:
+  Si es cliente nuevo o no sabes su nombre, salúdalo con calidez y pregúntale su nombre.
+  Ejemplo: "¡Hola! Buenas, bienvenido/a a Zona Traumática 👋 ¿Con quién tengo el gusto?"
+
+Paso 2 — UBICACIÓN:
+  Una vez sepas el nombre, pregúntale de dónde nos escribe.
+  Ejemplo: "Mucho gusto [nombre]! ¿De qué ciudad/departamento nos escribes?"
+
+Paso 3 — DIAGNÓSTICO (la pregunta clave):
+  Antes de ofrecer NADA, pregunta en qué situación está. Hay 3 perfiles de cliente:
+
+  a) NO TIENE ARMA Y QUIERE COMPRAR → Llévalo al catálogo. Pregunta qué uso le daría (defensa personal, hogar, negocio), si prefiere pistola o revólver, y su presupuesto aproximado.
+
+  b) YA TIENE ARMA TRAUMÁTICA → Pregunta qué marca/modelo tiene. Ofrécele la AFILIACIÓN al Club ZT para portarla legalmente con respaldo jurídico (Plan Plus $70.000/año o Plan Pro $90.000/año).
+
+  c) QUIERE INFORMACIÓN LEGAL / NORMATIVA → Responde con seguridad que SÍ es legal, y dirígelo a la Biblioteca Legal o al Club para asesoría personalizada.
+
+Paso 4 — ASESORÍA PERSONALIZADA:
+  Con base en su perfil, recomienda productos o planes específicos. No lances todo el catálogo — sé selectivo y argumenta por qué le conviene eso.
+
+Paso 5 — CIERRE:
+  Cuando el cliente muestre intención de compra, guíalo al cierre: "¿Listo para que te aparte el tuyo?" o "¿Te lo separo?". El sistema de derivación a Álvaro es automático.
+
+REGLAS DE CONVERSACIÓN:
+- NO hagas todas las preguntas de una vez. UNA pregunta por mensaje. Espera respuesta.
+- Si el cliente ya dijo su nombre o ciudad en un mensaje anterior (o está en la ficha), NO le vuelvas a preguntar.
+- Si el cliente va directo al grano ("quiero una pistola", "cuánto vale la Retay"), salta al punto — no lo hagas esperar con preguntas innecesarias.
+- Si escriben "hola" o "buenas" sin más, ahí sí arranca desde el paso 1.
 ${memoryBlock}
 ${catalogSummary}
 
 ${productContext}
 
-INFORMACIÓN GENERAL DEL NEGOCIO:
+INFORMACIÓN DEL NEGOCIO:
 ${JSON.stringify(knowledgeBase.negocio || {}, null, 2)}
+
+PAQUETE DE COMPRA (lo que recibe el cliente):
+${JSON.stringify(knowledgeBase.paquete_compra || {}, null, 2)}
+
+CLUB ZONA TRAUMÁTICA:
+${JSON.stringify(knowledgeBase.club || {}, null, 2)}
 
 PREGUNTAS FRECUENTES:
 ${JSON.stringify(knowledgeBase.preguntas_frecuentes || {}, null, 2)}
 
-REGLAS IMPORTANTES:
-1. SOLO menciona productos que aparecen en "PRODUCTOS RELEVANTES" arriba. NUNCA inventes productos.
-2. Puedes mencionar los precios que aparecen en la lista. Son precios reales del catálogo.
-3. Si el cliente pide algo que NO está en los productos mostrados, di: "Déjame verificar, ¿podrías darme más detalles de lo que buscas?"
-4. Si el cliente quiere comprar, cotizar, o hablar con un humano, dile: "¡Con gusto! Escríbeme 'quiero comprar' o 'hablar con asesor' y te conecto con un experto de inmediato."
-5. Responde siempre en español
-6. Sé amigable pero profesional
-7. Incluye el link del producto cuando lo menciones para que el cliente pueda verlo
-8. Si no hay productos relevantes, presenta las categorías disponibles y pregunta qué busca
+MEDIOS DE PAGO:
+- *Nequi:* 3013981979
+- *Bancolombia Ahorros:* 064-431122-17
+- *Bre-B:* @3013981979
+- *Titular:* Alvaro Ocampo — C.C. 1.107.078.609
+- *Link de pago BOLD:* Comercio certificado (pago seguro en línea)
 
-⚠️ REGLA CRÍTICA - DERIVACIONES:
-- NUNCA simules una derivación o transferencia tú mismo. NO escribas cosas como "[TRANSFERIR A AGENTE HUMANO]", "Te estoy redirigiendo...", ni resúmenes para el asesor.
-- Tú NO tienes la capacidad de transferir clientes. Eso lo hace el sistema automáticamente cuando el cliente escribe ciertas frases.
-- Si el cliente quiere comprar o hablar con alguien, simplemente dile que escriba "quiero comprar" o "hablar con asesor" para que el sistema lo conecte automáticamente.
-- NUNCA generes bloques de texto con formato de transferencia, resúmenes para asesores, o simulaciones de derivación. Eso confunde al cliente.`;
+MANEJO DE PREGUNTAS LEGALES — MUY IMPORTANTE:
+- Cuando pregunten si es legal: confirma con seguridad que SÍ, 100% legal bajo la Ley 2197/2022, son dispositivos menos letales con categoría jurídica autónoma, distintos a las armas de fuego. NO requieren permiso de porte.
+- Cuando pregunten por el marco legal, jurisprudencia, incautaciones, Sentencia C-014, Resolución 01840, etc.: da una respuesta general que transmita seguridad, y SIEMPRE dirige a la Biblioteca Legal: "Para todo el detalle jurídico, te comparto nuestra Biblioteca Legal — la biblia de la legalidad de las armas traumáticas en Colombia, construida íntegramente por nuestro equipo: https://www.zonatraumatica.club/portelegal/biblioteca"
+- NO des todos los detalles jurídicos de la biblioteca directamente en el chat — la idea es que visiten la biblioteca y que si quieren asesoría personalizada, se inscriban al Club.
+- La Biblioteca cubre: Ley 2197/2022, Art. 223 Constitución, Decreto 2535/93, Sentencia C-014/2023, Tribunal Superior Bogotá, casos reales ganados, procedimientos de defensa, y más de 20 normas y jurisprudencias.
+
+MANEJO DE OBJECIONES DE CONFIANZA:
+- Si el cliente duda de la tienda virtual o el pago anticipado: invítalo a ver nuestro canal de YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Somos los únicos con casos de recuperación de armas documentados en Colombia. También ofrecemos pago por link BOLD (comercio certificado).
+- Si pregunta dónde estamos: estamos en Jamundí pero somos 100% virtuales, despachamos desde bodegas en Bogotá.
+- Si pregunta por el manifiesto de aduana: explicar que es del importador, NO del comprador. Ningún vendedor serio lo entrega. Lo que sí se entrega es factura con NIT + asesoría jurídica. Si alguien ofrece "manifiesto de aduana", es señal de fraude.
+
+REGLAS CRÍTICAS:
+1. SOLO menciona referencias que aparecen en "REFERENCIAS RELEVANTES" arriba. NUNCA inventes modelos ni precios.
+2. Todos los precios incluyen el Plan de Respaldo (Plus o Pro). Aclararlo siempre.
+3. Si el cliente pregunta algo que no sabes con certeza, di: "Déjame verificar ese dato para darte información exacta. ¿Me puedes decir un poco más sobre lo que buscas?"
+4. Responde siempre en español, con el tono de un asesor humano real.
+5. Mantén respuestas concisas para WhatsApp (máximo 3-4 párrafos cortos).
+6. NUNCA inventes URLs ni links de imágenes. Si el producto tiene un "Link del producto" en las REFERENCIAS, compártelo. Si el cliente pide fotos, manda el link del producto donde verá imágenes y detalles.
+7. Links permitidos:
+   - Links de productos del catálogo (aparecen como "🔗 Link del producto" en REFERENCIAS)
+   - Biblioteca Legal: https://zonatraumatica.club/portelegal/biblioteca
+   - Tienda general: https://zonatraumatica.club/tienda
+   - YouTube: https://www.youtube.com/@zonatraumatica
+   - TikTok: https://www.tiktok.com/@zonatraumaticacolombia
+   NUNCA inventes otro link que no esté en esta lista o en las REFERENCIAS.
+
+⚠️ REGLA CRÍTICA — DERIVACIONES:
+- NUNCA simules transferencias ni escribas cosas como "[TRANSFIRIENDO AL ASESOR]".
+- Si el cliente quiere comprar, cotizar o hablar con alguien, dile amablemente que escriba "quiero comprar" o "hablar con asesor" y el sistema lo conecta de inmediato.
+- El sistema de derivación es automático. Tú solo preparas al cliente para ese momento.`;
 }
 
 function buildMessages(history, currentMessage) {
@@ -936,6 +1059,200 @@ async function handleAdminCommand(msg, senderPhone, command) {
 
   } else {
     await msg.reply('Comando no reconocido. Escribe !help para ver los comandos disponibles.');
+  }
+}
+
+// ============================================
+// RECUPERAR CHATS SIN RESPONDER
+// ============================================
+// Se ejecuta una sola vez al arrancar el bot.
+// Busca chats con mensajes NO respondidos por nosotros
+// y les envía el mensaje de recuperación de clientes.
+async function recuperarChatsViejos() {
+  try {
+    console.log('[RECOVERY] 🔍 Buscando chats sin responder...');
+
+    const allChats = await client.getChats();
+    let enviados = 0;
+    let omitidos = 0;
+
+    // Archivo de control para no enviar dos veces al mismo número
+    const controlPath = path.join(__dirname, 'recovery_enviados.json');
+    let yaEnviados = {};
+    if (fs.existsSync(controlPath)) {
+      yaEnviados = JSON.parse(fs.readFileSync(controlPath, 'utf8'));
+    }
+
+    // Paso 1: Filtrar chats válidos y recolectar info
+    console.log('[RECOVERY] 📋 Filtrando y ordenando chats...');
+    const chatsPendientes = [];
+
+    for (const chat of allChats) {
+      try {
+        if (chat.isGroup) continue;
+        if (chat.id._serialized === 'status@broadcast') continue;
+
+        const serialized = chat.id?._serialized || '';
+        if (serialized.includes('@newsletter')) continue;
+        if (serialized.includes('@broadcast')) continue;
+        if (chat.type === 'channel') continue;
+        if (!serialized.includes('@c.us')) continue;
+
+        const phone = chat.id.user;
+        if (phone === CONFIG.businessPhone.replace('57', '') ||
+            phone === '573150177199'.replace('57', '')) continue;
+        if (yaEnviados[phone]) { omitidos++; continue; }
+
+        // Bloquear bots empresariales (números cortos)
+        const phoneClean = phone.replace('57', '');
+        if (phoneClean.length <= 6) continue;
+
+        const messages = await chat.fetchMessages({ limit: 5 });
+        if (!messages || messages.length === 0) continue;
+
+        // Buscar el mensaje más antiguo para ordenar por antigüedad
+        const firstMsg = messages[0];
+        if (!firstMsg) continue;
+
+        // Guardar chat con su timestamp para ordenar (más viejo primero)
+        chatsPendientes.push({
+          chat,
+          phone,
+          timestamp: firstMsg.timestamp || 0 // epoch en segundos
+        });
+      } catch (e) {
+        // Chat problemático, saltar silenciosamente
+      }
+    }
+
+    // Paso 2: Ordenar por timestamp ASCENDENTE (más viejos primero)
+    chatsPendientes.sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log(`[RECOVERY] 📊 ${chatsPendientes.length} chats pendientes encontrados. Enviando desde el más viejo...`);
+
+    // Paso 3: Enviar mensajes en orden (más viejos primero)
+    for (const item of chatsPendientes) {
+      try {
+        const { chat, phone } = item;
+        const fecha = new Date(item.timestamp * 1000).toLocaleDateString('es-CO');
+
+        let nombre = '';
+        try {
+          const contact = await chat.getContact();
+          nombre = contact.pushname || contact.name || contact.shortName || '';
+        } catch (e) { /* silencioso */ }
+
+        const mensajeRecuperacion =
+          `Hola${nombre ? ' ' + nombre.split(' ')[0] : ''} 👋, buenas.\n\n` +
+          `Te escribo de parte de *Zona Traumática*. Veo que hace un tiempo nos escribiste y quiero disculparme sinceramente por no haberte atendido — estuvimos en un proceso de restructuración y renovamos completamente nuestro equipo y herramientas de atención.\n\n` +
+          `Hoy estamos operando con un servicio mucho más ágil y completo. ¿Sigues interesado/a en lo que consultaste? Con gusto te atiendo personalmente ahora. 🙌`;
+
+        await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000));
+        await client.sendMessage(chat.id._serialized, mensajeRecuperacion);
+
+        saveContactToVCF(phone, nombre);
+
+        yaEnviados[phone] = new Date().toISOString();
+        fs.writeFileSync(controlPath, JSON.stringify(yaEnviados, null, 2), 'utf8');
+
+        enviados++;
+        console.log(`[RECOVERY] ✅ (${enviados}/${chatsPendientes.length}) ${nombre || phone} — último msg: ${fecha}`);
+
+      } catch (chatError) {
+        console.error(`[RECOVERY] ⚠️ Chat omitido (${item.phone || 'desconocido'}):`, chatError.message);
+      }
+    }
+
+    console.log(`[RECOVERY] 🏁 Recuperación completa: ${enviados} mensajes enviados, ${omitidos} chats ya atendidos o sin acción.`);
+
+  } catch (error) {
+    console.error('[RECOVERY] Error general:', error.message);
+  }
+}
+
+// ============================================
+// GUARDAR CONTACTO INDIVIDUAL EN VCF MAESTRO
+// ============================================
+// Cada vez que llega un cliente nuevo, lo agrega al archivo
+// contactos_clientes.vcf (acumulativo, no sobreescribe)
+function saveContactToVCF(phone, name) {
+  try {
+    const displayName = name || phone;
+    const vcfPath = path.join(__dirname, 'contactos_clientes.vcf');
+
+    // Verificar si ya está en el archivo para no duplicar
+    if (fs.existsSync(vcfPath)) {
+      const existing = fs.readFileSync(vcfPath, 'utf8');
+      if (existing.includes(`+${phone}`)) {
+        if (CONFIG.debug) {
+          console.log(`[VCF] Contacto ya existe en VCF: ${displayName} (${phone})`);
+        }
+        return;
+      }
+    }
+
+    // Construir entrada vCard
+    const vcard =
+      'BEGIN:VCARD\n' +
+      'VERSION:3.0\n' +
+      `FN:${displayName}\n` +
+      `N:${displayName};;;;\n` +
+      `TEL;TYPE=CELL:+${phone}\n` +
+      `NOTE:Cliente ZT — ${new Date().toLocaleDateString('es-CO')}\n` +
+      'END:VCARD\n\n';
+
+    // Agregar al archivo (append)
+    fs.appendFileSync(vcfPath, vcard, 'utf8');
+    console.log(`[VCF] ✅ Contacto guardado: ${displayName} (+${phone})`);
+
+  } catch (error) {
+    console.error('[VCF] Error guardando contacto individual:', error.message);
+  }
+}
+
+// ============================================
+// EXPORTAR CONTACTOS A VCF
+// ============================================
+async function exportContactsToVCF() {
+  try {
+    console.log('[VCF] Exportando contactos de WhatsApp...');
+    const contacts = await client.getContacts();
+
+    let vcfContent = '';
+    let count = 0;
+
+    for (const contact of contacts) {
+      // Saltar contactos sin número o de tipo broadcast/grupo
+      if (!contact.number || contact.isGroup || contact.id._serialized === 'status@broadcast') continue;
+
+      const name = contact.pushname || contact.name || contact.shortName || contact.number;
+      const phone = contact.number;
+
+      vcfContent += 'BEGIN:VCARD\n';
+      vcfContent += 'VERSION:3.0\n';
+      vcfContent += `FN:${name}\n`;
+      if (contact.name) {
+        vcfContent += `N:${contact.name};;;;\n`;
+      } else {
+        vcfContent += `N:${name};;;;\n`;
+      }
+      vcfContent += `TEL;TYPE=CELL:+${phone}\n`;
+      vcfContent += 'END:VCARD\n\n';
+      count++;
+    }
+
+    if (count === 0) {
+      console.log('[VCF] No se encontraron contactos para exportar.');
+      return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    const vcfPath = path.join(__dirname, `contactos_whatsapp_${timestamp}.vcf`);
+    fs.writeFileSync(vcfPath, vcfContent, 'utf8');
+
+    console.log(`[VCF] ✅ ${count} contactos exportados a: ${vcfPath}`);
+  } catch (error) {
+    console.error('[VCF] Error exportando contactos:', error.message);
   }
 }
 
