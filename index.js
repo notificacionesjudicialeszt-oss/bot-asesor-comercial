@@ -3,7 +3,7 @@
 // ============================================
 // Línea principal de atención que:
 // 1. Recibe mensajes de WhatsApp
-// 2. Responde con Claude AI usando la base de conocimiento
+// 2. Responde con Gemini AI usando la base de conocimiento
 // 3. Registra cada cliente en el CRM (SQLite)
 // 4. Cuando el cliente quiere comprar/cotizar, lo asigna a un empleado (round-robin)
 // 5. Notifica al empleado con el contexto de la conversación
@@ -14,10 +14,18 @@ const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const db = require('./db');
 const router = require('./router');
 const search = require('./search');
+
+// ============================================
+// GEMINI AI — Configuración
+// ============================================
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+const geminiModelLite = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }); // mismo modelo para todo, es barato
 
 // ============================================
 // CONFIGURACIÓN
@@ -102,6 +110,7 @@ client.on('qr', (qr) => {
 client.on('ready', async () => {
   console.log('\n============================================');
   console.log(`[BOT] ¡${CONFIG.businessName} está en línea!`);
+  console.log(`[BOT] Motor IA: Gemini 2.5 Flash ⚡`);
   console.log(`[BOT] Modo: ${CONFIG.mode}`);
   console.log(`[BOT] Línea principal: ${CONFIG.businessPhone}`);
   console.log(`[BOT] Empleados activos: ${employees.length}`);
@@ -233,7 +242,7 @@ client.on('message', async (msg) => {
         console.log(`[DEBUG] Media recibido de ${senderPhone}: tipo=${msg.type}`);
       }
 
-      // IMÁGENES: procesarlas con visión de Claude (multimodal)
+      // IMÁGENES: procesarlas con Gemini Vision (multimodal)
       if (msg.type === 'image' || msg.type === 'sticker') {
         if (msg.type === 'sticker') return; // ignorar stickers silenciosamente
 
@@ -241,59 +250,28 @@ client.on('message', async (msg) => {
           const media = await msg.downloadMedia();
           if (media && media.data) {
             const mediaType = media.mimetype || 'image/jpeg';
-            // Solo pasar imágenes reales (no stickers animados WebP)
             const isValidImage = mediaType.startsWith('image/');
             if (!isValidImage) return;
 
-            // Obtener historial y memoria del cliente
             const history = db.getConversationHistory(senderPhone, 6);
             const clientMemory = db.getClientMemory(senderPhone);
             const systemPrompt = buildSystemPrompt('El cliente no está preguntando por un producto específico. Responde de forma conversacional.', clientMemory);
 
-            // Construir mensaje con imagen para Claude vision
-            const visionMessages = [
-              ...buildMessages(history, '').slice(0, -1), // historial sin el último user
-              {
+            // Gemini Vision: imagen + texto
+            const result = await geminiModel.generateContent({
+              systemInstruction: { parts: [{ text: systemPrompt }] },
+              contents: [{
                 role: 'user',
-                content: [
-                  {
-                    type: 'image',
-                    source: {
-                      type: 'base64',
-                      media_type: mediaType,
-                      data: media.data
-                    }
-                  },
-                  {
-                    type: 'text',
-                    text: msg.body || 'El cliente envió esta imagen.'
-                  }
+                parts: [
+                  { inlineData: { mimeType: mediaType, data: media.data } },
+                  { text: msg.body || 'El cliente envió esta imagen.' }
                 ]
-              }
-            ];
+              }]
+            });
 
-            const visionResponse = await axios.post(
-              'https://api.anthropic.com/v1/messages',
-              {
-                model: 'claude-sonnet-4-6',
-                max_tokens: 1024,
-                system: systemPrompt,
-                messages: visionMessages
-              },
-              {
-                headers: {
-                  'x-api-key': CONFIG.apiKey,
-                  'anthropic-version': '2023-06-01',
-                  'content-type': 'application/json'
-                },
-                timeout: 30000
-              }
-            );
-
-            const reply = visionResponse.data.content[0].text;
+            const reply = result.response.text();
             await msg.reply(reply);
 
-            // Guardar en historial CRM
             db.saveMessage(senderPhone, 'user', '[imagen enviada]');
             db.saveMessage(senderPhone, 'assistant', reply);
             db.updateClientInteraction(senderPhone);
@@ -306,10 +284,45 @@ client.on('message', async (msg) => {
         return;
       }
 
-      // Audios/videos/documentos: pedir que escriban
+      // AUDIOS: transcribir con Gemini nativo (¡sin Whisper!)
+      if (msg.type === 'ptt' || msg.type === 'audio') {
+        try {
+          const media = await msg.downloadMedia();
+          if (media && media.data) {
+            const audioMime = media.mimetype || 'audio/ogg';
+            const history = db.getConversationHistory(senderPhone, 6);
+            const clientMemory = db.getClientMemory(senderPhone);
+            const systemPrompt = buildSystemPrompt('El cliente no está preguntando por un producto específico. Responde de forma conversacional.', clientMemory);
+
+            // Gemini Audio: escucha el audio y responde directo
+            const result = await geminiModel.generateContent({
+              systemInstruction: { parts: [{ text: systemPrompt + '\n\nEl cliente envió un MENSAJE DE VOZ. Escúchalo y responde normalmente como si te hubiera escrito un texto. NUNCA digas que no puedes escuchar audios.' }] },
+              contents: [{
+                role: 'user',
+                parts: [
+                  { inlineData: { mimeType: audioMime, data: media.data } },
+                  { text: 'El cliente envió este mensaje de voz. Responde como si fuera un mensaje de texto normal.' }
+                ]
+              }]
+            });
+
+            const reply = result.response.text();
+            await msg.reply(reply);
+
+            db.saveMessage(senderPhone, 'user', '[audio enviado]');
+            db.saveMessage(senderPhone, 'assistant', reply);
+            db.updateClientInteraction(senderPhone);
+            console.log(`[AUDIO] 🎙️ Audio procesado para ${senderPhone}`);
+          }
+        } catch (audioErr) {
+          console.error(`[AUDIO] ❌ Error procesando audio: ${audioErr.message}`);
+          await msg.reply('Escuché tu audio pero tuve un problema. ¿Me puedes escribir tu consulta?');
+        }
+        return;
+      }
+
+      // Videos/documentos: pedir que escriban
       const mediaResponses = {
-        'ptt': '🎙️ Los mensajes de voz no los proceso por ahora. ¿Podrías escribirme tu consulta?',
-        'audio': '🎵 No proceso audios aún. ¿Me escribes lo que necesitas?',
         'video': '🎥 No proceso videos. ¿En qué te puedo ayudar?',
         'document': '📄 Recibí tu documento pero no puedo leerlo. ¿Me escribes qué necesitas?',
       };
@@ -472,23 +485,8 @@ Si la conversación fue solo un saludo sin info útil, devuelve la memoria actua
 NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
-    const response = await axios.post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 256,
-        messages: [{ role: 'user', content: memoryPrompt }]
-      },
-      {
-        headers: {
-          'x-api-key': CONFIG.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json'
-        }
-      }
-    );
-
-    const newMemory = response.data.content[0].text.trim();
+    const memResult = await geminiModelLite.generateContent(memoryPrompt);
+    const newMemory = memResult.response.text().trim();
 
     // Solo actualizar si cambió y no está vacío
     if (newMemory && newMemory !== currentMemory) {
@@ -789,53 +787,44 @@ async function getClaudeResponse(clientPhone, message, history) {
     const systemPrompt = buildSystemPrompt(productContext, clientMemory);
     const messages = buildMessages(history, message);
 
-    // 3. Llamar a Claude con reintentos
+    // 3. Llamar a Gemini con reintentos
     const MAX_RETRIES = 3;
     let lastError = null;
 
+    // Convertir formato Claude (system + messages) a formato Gemini (history + systemInstruction)
+    const geminiHistory = [];
+    for (const m of messages.slice(0, -1)) { // todo menos el último
+      geminiHistory.push({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      });
+    }
+    const lastUserMessage = messages[messages.length - 1]?.content || message;
+
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const response = await axios.post(
-          'https://api.anthropic.com/v1/messages',
-          {
-            model: 'claude-sonnet-4-6',
-            max_tokens: 1024,
-            system: systemPrompt,
-            messages: messages
-          },
-          {
-            headers: {
-              'x-api-key': CONFIG.apiKey,
-              'anthropic-version': '2023-06-01',
-              'content-type': 'application/json'
-            },
-            timeout: 30000 // 30 segundos de timeout
-          }
-        );
+        const chat = geminiModel.startChat({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          history: geminiHistory,
+        });
 
-        return response.data.content[0].text;
+        const result = await chat.sendMessage(lastUserMessage);
+        return result.response.text();
       } catch (retryError) {
         lastError = retryError;
-        const status = retryError.response?.status;
-        const errorMsg = retryError.response?.data?.error?.message || retryError.message;
-        console.error(`[CLAUDE] ⚠️ Intento ${attempt}/${MAX_RETRIES} falló (status: ${status || 'N/A'}): ${errorMsg}`);
-
-        // Si es error 4xx (excepto 429 rate limit), no reintentar
-        if (status && status >= 400 && status < 500 && status !== 429) break;
+        const errorMsg = retryError.message || 'Unknown error';
+        console.error(`[GEMINI] ⚠️ Intento ${attempt}/${MAX_RETRIES} falló: ${errorMsg}`);
 
         // Esperar antes de reintentar (backoff exponencial)
         if (attempt < MAX_RETRIES) {
-          const wait = attempt * 2000; // 2s, 4s
-          console.log(`[CLAUDE] ⏳ Reintentando en ${wait / 1000}s...`);
+          const wait = attempt * 2000;
+          console.log(`[GEMINI] ⏳ Reintentando en ${wait / 1000}s...`);
           await new Promise(r => setTimeout(r, wait));
         }
       }
     }
 
-    // Si todos los intentos fallaron
-    const finalStatus = lastError?.response?.status;
-    const finalMsg = lastError?.response?.data?.error?.message || lastError?.message;
-    console.error(`[CLAUDE] ❌ Falló después de ${MAX_RETRIES} intentos. Status: ${finalStatus || 'N/A'}, Error: ${finalMsg}`);
+    console.error(`[GEMINI] ❌ Falló después de ${MAX_RETRIES} intentos: ${lastError?.message}`);
     return 'Disculpa, estoy teniendo un problema momentáneo. Dame unos segundos e inténtalo de nuevo. 🙏';
   } catch (error) {
     console.error('[CLAUDE] Error general:', error.message);
