@@ -1,75 +1,135 @@
 {
   "negocio": {
-    "nombre": "NOMBRE_DEL_NEGOCIO",
-    "descripcion": "Tienda especializada en rifles de aire comprimido, accesorios y munición. Ofrecemos asesoría personalizada, servicio técnico y envíos a todo el país.",
-    "horario": "Lunes a Viernes 9:00 AM - 6:00 PM, Sábados 9:00 AM - 2:00 PM",
-    "ubicacion": "Ciudad, Colombia",
+    "nombre": "Zona Traumática",
+    "descripcion": "Tienda virtual especializada en armas traumáticas legales en Colombia. Vendemos pistolas traumáticas de las mejores marcas con respaldo jurídico, capacitación y acompañamiento completo. Somos los únicos en el país con casos de recuperación de armas documentados.",
+    "horario": "Atención virtual todos los días",
+    "ubicacion": "Jamundí, Valle del Cauca — Operamos 100% virtual. Despachamos desde bodegas de importación en Bogotá.",
+    "tienda_fisica": false,
+    "envios": "A todo el país. Costo aproximado $25.000. Envíos seguros y discretos.",
     "contacto": {
-      "telefono": "3001234567",
-      "email": "contacto@ejemplo.com"
+      "whatsapp": "3013981979",
+      "youtube": "https://www.youtube.com/@zonatraumatica",
+      "tiktok": "https://www.tiktok.com/@zonatraumaticacolombia",
+      "web": "https://www.zonatraumatica.club"
+    },
+    "medios_de_pago": {
+      "nequi": "3013981979",
+      "bancolombia_ahorros": "064-431122-17",
+      "titular": "Alvaro Ocampo",
+      "cedula": "1107078609",
+      "bre_b": "@3013981979",
+      "bold": "Link de pago seguro con BOLD — comercio certificado"
+    },
+    "diferenciadores": [
+      "Únicos en Colombia con apoyo jurídico incluido en la compra",
+      "Recuperamos el arma en caso de incautación ilegal (Plan Pro)",
+      "Casos ganados documentados",
+      "Capacitación legal virtual incluida",
+      "Canal de YouTube con más de 50 videos educativos",
+      "Comunidad de 500+ portadores activos"
+    ]
+  },
+  "paquete_compra": {
+    "titulo": "Lo que incluye tu compra",
+    "items": [
+      "1 Pistola Traumática de la referencia seleccionada",
+      "50 Cartuchos traumáticos de goma calibre 9×22mm",
+      "Comprobante digital de compra (respaldo de transacción)",
+      "Caja táctica de almacenamiento seguro",
+      "Capacitación virtual GRATIS — 2 horas: marco legal colombiano y protocolo ante autoridades",
+      "Sesiones grupales virtuales cada ~2 semanas (te agendamos)",
+      "1 año de membresía Plan Plus del Club Zona Traumática (valor $150.000 — GRATIS con la compra)",
+      "Descuentos especiales en munición adicional"
+    ]
+  },
+  "club": {
+    "nombre": "Club de Tiro Virtual Zona Traumática",
+    "descripcion": "El único club en Colombia con casos ganados documentados. Dos planes para proteger tu arma y tu patrimonio.",
+    "plan_plus": {
+      "nombre": "Plan Plus",
+      "precio": "$150.000/año",
+      "incluye": [
+        "Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar",
+        "Simulacros de requisa — qué decir, qué callar, cómo actuar",
+        "Descuentos en munición: Oskurzan Nacional $120.000 (público $150.000), Oskurzan Importada $130.000 (público $180.000), Rubber Ball Importada $180.000 (público $220.000)",
+        "Comunidad de 500+ portadores — red nacional",
+        "Certificado digital con QR — validación profesional por 1 año",
+        "Acceso al canal YouTube con 50+ videos educativos",
+        "Grupos de WhatsApp activos 24/7"
+      ]
+    },
+    "plan_pro": {
+      "nombre": "Plan Pro",
+      "precio": "$200.000/año",
+      "incluye": [
+        "Todo lo del Plan Plus",
+        "Defensa jurídica 100% GRATIS si te incautan ilegalmente",
+        "Primera instancia ante Policía (valor comercial $800.000)",
+        "Tutela para obligar respuesta (valor comercial $600.000)",
+        "Nulidad del acto administrativo (valor comercial $1.200.000)",
+        "Total cubierto: $2.6 millones en servicios jurídicos"
+      ]
     }
   },
-  "categorias": {
-    "rifles_resorte": {
-      "titulo": "Rifles de Aire por Resorte (Spring)",
-      "descripcion": "Rifles que funcionan mediante un pistón impulsado por resorte. Son los más comunes para iniciarse. Un solo tiro por cargado (break barrel).",
-      "ventajas": "Económicos, no necesitan CO2 ni compresor, fáciles de mantener",
-      "calibres": [".177 (4.5mm)", ".22 (5.5mm)"],
-      "uso_ideal": "Tiro al blanco, plinking, control de plagas menores",
-      "rango_precio": "Consultar disponibilidad"
+  "inventario": {
+    "marcas": ["RETAY", "EKOL", "BLOW"],
+    "planes_precio": {
+      "plan_plus": "precio incluye membresía Plan Plus",
+      "plan_pro": "precio incluye membresía Plan Pro"
     },
-    "rifles_pcp": {
-      "titulo": "Rifles PCP (Pre-Charged Pneumatic)",
-      "descripcion": "Rifles de alta gama que funcionan con aire comprimido precargado. Ofrecen mayor potencia, precisión y múltiples tiros por carga.",
-      "ventajas": "Alta precisión, múltiples disparos, bajo retroceso, silenciosos",
-      "calibres": [".177 (4.5mm)", ".22 (5.5mm)", ".25 (6.35mm)"],
-      "uso_ideal": "Competición, caza menor, tiro de precisión",
-      "rango_precio": "Consultar disponibilidad",
-      "nota": "Requieren tanque de aire o bomba manual para recargar"
-    },
-    "rifles_co2": {
-      "titulo": "Rifles de CO2",
-      "descripcion": "Funcionan con cápsulas de CO2 desechables. Buenos para tiro recreativo y práctica.",
-      "ventajas": "Semiautomáticos, fáciles de usar, buena cadencia de tiro",
-      "calibres": [".177 (4.5mm)"],
-      "uso_ideal": "Tiro recreativo, práctica, plinking",
-      "rango_precio": "Consultar disponibilidad"
-    },
-    "pistolas_aire": {
-      "titulo": "Pistolas de Aire",
-      "descripcion": "Pistolas de aire comprimido o CO2. Disponibles en varios mecanismos.",
-      "ventajas": "Compactas, buenas para práctica de tiro con pistola",
-      "calibres": [".177 (4.5mm)"],
-      "uso_ideal": "Tiro recreativo, entrenamiento, colección",
-      "rango_precio": "Consultar disponibilidad"
-    },
-    "accesorios": {
-      "titulo": "Accesorios",
-      "descripcion": "Miras telescópicas, miras holográficas, bípodes, fundas, kits de limpieza, blancos, y más.",
-      "subcategorias": ["Miras y ópticas", "Bípodes y soportes", "Fundas y estuches", "Kits de limpieza", "Blancos y dianas"]
-    },
-    "municion": {
-      "titulo": "Munición (Balines/Pellets)",
-      "descripcion": "Balines de diferentes formas y pesos para cada tipo de uso.",
-      "tipos": [
-        "Diabolo: Uso general, buena precisión",
-        "Punta hueca (Hollow Point): Mayor impacto",
-        "Punta plana (Wadcutter): Tiro al blanco, cortes limpios",
-        "Domed (Redondos): Largo alcance, buena penetración"
-      ],
-      "calibres_disponibles": [".177 (4.5mm)", ".22 (5.5mm)", ".25 (6.35mm)"]
-    }
+    "productos": [
+      { "marca": "RETAY", "modelo": "S2022", "color": "Negro", "plan_plus": 1150000, "plan_pro": 1250000 },
+      { "marca": "RETAY", "modelo": "G17", "color": "Negro", "plan_plus": 1150000, "plan_pro": 1250000 },
+      { "marca": "EKOL", "modelo": "Volga Mini", "color": "Negro y Fume", "plan_plus": 1200000, "plan_pro": 1300000 },
+      { "marca": "EKOL", "modelo": "Botan", "color": "Fume", "plan_plus": 1200000, "plan_pro": 1300000 },
+      { "marca": "BLOW", "modelo": "Mini 9", "color": "Fume y Negro", "plan_plus": 1150000, "plan_pro": 1250000 },
+      { "marca": "BLOW", "modelo": "F92", "color": "Negro Cromado / Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
+      { "marca": "BLOW", "modelo": "TR 92", "color": "Negro y Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
+      { "marca": "BLOW", "modelo": "TR 92D", "color": "Negro y Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
+      { "marca": "BLOW", "modelo": "TR 92K", "color": "Negro y Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
+      { "marca": "EKOL", "modelo": "Dicle", "color": "Negra", "plan_plus": 1200000, "plan_pro": 1300000 },
+      { "marca": "EKOL", "modelo": "Firat Compact", "color": "Negro / Cromado", "plan_plus": 1200000, "plan_pro": 1300000 },
+      { "marca": "EKOL", "modelo": "Firat Magnum", "color": "Negro / Fume / Cromado", "plan_plus": 1200000, "plan_pro": 1300000 },
+      { "marca": "EKOL", "modelo": "NIG 211", "color": "Fume y Negra", "plan_plus": 1300000, "plan_pro": 1400000 },
+      { "marca": "EKOL", "modelo": "Jackal Dual Magnum", "color": "Negro y Fume", "plan_plus": 1400000, "plan_pro": 1500000 },
+      { "marca": "EKOL", "modelo": "Jackal Dual Compact", "color": "Negro", "plan_plus": 1300000, "plan_pro": 1400000 },
+      { "marca": "EKOL", "modelo": "P92 Auto", "color": "Fume y Negro", "plan_plus": 1400000, "plan_pro": 1500000 },
+      { "marca": "EKOL", "modelo": "Revolver 2.5", "color": "Negro", "plan_plus": 1200000, "plan_pro": 1300000 },
+      { "marca": "EKOL", "modelo": "Revolver 4.5", "color": "Negro / Fume / Cromado", "plan_plus": 1300000, "plan_pro": null }
+    ]
   },
   "preguntas_frecuentes": {
-    "necesito_permiso": "Los rifles de aire comprimido en Colombia no son considerados armas de fuego. Sin embargo, te recomendamos consultar la normativa local vigente y usar siempre con responsabilidad.",
-    "envios": "Realizamos envíos a todo el país. El tiempo de entrega varía según la ciudad. Consulta con nuestro equipo para más detalles.",
-    "garantia": "Todos nuestros productos cuentan con garantía. Las condiciones específicas dependen del fabricante y tipo de producto.",
-    "servicio_tecnico": "Ofrecemos servicio técnico para reparaciones y mantenimiento. Consulta disponibilidad.",
-    "como_elegir": "Depende de tu uso principal: para iniciarse recomendamos un rifle de resorte en calibre .177. Para competición o caza menor, un PCP en .22. Nuestros asesores te pueden ayudar a elegir."
+    "es_legal": "Sí, 100% legal. Las armas traumáticas son dispositivos menos letales regulados por la Ley 2197/2022. NO requieren permiso de porte de armas de fuego.",
+    "puedo_portarla": "Sí, puedes portarla para defensa personal. Con tu compra recibes respaldo legal completo y capacitación sobre protocolo ante autoridades.",
+    "donde_estan": "Estamos en Jamundí, Valle del Cauca, pero todos nuestros servicios son 100% virtuales. No tenemos tienda física — despachamos directamente desde nuestras bodegas de importación en Bogotá.",
+    "envios": "Sí, enviamos a toda Colombia. El costo de envío es aproximadamente $25.000 y los envíos son seguros y discretos.",
+    "efectividad": "Su impacto de goma genera dolor intenso e incapacitación temporal sin daño permanente, permitiéndote neutralizar amenazas a distancia segura.",
+    "capacitacion": "Las sesiones son grupales virtuales, programadas cada ~2 semanas. Al comprar, te agendamos en la siguiente sesión disponible.",
+    "renovacion_club": "Puedes renovar tu membresía: Plan Plus $150.000/año, Plan Pro $200.000/año.",
+    "confianza_tienda_virtual": "Entendemos que comprar en línea genera dudas. Puedes verificar nuestra trayectoria en nuestro canal de YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Somos los únicos con casos de recuperación de armas documentados en Colombia. También manejamos link de pago seguro con BOLD, comercio certificado.",
+    "pago_anticipado": "Manejamos pago anticipado con todas las garantías: comprobante digital inmediato, seguimiento del envío y respaldo jurídico de la transacción. Además puedes pagar por link seguro BOLD si prefieres mayor seguridad.",
+    "manifiesto_aduana": "El manifiesto de aduana es un documento del IMPORTADOR, no del comprador. Ningún vendedor serio lo entrega porque legalmente no le corresponde — solo la DIAN y la POLFA fiscalizan al importador (Decreto 1165/2019, Ley 2197/2022). Lo que SÍ recibes con tu compra es: factura con NIT, asesoría jurídica permanente y respaldo legal incluido. OJO: si alguien te ofrece 'manifiesto de aduana', es una señal de alarma — puede ser un documento falso. Otros indicadores de fraude: vender sin factura y precios sospechosamente bajos. Tu mejor protección es FACTURA + ASESORÍA LEGAL, que es exactamente lo que Zona Traumática te garantiza.",
+    "marco_legal_general": "Las armas traumáticas en Colombia están reguladas principalmente por la Ley 2197/2022 (Ley de Seguridad Ciudadana), que las define como dispositivos menos letales con categoría jurídica autónoma — completamente distintas a las armas de fuego. El Artículo 223 de la Constitución habla de 'municiones de guerra', lo que NO aplica a los proyectiles de goma de las traumáticas. Adicionalmente, la Sentencia C-014/2023 y múltiples precedentes del Tribunal Superior de Bogotá han reconocido la atipicidad penal del porte de estas armas.",
+    "preguntas_legales_profundas": "Para consultas legales detalladas — jurisprudencia específica, procedimientos de defensa ante incautación, análisis de la Sentencia C-014/2023, Resolución 01840/2025, comparativa técnica balística y más — contamos con la Biblioteca Legal de Zona Traumática: la biblia de la legalidad de las armas traumáticas en Colombia, construida íntegramente por nuestro equipo. Puedes consultarla en: https://www.zonatraumatica.club/portelegal/biblioteca — Es gratuita y cubre desde la Constitución hasta los casos reales ganados. Para asesoría jurídica personalizada y defensa ante incautaciones, te recomendamos afiliarte al Club Zona Traumática (Plan Pro)."
+  },
+  "carnet": {
+    "descripcion": "Carnet digital de portador con QR de validación",
+    "datos_requeridos": [
+      "Nombre completo",
+      "Número de cédula",
+      "Marca del arma",
+      "Serial del arma",
+      "Foto de frente (rostro)"
+    ],
+    "etiqueta_pendiente": "carnet pendiente"
+  },
+  "etiquetas": {
+    "carnet_pendiente": "carnet pendiente",
+    "dispositivo_pendiente": "dispositivo pendiente"
   },
   "politicas": {
-    "compra": "Para realizar una compra, un asesor te guiará en todo el proceso: selección del producto, método de pago y detalles de envío.",
-    "devoluciones": "Aceptamos devoluciones dentro de los primeros 5 días hábiles si el producto presenta defectos de fábrica.",
-    "metodos_pago": "Transferencia bancaria, Nequi, Daviplata. Consultar otros métodos con el asesor."
+    "compra": "Para comprar, un asesor te acompaña en todo el proceso: selección del modelo, método de pago y detalles del envío.",
+    "metodos_pago": "Nequi 3013981979 | Bancolombia Ahorros 064-431122-17 | Bre-B @3013981979 | Titular: Alvaro Ocampo C.C. 1107078609 | Link de pago BOLD (comercio certificado)",
+    "envio": "Envíos a todo el país, costo aproximado $25.000, discretos y seguros desde bodegas en Bogotá."
   }
 }

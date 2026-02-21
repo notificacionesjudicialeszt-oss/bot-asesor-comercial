@@ -3,7 +3,7 @@
 // ============================================
 // Línea principal de atención que:
 // 1. Recibe mensajes de WhatsApp
-// 2. Responde con Claude AI usando la base de conocimiento
+// 2. Responde con Gemini AI usando la base de conocimiento
 // 3. Registra cada cliente en el CRM (SQLite)
 // 4. Cuando el cliente quiere comprar/cotizar, lo asigna a un empleado (round-robin)
 // 5. Notifica al empleado con el contexto de la conversación
@@ -14,10 +14,18 @@ const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const db = require('./db');
 const router = require('./router');
 const search = require('./search');
+
+// ============================================
+// GEMINI AI — Configuración
+// ============================================
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+const geminiModelLite = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }); // mismo modelo para todo, es barato
 
 // ============================================
 // CONFIGURACIÓN
@@ -99,14 +107,18 @@ client.on('qr', (qr) => {
 });
 
 // Bot conectado
-client.on('ready', () => {
+client.on('ready', async () => {
   console.log('\n============================================');
   console.log(`[BOT] ¡${CONFIG.businessName} está en línea!`);
+  console.log(`[BOT] Motor IA: Gemini 2.5 Flash ⚡`);
   console.log(`[BOT] Modo: ${CONFIG.mode}`);
   console.log(`[BOT] Línea principal: ${CONFIG.businessPhone}`);
   console.log(`[BOT] Empleados activos: ${employees.length}`);
   console.log(`[BOT] Auditores: ${CONFIG.auditors.length > 0 ? CONFIG.auditors.join(', ') : 'ninguno'}`);
   console.log('============================================\n');
+
+  // Recovery COMPLETADO — bot en modo venta
+  // setTimeout(() => recuperarChatsViejos(), 8000);
 });
 
 // Error de autenticación
@@ -124,18 +136,99 @@ client.on('disconnected', (reason) => {
 // ============================================
 client.on('message', async (msg) => {
   try {
+    // Ignorar ANTES de getChat() para evitar crash con canales/newsletters
+    if (msg.fromMe) return;
+    if (msg.from === 'status@broadcast') return;
+    if (msg.from.includes('@newsletter')) return;
+    if (msg.from.includes('@broadcast')) return;
+    if (msg.type === 'e2e_notification' || msg.type === 'notification_template') return;
+
     // Ignorar mensajes de grupos si está configurado
     const chat = await msg.getChat();
     if (CONFIG.ignoreGroups && chat.isGroup) return;
 
-    // Ignorar mensajes del propio bot
-    if (msg.fromMe) return;
+    // Ignorar canales por tipo de chat (doble seguro)
+    if (chat.isChannel || chat.type === 'channel') return;
 
-    // Ignorar mensajes de status/broadcast
-    if (msg.from === 'status@broadcast') return;
+    // ============================================
+    // FILTRO ANTI-BOTS (evitar loops infinitos)
+    // ============================================
+    const senderRaw = msg.from.replace('@c.us', '');
+    const senderClean = senderRaw.replace('57', '');
+    const senderName = (chat.name || '').toLowerCase();
+    const messageBody_check = (msg.body || '').toLowerCase();
+
+    // 1. Lista negra de nombres de bots/empresas conocidas
+    const BLOCKED_NAMES = [
+      'bancolombia', 'nequi', 'daviplata', 'dale', 'rappipay', 'rappi',
+      'movii', 'tpaga', 'bold', 'payvalida', 'payu', 'epayco',
+      'claro', 'movistar', 'tigo', 'wom', 'etb', 'une',
+      'compensar', 'sura', 'eps', 'colmedica', 'sanitas', 'coomeva',
+      'servientrega', 'envia', 'interrapidisimo', 'coordinadora', 'deprisa', 'fedex',
+      'uber', 'didi', 'indriver', 'beat',
+      'taskus', 'task us', 'task_us',
+      'google', 'whatsapp', 'meta', 'facebook', 'instagram', 'telegram',
+      'chatgpt', 'openai', 'gemini', 'copilot', 'claude', 'bot',
+      'verificación', 'verificacion', 'verification', 'security', 'seguridad',
+      'notificación', 'notificacion', 'notification', 'alerta', 'alert',
+    ];
+
+    // 2. Números cortos = bots empresariales (menos de 7 dígitos)
+    const isShortNumber = senderClean.length <= 6;
+
+    // 3. Nombre coincide con empresa/bot conocido
+    const isBlockedName = BLOCKED_NAMES.some(name => senderName.includes(name));
+
+    // 4. Detectar mensajes automáticos por contenido típico de bots
+    const BOT_PATTERNS = [
+      /transacci[oó]n.*aprobada/i,
+      /transferencia.*exitosa/i,
+      /c[oó]digo de verificaci[oó]n/i,
+      /c[oó]digo.*seguridad/i,
+      /tu c[oó]digo es/i,
+      /your.*code.*is/i,
+      /OTP.*\d{4,}/i,
+      /saldo.*disponible/i,
+      /pago.*recibido/i,
+      /factura.*generada/i,
+      /su pedido/i,
+      /tracking.*number/i,
+      /n[uú]mero de gu[ií]a/i,
+      /no responda.*este mensaje/i,
+      /mensaje autom[aá]tico/i,
+      /do not reply/i,
+    ];
+    const isBotMessage = BOT_PATTERNS.some(pattern => pattern.test(msg.body || ''));
+
+    if (isShortNumber || isBlockedName || isBotMessage) {
+      console.log(`[BOT] 🚫 BLOQUEADO: ${senderRaw} (${chat.name || 'sin nombre'})${isBotMessage ? ' [msg automático]' : ''}`);
+      return;
+    }
+
+    // 5. ANTI-LOOP: Si un número manda más de 10 msgs en 5 min, es bot
+    if (!global._msgTracker) global._msgTracker = {};
+    const now = Date.now();
+    const tracker = global._msgTracker;
+    if (!tracker[senderRaw]) tracker[senderRaw] = [];
+    tracker[senderRaw].push(now);
+    // Limpiar mensajes viejos (más de 5 min)
+    tracker[senderRaw] = tracker[senderRaw].filter(t => now - t < 300000);
+    if (tracker[senderRaw].length > 10) {
+      console.log(`[BOT] 🚫 ANTI-LOOP: ${senderRaw} (${chat.name || 'sin nombre'}) — ${tracker[senderRaw].length} msgs en 5 min. Ignorando.`);
+      return;
+    }
 
     const senderPhone = msg.from.replace('@c.us', '');
     const messageBody = msg.body ? msg.body.trim() : '';
+
+    // ⛔ Chequeo TEMPRANO de ignorados — antes de cualquier procesamiento
+    if (db.isIgnored(senderPhone)) {
+      console.log(`[BOT] 🔇 Ignorado (panel): ${senderPhone} (${chat.name || 'sin nombre'})`);
+      return;
+    }
+
+    // Log de todo mensaje entrante (para monitoreo)
+    console.log(`[MSG] 📩 ${chat.name || senderPhone}: "${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}"`);
 
     // --- MANEJO DE AUDIOS Y MEDIA ---
     if (msg.hasMedia || msg.type === 'ptt' || msg.type === 'audio' ||
@@ -149,20 +242,93 @@ client.on('message', async (msg) => {
         console.log(`[DEBUG] Media recibido de ${senderPhone}: tipo=${msg.type}`);
       }
 
+      // IMÁGENES: procesarlas con Gemini Vision (multimodal)
+      if (msg.type === 'image' || msg.type === 'sticker') {
+        if (msg.type === 'sticker') return; // ignorar stickers silenciosamente
+
+        try {
+          const media = await msg.downloadMedia();
+          if (media && media.data) {
+            const mediaType = media.mimetype || 'image/jpeg';
+            const isValidImage = mediaType.startsWith('image/');
+            if (!isValidImage) return;
+
+            const history = db.getConversationHistory(senderPhone, 6);
+            const clientMemory = db.getClientMemory(senderPhone);
+            const systemPrompt = buildSystemPrompt('El cliente no está preguntando por un producto específico. Responde de forma conversacional.', clientMemory);
+
+            // Gemini Vision: imagen + texto
+            const result = await geminiModel.generateContent({
+              systemInstruction: { parts: [{ text: systemPrompt }] },
+              contents: [{
+                role: 'user',
+                parts: [
+                  { inlineData: { mimeType: mediaType, data: media.data } },
+                  { text: msg.body || 'El cliente envió esta imagen.' }
+                ]
+              }]
+            });
+
+            const reply = result.response.text();
+            await msg.reply(reply);
+
+            db.saveMessage(senderPhone, 'user', '[imagen enviada]');
+            db.saveMessage(senderPhone, 'assistant', reply);
+            db.updateClientInteraction(senderPhone);
+            console.log(`[IMG] 🖼️ Imagen procesada para ${senderPhone}`);
+          }
+        } catch (imgErr) {
+          console.error(`[IMG] ❌ Error procesando imagen: ${imgErr.message}`);
+          await msg.reply('Vi tu imagen pero tuve un problema al procesarla. ¿Me puedes contar qué necesitas?');
+        }
+        return;
+      }
+
+      // AUDIOS: transcribir con Gemini nativo (¡sin Whisper!)
+      if (msg.type === 'ptt' || msg.type === 'audio') {
+        try {
+          const media = await msg.downloadMedia();
+          if (media && media.data) {
+            const audioMime = media.mimetype || 'audio/ogg';
+            const history = db.getConversationHistory(senderPhone, 6);
+            const clientMemory = db.getClientMemory(senderPhone);
+            const systemPrompt = buildSystemPrompt('El cliente no está preguntando por un producto específico. Responde de forma conversacional.', clientMemory);
+
+            // Gemini Audio: escucha el audio y responde directo
+            const result = await geminiModel.generateContent({
+              systemInstruction: { parts: [{ text: systemPrompt + '\n\nEl cliente envió un MENSAJE DE VOZ. Escúchalo y responde normalmente como si te hubiera escrito un texto. NUNCA digas que no puedes escuchar audios.' }] },
+              contents: [{
+                role: 'user',
+                parts: [
+                  { inlineData: { mimeType: audioMime, data: media.data } },
+                  { text: 'El cliente envió este mensaje de voz. Responde como si fuera un mensaje de texto normal.' }
+                ]
+              }]
+            });
+
+            const reply = result.response.text();
+            await msg.reply(reply);
+
+            db.saveMessage(senderPhone, 'user', '[audio enviado]');
+            db.saveMessage(senderPhone, 'assistant', reply);
+            db.updateClientInteraction(senderPhone);
+            console.log(`[AUDIO] 🎙️ Audio procesado para ${senderPhone}`);
+          }
+        } catch (audioErr) {
+          console.error(`[AUDIO] ❌ Error procesando audio: ${audioErr.message}`);
+          await msg.reply('Escuché tu audio pero tuve un problema. ¿Me puedes escribir tu consulta?');
+        }
+        return;
+      }
+
+      // Videos/documentos: pedir que escriban
       const mediaResponses = {
-        'ptt': '🎙️ ¡Gracias por tu mensaje de voz! Por el momento solo puedo leer mensajes de *texto*. ¿Podrías escribirme tu consulta? Así te puedo ayudar mejor. 😊',
-        'audio': '🎵 ¡Gracias por el audio! Por ahora solo proceso mensajes de *texto*. ¿Podrías escribirme lo que necesitas?',
-        'image': '📷 ¡Gracias por la imagen! Por el momento solo puedo leer *texto*. Si tienes alguna consulta, escríbemela y con gusto te ayudo.',
-        'video': '🎥 ¡Gracias por el video! Actualmente solo proceso mensajes de *texto*. ¿En qué puedo ayudarte?',
-        'sticker': '', // No responder a stickers
-        'document': '📄 ¡Gracias por el documento! Por ahora solo puedo leer mensajes de *texto*. ¿Podrías escribirme tu consulta?',
+        'video': '🎥 No proceso videos. ¿En qué te puedo ayudar?',
+        'document': '📄 Recibí tu documento pero no puedo leerlo. ¿Me escribes qué necesitas?',
       };
 
-      const response = mediaResponses[msg.type] || '📎 ¡Gracias! Por el momento solo puedo leer mensajes de *texto*. ¿Podrías escribirme tu consulta?';
-
-      if (response) {
-        await msg.reply(response);
-      }
+      const response = mediaResponses[msg.type] || null;
+      if (response) await msg.reply(response);
       return;
     }
 
@@ -228,25 +394,17 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
     // Cliente nuevo → crear con nombre de perfil
     db.upsertClient(senderPhone, { name: profileName });
     console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone})`);
+    saveContactToVCF(senderPhone, profileName);
 
-    // Guardar como contacto de WhatsApp
-    try {
-      const contactId = await client.getContactById(senderPhone + '@c.us');
-      // whatsapp-web.js no tiene API directa para "agregar contacto",
-      // pero el chat se crea automáticamente al enviar/recibir mensajes.
-      // Lo registramos en la DB que es nuestro CRM real.
-      if (CONFIG.debug) {
-        console.log(`[DEBUG] Contacto registrado en CRM: ${profileName} (${senderPhone})`);
-      }
-    } catch (err) {
-      // No es crítico, el CRM ya lo tiene
-      if (CONFIG.debug) {
-        console.log(`[DEBUG] Contacto creado solo en CRM (no se pudo verificar en WhatsApp)`);
-      }
-    }
   } else if (profileName && !existingClient.name) {
-    // Ya existía pero sin nombre → actualizar con nombre de perfil
     db.upsertClient(senderPhone, { name: profileName });
+    saveContactToVCF(senderPhone, profileName);
+  }
+
+  // ⛔ Contacto ignorado desde el panel — silencio total
+  if (db.isIgnored(senderPhone)) {
+    console.log(`[BOT] 🔇 Ignorado (panel): ${senderPhone} (${profileName})`);
+    return;
   }
 
   // 3. Guardar mensaje del cliente
@@ -261,7 +419,12 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
   // 6. Detectar intención de compra/cotización
   const wantsHuman = detectHandoffIntent(messageBody);
 
-  if (wantsHuman) {
+  // Solo derivar si el cliente ya tuvo mínimo 3 intercambios con el bot
+  // O si explícitamente pide hablar con humano/asesor
+  const hasEnoughHistory = history.length >= 6; // 3 user + 3 assistant = 6
+  const wantsHumanExplicit = detectHandoffIntent(messageBody, true); // solo keywords de "hablar con humano"
+
+  if (wantsHuman && hasEnoughHistory || wantsHumanExplicit) {
     // --- DERIVAR A EMPLEADO ---
     await handleHandoff(msg, senderPhone, messageBody, history);
   } else {
@@ -298,7 +461,7 @@ async function updateClientMemory(clientPhone, userMessage, botResponse, history
     const clientInfo = db.getClient(clientPhone);
 
     // Construir prompt para que Claude genere la memoria actualizada
-    const memoryPrompt = `Eres un sistema de CRM. Tu tarea es mantener una ficha breve del cliente.
+    const memoryPrompt = `Eres un sistema de CRM para Zona Traumática, tienda de armas traumáticas legales en Colombia. Tu tarea es mantener una ficha breve del cliente.
 
 MEMORIA ACTUAL DEL CLIENTE:
 ${currentMemory || '(Cliente nuevo, sin memoria previa)'}
@@ -308,35 +471,22 @@ ${currentMemory || '(Cliente nuevo, sin memoria previa)'}
 - Bot respondió: "${botResponse.substring(0, 300)}"
 
 INSTRUCCIONES:
-Genera una ficha actualizada del cliente en máximo 5 líneas. Incluye SOLO datos útiles para ventas:
-- Productos de interés (si mencionó alguno)
-- Calibre preferido (si lo indicó)
-- Presupuesto aproximado (si lo mencionó)
-- Nivel de experiencia (principiante/intermedio/experto si se nota)
-- Intención (solo mirando, interesado, listo para comprar)
-- Cualquier dato personal relevante (uso: cacería, tiro al blanco, colección)
+Genera una ficha actualizada del cliente en máximo 6 líneas. Incluye SOLO datos útiles para ventas:
+- Nombre (si lo mencionó)
+- Ciudad o departamento (si lo mencionó)
+- Referencia o modelo de interés (si mencionó alguno)
+- Plan preferido (Plus o Pro, si lo indicó)
+- Motivo de compra (defensa personal, colección, regalo, etc.)
+- Intención (solo consultando, interesado, listo para comprar)
+- Objeciones detectadas (duda del pago virtual, no tiene presupuesto, etc.)
+- Si ya compró: qué compró y si tiene carnet pendiente o dispositivo pendiente
 
-Si la conversación fue solo un saludo o charla sin info útil, devuelve la memoria actual sin cambios.
+Si la conversación fue solo un saludo sin info útil, devuelve la memoria actual sin cambios.
 NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
-    const response = await axios.post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 256,
-        messages: [{ role: 'user', content: memoryPrompt }]
-      },
-      {
-        headers: {
-          'x-api-key': CONFIG.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json'
-        }
-      }
-    );
-
-    const newMemory = response.data.content[0].text.trim();
+    const memResult = await geminiModelLite.generateContent(memoryPrompt);
+    const newMemory = memResult.response.text().trim();
 
     // Solo actualizar si cambió y no está vacío
     if (newMemory && newMemory !== currentMemory) {
@@ -368,38 +518,42 @@ function generateSimpleMemory(currentMemory, message) {
   const lower = message.toLowerCase();
   const notes = currentMemory ? currentMemory.split('\n') : [];
 
-  // Detectar productos mencionados
-  if (/rifle|carabina|pcp|springer/.test(lower)) {
-    const note = `- Interesado en: rifles`;
-    if (!notes.some(n => n.includes('rifles'))) notes.push(note);
+  // Detectar referencias de interés
+  if (/ekol/.test(lower)) {
+    const note = `- Marca de interés: EKOL`;
+    if (!notes.some(n => n.includes('EKOL'))) notes.push(note);
   }
-  if (/pistola/.test(lower)) {
-    const note = `- Interesado en: pistolas`;
-    if (!notes.some(n => n.includes('pistolas'))) notes.push(note);
+  if (/retay/.test(lower)) {
+    const note = `- Marca de interés: RETAY`;
+    if (!notes.some(n => n.includes('RETAY'))) notes.push(note);
   }
-  if (/mira|telescop|scope/.test(lower)) {
-    const note = `- Interesado en: miras/ópticas`;
-    if (!notes.some(n => n.includes('miras'))) notes.push(note);
+  if (/blow/.test(lower)) {
+    const note = `- Marca de interés: BLOW`;
+    if (!notes.some(n => n.includes('BLOW'))) notes.push(note);
   }
-  if (/4\.5|\.177/.test(lower)) {
-    const note = `- Calibre preferido: 4.5mm`;
-    if (!notes.some(n => n.includes('4.5'))) notes.push(note);
+  if (/revolver|revólver/.test(lower)) {
+    const note = `- Interesado en: revólver`;
+    if (!notes.some(n => n.includes('revólver'))) notes.push(note);
   }
-  if (/5\.5|\.22/.test(lower)) {
-    const note = `- Calibre preferido: 5.5mm`;
-    if (!notes.some(n => n.includes('5.5'))) notes.push(note);
+  if (/plan pro/.test(lower)) {
+    const note = `- Plan preferido: Pro`;
+    if (!notes.some(n => n.includes('Plan Pro'))) notes.push(note);
   }
-  if (/6\.35|\.25/.test(lower)) {
-    const note = `- Calibre preferido: 6.35mm`;
-    if (!notes.some(n => n.includes('6.35'))) notes.push(note);
+  if (/plan plus/.test(lower)) {
+    const note = `- Plan preferido: Plus`;
+    if (!notes.some(n => n.includes('Plan Plus'))) notes.push(note);
   }
-  if (/caza|cacería|caceria/.test(lower)) {
-    const note = `- Uso: cacería`;
-    if (!notes.some(n => n.includes('cacería'))) notes.push(note);
+  if (/club|membresia|membresía/.test(lower)) {
+    const note = `- Interesado en: Club / Membresía`;
+    if (!notes.some(n => n.includes('Club'))) notes.push(note);
   }
-  if (/tiro al blanco|target|diana/.test(lower)) {
-    const note = `- Uso: tiro al blanco`;
-    if (!notes.some(n => n.includes('tiro al blanco'))) notes.push(note);
+  if (/defensa|seguridad/.test(lower)) {
+    const note = `- Motivo: defensa personal`;
+    if (!notes.some(n => n.includes('defensa'))) notes.push(note);
+  }
+  if (/carnet|carnét/.test(lower)) {
+    const note = `- Solicita: carnet pendiente`;
+    if (!notes.some(n => n.includes('carnet'))) notes.push(note);
   }
 
   return notes.join('\n');
@@ -408,22 +562,24 @@ function generateSimpleMemory(currentMemory, message) {
 // ============================================
 // DETECCIÓN DE INTENCIÓN DE DERIVACIÓN
 // ============================================
-function detectHandoffIntent(message) {
+function detectHandoffIntent(message, humanOnly = false) {
   const lowerMessage = message.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar acentos para comparar
     .replace(/[¿?¡!.,;:()]/g, '');
 
-  // Frases de COMPRA / COTIZACIÓN
+  // Frases de COMPRA CONFIRMADA (el cliente YA decidió, quiere cerrar)
+  // OJO: NO incluir preguntas de precio/info — esas las responde el bot
   const buyKeywords = [
-    'quiero comprar', 'quiero cotizar', 'cuanto cuesta', 'cuanto vale',
-    'disponibilidad', 'tienen en stock', 'quiero hacer un pedido',
-    'me interesa comprar', 'cotizacion', 'hacer pedido',
-    'quiero ordenar', 'como compro', 'como lo compro',
-    'metodo de pago', 'forma de pago', 'medios de pago',
-    'quiero pagar', 'nequi', 'daviplata', 'bancolombia',
-    'envio', 'envios', 'hacen envios', 'hacen envio',
-    'lo quiero', 'me lo llevo', 'lo llevo',
-    'comprar', // palabra sola
+    'quiero comprar', 'quiero comprarlo', 'quiero comprarla',
+    'lo quiero', 'la quiero', 'me lo llevo', 'me la llevo', 'lo llevo',
+    'quiero hacer un pedido', 'hacer pedido', 'quiero ordenar',
+    'me interesa comprar', 'listo para comprar', 'listo para pagar',
+    'quiero pagar', 'ya quiero pagar', 'como pago', 'donde pago',
+    'quiero el plan', 'quiero afiliarme', 'quiero inscribirme',
+    'tomenme los datos', 'tomen mis datos', 'tome mis datos',
+    'ya me decidi', 'ya me decidí', 'va listo', 'dale listo',
+    'hagamosle', 'hagamole', 'vamos con eso', 'cerremos',
+    'separamelo', 'separamela', 'apartamelo', 'apartamela',
   ];
 
   // Frases de QUIERO HABLAR CON HUMANO
@@ -445,11 +601,16 @@ function detectHandoffIntent(message) {
     'humano por favor', 'asesor por favor',
   ];
 
+  // Si humanOnly = true, solo detectar frases de "quiero hablar con humano"
+  if (humanOnly) {
+    return humanKeywords.some(kw => lowerMessage.includes(kw));
+  }
+
   const detected = buyKeywords.some(kw => lowerMessage.includes(kw)) ||
          humanKeywords.some(kw => lowerMessage.includes(kw));
 
-  if (detected && CONFIG.debug) {
-    console.log(`[DEBUG] 🚨 Intención de derivación detectada en: "${message}"`);
+  if (detected) {
+    console.log(`[BOT] 🚨 Intención de compra/derivación: "${message.substring(0, 60)}"`);
   }
 
   return detected;
@@ -482,12 +643,11 @@ async function handleHandoff(msg, clientPhone, triggerMessage, history) {
 
   // --- MENSAJE PARA EL CLIENTE ---
   const handoffMsgToClient =
-    `¡Gracias por tu interés! 🎯\n\n` +
-    `Te voy a comunicar con *${assignment.employee_name}*, quien te atenderá personalmente.\n\n` +
-    `${assignment.employee_name} se comunicará contigo pronto. ` +
-    `También puedes escribirle directamente:\n` +
+    `¡Con gusto! 🙌\n\n` +
+    `Voy a conectarte directamente con *Álvaro*, nuestro asesor especializado, quien te va a acompañar personalmente en el proceso.\n\n` +
+    `En breve te escribe. Si quieres, también puedes contactarlo directamente:\n` +
     `📱 https://wa.me/${assignment.employee_phone}\n\n` +
-    `_${CONFIG.businessName} - Atención personalizada_`;
+    `_Zona Traumática — Asesoría real, respaldo real_ 🛡️`;
 
   await msg.reply(handoffMsgToClient);
 
@@ -497,17 +657,22 @@ async function handleHandoff(msg, clientPhone, triggerMessage, history) {
   // Actualizar estado del cliente
   db.upsertClient(clientPhone, { status: 'assigned' });
 
-  // --- MENSAJE PARA EL EMPLEADO ---
+  // --- MENSAJE PARA ÁLVARO (asesor) ---
   const context = summarizeConversation(history);
+  const clientMemory = db.getClientMemory(clientPhone) || 'Sin perfil previo';
 
   const notification =
-    `🔔 *Nueva asignación de cliente*\n\n` +
-    `👤 *Cliente:* ${clientName}\n` +
-    `📱 *Contactar:* ${clientLink}\n\n` +
-    `💬 *Requerimiento del cliente:*\n` +
+    `🔥 *CLIENTE CALIENTE — LISTO PARA CERRAR*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `👤 *Nombre:* ${clientName}\n` +
+    `📱 *WhatsApp:* ${clientLink}\n\n` +
+    `💬 *Lo que disparó la alerta:*\n` +
     `"${triggerMessage}"\n\n` +
-    `📋 *Historial de la conversación:*\n${context}\n\n` +
-    `👆 _Haz clic en el link para contactar al cliente._`;
+    `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
+    `📋 *Últimos mensajes:*\n${context}\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `👆 Toca el link para abrir el chat directamente.\n` +
+    `_El cliente ya sabe que lo vas a contactar._`;
 
   // Enviar notificación al empleado
   const employeeChatId = assignment.employee_phone + '@c.us';
@@ -562,25 +727,30 @@ function summarizeConversation(history) {
 function needsProductSearch(message) {
   const lower = message.toLowerCase().replace(/[¿?¡!.,;:()]/g, '');
 
-  // Palabras que indican que SÍ busca un producto
   const productKeywords = [
-    'rifle', 'rifles', 'pistola', 'pistolas', 'carabina',
-    'pcp', 'co2', 'resorte', 'springer', 'nitro',
-    'mira', 'miras', 'telescop', 'scope', 'punto rojo', 'red dot',
-    'balin', 'balines', 'municion', 'munición', 'pellet', 'diabolo', 'slug',
-    'funda', 'estuche', 'maleta',
-    'bomba', 'compresor', 'tanque',
-    'bipode', 'bipod', 'soporte',
-    'limpieza', 'mantenimiento', 'aceite',
-    'blanco', 'diana', 'target',
-    'cuchillo', 'navaja',
-    'linterna', 'gorra', 'gafas',
-    'calibre', '4.5', '5.5', '6.35', '.177', '.22', '.25',
-    'gamo', 'hatsan', 'snowpeak', 'artemis', 'apolo', 'jsb',
-    'arma', 'armas', 'aire', 'comprimido',
-    'producto', 'productos', 'catalogo', 'catálogo',
-    'qué tienen', 'que tienen', 'qué venden', 'que venden',
-    'qué manejan', 'que manejan', 'mostrar', 'opciones',
+    // Armas traumáticas
+    'traumatica', 'traumática', 'pistola', 'pistolas', 'arma', 'armas',
+    'revolver', 'revólver', 'dispositivo',
+    // Marcas
+    'retay', 'ekol', 'blow',
+    // Modelos
+    's2022', 'g17', 'volga', 'botan', 'mini 9', 'f92', 'tr92', 'tr 92',
+    'dicle', 'firat', 'nig', 'jackal', 'p92', 'magnum', 'compact',
+    // Características
+    'negro', 'negra', 'fume', 'cromado', 'color',
+    // Munición
+    'municion', 'munición', 'cartuchos', 'balas', 'oskurzan', 'rubber ball',
+    // Club / membresía
+    'club', 'membresia', 'membresía', 'plan plus', 'plan pro', 'juridico', 'jurídico',
+    // Catálogo general
+    'catalogo', 'catálogo', 'referencias', 'disponible', 'disponibles',
+    'precio', 'precios', 'cuanto', 'cuánto', 'vale', 'cuesta',
+    'que tienen', 'qué tienen', 'que manejan', 'qué manejan',
+    'que venden', 'qué venden', 'opciones', 'modelos',
+    // Carnet
+    'carnet', 'carnét', 'certificado', 'documento',
+    // Manifiesto de aduana
+    'manifiesto', 'aduana', 'importacion', 'importación', 'dian', 'polfa',
   ];
 
   return productKeywords.some(kw => lower.includes(kw));
@@ -617,28 +787,48 @@ async function getClaudeResponse(clientPhone, message, history) {
     const systemPrompt = buildSystemPrompt(productContext, clientMemory);
     const messages = buildMessages(history, message);
 
-    // 3. Llamar a Claude
-    const response = await axios.post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: messages
-      },
-      {
-        headers: {
-          'x-api-key': CONFIG.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json'
+    // 3. Llamar a Gemini con reintentos
+    const MAX_RETRIES = 3;
+    let lastError = null;
+
+    // Convertir formato Claude (system + messages) a formato Gemini (history + systemInstruction)
+    const geminiHistory = [];
+    for (const m of messages.slice(0, -1)) { // todo menos el último
+      geminiHistory.push({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      });
+    }
+    const lastUserMessage = messages[messages.length - 1]?.content || message;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const chat = geminiModel.startChat({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          history: geminiHistory,
+        });
+
+        const result = await chat.sendMessage(lastUserMessage);
+        return result.response.text();
+      } catch (retryError) {
+        lastError = retryError;
+        const errorMsg = retryError.message || 'Unknown error';
+        console.error(`[GEMINI] ⚠️ Intento ${attempt}/${MAX_RETRIES} falló: ${errorMsg}`);
+
+        // Esperar antes de reintentar (backoff exponencial)
+        if (attempt < MAX_RETRIES) {
+          const wait = attempt * 2000;
+          console.log(`[GEMINI] ⏳ Reintentando en ${wait / 1000}s...`);
+          await new Promise(r => setTimeout(r, wait));
         }
       }
-    );
+    }
 
-    return response.data.content[0].text;
+    console.error(`[GEMINI] ❌ Falló después de ${MAX_RETRIES} intentos: ${lastError?.message}`);
+    return 'Disculpa, estoy teniendo un problema momentáneo. Dame unos segundos e inténtalo de nuevo. 🙏';
   } catch (error) {
-    console.error('[CLAUDE] Error:', error.response?.data || error.message);
-    return 'Disculpa, tuve un problema técnico. ¿Podrías repetir tu consulta?';
+    console.error('[CLAUDE] Error general:', error.message);
+    return 'Disculpa, tuve un inconveniente. ¿Podrías repetir tu consulta?';
   }
 }
 
@@ -674,39 +864,131 @@ function buildSystemPrompt(productContext, clientMemory = '') {
     ? `\nFICHA DEL CLIENTE (memoria de interacciones previas):\n${clientMemory}\nUsa esta información para personalizar tu respuesta. Si ya sabes qué busca, sé más directo.\n`
     : '\nCLIENTE NUEVO: No hay interacciones previas. Preséntate brevemente y pregunta en qué puedes ayudar.\n';
 
-  return `Eres el asistente virtual de "${CONFIG.businessName}", una tienda especializada en rifles de aire comprimido, accesorios, munición y más.
+  return `Eres un asesor comercial de *Zona Traumática*, la tienda líder en Colombia especializada en armas traumáticas legales, defensa personal y respaldo jurídico. Álvaro Ocampo es el director.
 
-TU ROL:
-- Atender clientes por WhatsApp de forma amable y profesional
-- Responder preguntas sobre productos usando ÚNICAMENTE la información proporcionada abajo
-- Ayudar al cliente a encontrar lo que busca y resolver sus dudas
-- Mantener respuestas cortas y claras (máximo 2-3 párrafos para WhatsApp)
+TU PERSONALIDAD:
+- Eres humano, cálido, directo y profesional. NUNCA debes parecer un bot.
+- Hablas como un colombiano real — natural, con confianza, sin ser vulgar. Tuteas.
+- Emojis con moderación (máximo 2-3 por mensaje). No en cada frase.
+- NUNCA uses frases como "como asesor tu rol es...", "recuerda que debes..." — eso es hablarte a ti mismo. Tú hablas CON EL CLIENTE, siempre.
+- Si el cliente manda solo emojis o saludos cortos, responde natural: "¡Buenas! ¿En qué te puedo ayudar?"
+
+⚠️ REGLA CRÍTICA — NOMBRES:
+- El nombre del cliente viene ÚNICAMENTE de su perfil de WhatsApp (la FICHA DEL CLIENTE de abajo).
+- NUNCA asumas que un nombre mencionado en el chat es el nombre del cliente. Si alguien dice "Álvaro" o "búscame a Álvaro", NO concluyas que el cliente se llama Álvaro — "Álvaro" es el director de Zona Traumática, no el cliente.
+- Si no tienes el nombre en la ficha, puedes preguntar una vez: "¿Con quién tengo el gusto?" Pero NUNCA lo deduzcas del contenido del mensaje.
+- Si el cliente dice su nombre explícitamente ("me llamo Juan", "soy Pedro"), ahí sí úsalo.
+
+FLUJO DE VENTA — ORDEN NATURAL:
+1. Si no tienes nombre en la ficha: saluda y pregunta con quién hablas UNA sola vez.
+2. Si ya lo sabes por la ficha: ve directo al punto, úsalo naturalmente.
+3. Identifica el perfil (quiere comprar arma / ya tiene una / quiere info legal).
+4. ENTREGA LA INFORMACIÓN COMPLETA según el perfil — no sacrifiques contenido por brevedad.
+5. Cierra: "¿Con cuál te quedamos?" / "¿Te lo separo?"
+
+⚡ REGLA DE ORO: La venta consultiva NO significa hacer preguntas infinitas. Significa entender al cliente Y DARLE TODA LA INFORMACIÓN que necesita para decidir. Un cliente informado compra. Un cliente con preguntas sin respuesta se va.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 PAQUETE COMPLETO DE COMPRA (esto recibe el cliente con cada arma):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔫 1 Pistola Traumática (el modelo que elija)
+💥 50 Cartuchos traumáticos de goma (calibre 9×22mm)
+📄 Comprobante digital de compra
+🎯 Caja táctica de almacenamiento seguro
+📚 Capacitación virtual GRATIS (2 horas): Marco legal colombiano, protocolo ante autoridades, sesiones grupales virtuales cada ~2 semanas
+🎁 BONUS: 1 año de membresía Plan Plus Club ZT incluida
+🛡️ Soporte legal 24/7: grupos de WhatsApp activos con comunidad de portadores
+📋 Kit de defensa legal digital: carpeta con sentencias, leyes y jurisprudencia actualizada, guías paso a paso para situaciones con autoridades, acceso a biblioteca legal en línea
+📺 Acceso al canal YouTube con 50+ videos sobre tus derechos
+
+¿Es legal? SÍ, 100% legal. Ley 2197/2022 — dispositivos menos letales. NO requieren permiso de porte de armas de fuego.
+¿Envíos? Sí, a toda Colombia. Envío ~$25.000. Discreto y seguro.
+¿Capacitación? Sesiones grupales virtuales cada ~2 semanas. Te agendamos.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛡️ CLUB ZONA TRAUMÁTICA — OFERTA COMPLETA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Contexto: 800+ incautaciones ilegales en 2024. El 87% sin fundamento jurídico. La diferencia entre perder tu arma o conservarla no está en la suerte — está en tener un escudo legal ANTES de que te paren.
+
+PLAN PLUS — $150.000/año ("Para el que quiere dormir tranquilo")
+✅ Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar el día que te paren
+✅ Simulacros de requisa — Qué decir, qué callar, cómo actuar
+✅ Descuentos en munición (recuperas tu inversión en la primera caja):
+   • Oskurzan Nacional: $120.000 (precio público: $150.000)
+   • Oskurzan Importada: $130.000 (precio público: $180.000)
+   • Rubber Ball Importada: $180.000 (precio público: $220.000)
+✅ Comunidad de 500+ portadores — Red nacional, respaldo inmediato
+✅ Certificado digital con QR — Validación profesional por 1 año
+→ Te ahorras hasta $50.000 por caja de munición. Y $2 millones en abogados si algo sale mal.
+
+PLAN PRO — $200.000/año ("Para el que no negocia su patrimonio")
+Todo lo del Plan Plus +
+🔥 DEFENSA JURÍDICA 100% GRATIS si te incautan ilegalmente:
+   🔹 Primera instancia ante Policía — valor comercial: $800.000
+   🔹 Tutela para obligar respuesta — valor comercial: $600.000
+   🔹 Nulidad del acto administrativo — valor comercial: $1.200.000
+   → Total en abogados cubierto: $2.6 millones. Tu inversión: $200.000.
+   → Un solo caso te pagaría el club por 13 años.
+
+LA VERDAD QUE NADIE DICE:
+Contratar abogado DESPUÉS de la incautación cuesta $800.000–$1.500.000 solo en primera instancia + semanas sin respuesta + estrés.
+Afiliarte ANTES cuesta $150.000–$200.000/año + todo listo el día que lo necesites.
+
+INSCRIPCIÓN — 3 PASOS:
+1️⃣ Pago (el que prefieras):
+   • Nequi: 3013981979
+   • Bancolombia Ahorros: 064-431122-17
+   • Bre-B: @3013981979
+   • Titular: Alvaro Ocampo — C.C. 1.107.078.609
+2️⃣ Enviar comprobante por WhatsApp
+3️⃣ Recibes en 24h: carpeta jurídica + carnet digital QR + acceso comunidad privada
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 ASESOR LEGAL IA — ZONA TRAUMÁTICA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+$50.000 por 6 meses = $277 pesos al día de poder legal
+✅ Respuesta inmediata (10 segundos) directo a tu WhatsApp personal
+✅ Disponible 24/7
+✅ Cita leyes EXACTAS: Decreto 2535 Art. 11, Ley 2197/2022 Art. 28, Código Penal Art. 416
+✅ Base de conocimiento legal exclusiva verificada (Sistema MCP + RAG)
+✅ Cuando el policía esté frente a ti → citas la ley exacta → el policía retrocede
+SOLO para afiliados activos al Club ZT. Para activar: responde ACTIVAR.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MEDIOS DE PAGO (para cualquier producto):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Nequi: 3013981979
+• Bancolombia Ahorros: 064-431122-17
+• Bre-B: @3013981979
+• Titular: Alvaro Ocampo — C.C. 1.107.078.609
+• Link BOLD: comercio certificado, pago seguro en línea
+
+MANEJO DE OBJECIONES:
+- Duda de la tienda/pago: YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Únicos con casos de recuperación de armas documentados en Colombia. También pago por link BOLD.
+- Dónde estamos: Jamundí, 100% virtuales, despachamos desde bodegas en Bogotá.
+- Manifiesto de aduana: es del importador, NO del comprador. Ningún vendedor serio lo entrega. Si alguien lo ofrece, es señal de fraude. Nosotros entregamos factura con NIT + asesoría jurídica.
+- ¿Qué tan efectiva es?: impacto de goma genera dolor intenso e incapacitación temporal sin daño permanente. Neutraliza amenazas a distancia segura.
+- Después del primer año: renovación $150.000 (Plus) o $200.000 (Pro).
+
+PREGUNTAS LEGALES:
+- ¿Es legal?: SÍ, 100% legal. Ley 2197/2022 — categoría jurídica autónoma, distintas a armas de fuego, NO requieren permiso de porte.
+- Para detalle jurídico completo: Biblioteca Legal https://zonatraumatica.club/portelegal/biblioteca — cubre Ley 2197/2022, Art. 223 Constitución, Decreto 2535/93, Sentencia C-014/2023, Tribunal Superior Bogotá, casos ganados reales, 20+ normas.
 ${memoryBlock}
 ${catalogSummary}
 
 ${productContext}
 
-INFORMACIÓN GENERAL DEL NEGOCIO:
-${JSON.stringify(knowledgeBase.negocio || {}, null, 2)}
+REGLAS CRÍTICAS:
+1. SOLO menciona referencias que aparecen en "REFERENCIAS RELEVANTES". NUNCA inventes modelos ni precios.
+2. Cuando recomiendes un producto, SIEMPRE incluye la URL EXACTA del catálogo. NUNCA uses placeholders como [Link de...]. SIEMPRE la URL completa: ej. https://zonatraumatica.club/producto/retay-g17/
+3. Si no tiene URL en referencias, usa: https://zonatraumatica.club/tienda
+4. Links permitidos adicionales: Biblioteca https://zonatraumatica.club/portelegal/biblioteca | YouTube https://www.youtube.com/@zonatraumatica | TikTok https://www.tiktok.com/@zonatraumaticacolombia
+5. Responde en español, tono asesor humano real.
+6. Adapta el largo de la respuesta al contexto: si el cliente pregunta por el club, dale TODA la info del club. Si pregunta qué incluye la compra, dale TODO el paquete. No recortes información valiosa por brevedad.
 
-PREGUNTAS FRECUENTES:
-${JSON.stringify(knowledgeBase.preguntas_frecuentes || {}, null, 2)}
-
-REGLAS IMPORTANTES:
-1. SOLO menciona productos que aparecen en "PRODUCTOS RELEVANTES" arriba. NUNCA inventes productos.
-2. Puedes mencionar los precios que aparecen en la lista. Son precios reales del catálogo.
-3. Si el cliente pide algo que NO está en los productos mostrados, di: "Déjame verificar, ¿podrías darme más detalles de lo que buscas?"
-4. Si el cliente quiere comprar, cotizar, o hablar con un humano, dile: "¡Con gusto! Escríbeme 'quiero comprar' o 'hablar con asesor' y te conecto con un experto de inmediato."
-5. Responde siempre en español
-6. Sé amigable pero profesional
-7. Incluye el link del producto cuando lo menciones para que el cliente pueda verlo
-8. Si no hay productos relevantes, presenta las categorías disponibles y pregunta qué busca
-
-⚠️ REGLA CRÍTICA - DERIVACIONES:
-- NUNCA simules una derivación o transferencia tú mismo. NO escribas cosas como "[TRANSFERIR A AGENTE HUMANO]", "Te estoy redirigiendo...", ni resúmenes para el asesor.
-- Tú NO tienes la capacidad de transferir clientes. Eso lo hace el sistema automáticamente cuando el cliente escribe ciertas frases.
-- Si el cliente quiere comprar o hablar con alguien, simplemente dile que escriba "quiero comprar" o "hablar con asesor" para que el sistema lo conecte automáticamente.
-- NUNCA generes bloques de texto con formato de transferencia, resúmenes para asesores, o simulaciones de derivación. Eso confunde al cliente.`;
+⚠️ DERIVACIONES:
+- NUNCA escribas "[TRANSFIRIENDO AL ASESOR]" ni simules transferencias.
+- Si el cliente quiere comprar o hablar con alguien: dile que escriba "quiero comprar" o "hablar con asesor" y el sistema lo conecta automáticamente.`;
 }
 
 function buildMessages(history, currentMessage) {
@@ -936,6 +1218,200 @@ async function handleAdminCommand(msg, senderPhone, command) {
 
   } else {
     await msg.reply('Comando no reconocido. Escribe !help para ver los comandos disponibles.');
+  }
+}
+
+// ============================================
+// RECUPERAR CHATS SIN RESPONDER
+// ============================================
+// Se ejecuta una sola vez al arrancar el bot.
+// Busca chats con mensajes NO respondidos por nosotros
+// y les envía el mensaje de recuperación de clientes.
+async function recuperarChatsViejos() {
+  try {
+    console.log('[RECOVERY] 🔍 Buscando chats sin responder...');
+
+    const allChats = await client.getChats();
+    let enviados = 0;
+    let omitidos = 0;
+
+    // Archivo de control para no enviar dos veces al mismo número
+    const controlPath = path.join(__dirname, 'recovery_enviados.json');
+    let yaEnviados = {};
+    if (fs.existsSync(controlPath)) {
+      yaEnviados = JSON.parse(fs.readFileSync(controlPath, 'utf8'));
+    }
+
+    // Paso 1: Filtrar chats válidos y recolectar info
+    console.log('[RECOVERY] 📋 Filtrando y ordenando chats...');
+    const chatsPendientes = [];
+
+    for (const chat of allChats) {
+      try {
+        if (chat.isGroup) continue;
+        if (chat.id._serialized === 'status@broadcast') continue;
+
+        const serialized = chat.id?._serialized || '';
+        if (serialized.includes('@newsletter')) continue;
+        if (serialized.includes('@broadcast')) continue;
+        if (chat.type === 'channel') continue;
+        if (!serialized.includes('@c.us')) continue;
+
+        const phone = chat.id.user;
+        if (phone === CONFIG.businessPhone.replace('57', '') ||
+            phone === '573150177199'.replace('57', '')) continue;
+        if (yaEnviados[phone]) { omitidos++; continue; }
+
+        // Bloquear bots empresariales (números cortos)
+        const phoneClean = phone.replace('57', '');
+        if (phoneClean.length <= 6) continue;
+
+        const messages = await chat.fetchMessages({ limit: 5 });
+        if (!messages || messages.length === 0) continue;
+
+        // Buscar el mensaje más antiguo para ordenar por antigüedad
+        const firstMsg = messages[0];
+        if (!firstMsg) continue;
+
+        // Guardar chat con su timestamp para ordenar (más viejo primero)
+        chatsPendientes.push({
+          chat,
+          phone,
+          timestamp: firstMsg.timestamp || 0 // epoch en segundos
+        });
+      } catch (e) {
+        // Chat problemático, saltar silenciosamente
+      }
+    }
+
+    // Paso 2: Ordenar por timestamp ASCENDENTE (más viejos primero)
+    chatsPendientes.sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log(`[RECOVERY] 📊 ${chatsPendientes.length} chats pendientes encontrados. Enviando desde el más viejo...`);
+
+    // Paso 3: Enviar mensajes en orden (más viejos primero)
+    for (const item of chatsPendientes) {
+      try {
+        const { chat, phone } = item;
+        const fecha = new Date(item.timestamp * 1000).toLocaleDateString('es-CO');
+
+        let nombre = '';
+        try {
+          const contact = await chat.getContact();
+          nombre = contact.pushname || contact.name || contact.shortName || '';
+        } catch (e) { /* silencioso */ }
+
+        const mensajeRecuperacion =
+          `Hola${nombre ? ' ' + nombre.split(' ')[0] : ''} 👋, buenas.\n\n` +
+          `Te escribo de parte de *Zona Traumática*. Veo que hace un tiempo nos escribiste y quiero disculparme sinceramente por no haberte atendido — estuvimos en un proceso de restructuración y renovamos completamente nuestro equipo y herramientas de atención.\n\n` +
+          `Hoy estamos operando con un servicio mucho más ágil y completo. ¿Sigues interesado/a en lo que consultaste? Con gusto te atiendo personalmente ahora. 🙌`;
+
+        await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000));
+        await client.sendMessage(chat.id._serialized, mensajeRecuperacion);
+
+        saveContactToVCF(phone, nombre);
+
+        yaEnviados[phone] = new Date().toISOString();
+        fs.writeFileSync(controlPath, JSON.stringify(yaEnviados, null, 2), 'utf8');
+
+        enviados++;
+        console.log(`[RECOVERY] ✅ (${enviados}/${chatsPendientes.length}) ${nombre || phone} — último msg: ${fecha}`);
+
+      } catch (chatError) {
+        console.error(`[RECOVERY] ⚠️ Chat omitido (${item.phone || 'desconocido'}):`, chatError.message);
+      }
+    }
+
+    console.log(`[RECOVERY] 🏁 Recuperación completa: ${enviados} mensajes enviados, ${omitidos} chats ya atendidos o sin acción.`);
+
+  } catch (error) {
+    console.error('[RECOVERY] Error general:', error.message);
+  }
+}
+
+// ============================================
+// GUARDAR CONTACTO INDIVIDUAL EN VCF MAESTRO
+// ============================================
+// Cada vez que llega un cliente nuevo, lo agrega al archivo
+// contactos_clientes.vcf (acumulativo, no sobreescribe)
+function saveContactToVCF(phone, name) {
+  try {
+    const displayName = name || phone;
+    const vcfPath = path.join(__dirname, 'contactos_clientes.vcf');
+
+    // Verificar si ya está en el archivo para no duplicar
+    if (fs.existsSync(vcfPath)) {
+      const existing = fs.readFileSync(vcfPath, 'utf8');
+      if (existing.includes(`+${phone}`)) {
+        if (CONFIG.debug) {
+          console.log(`[VCF] Contacto ya existe en VCF: ${displayName} (${phone})`);
+        }
+        return;
+      }
+    }
+
+    // Construir entrada vCard
+    const vcard =
+      'BEGIN:VCARD\n' +
+      'VERSION:3.0\n' +
+      `FN:${displayName}\n` +
+      `N:${displayName};;;;\n` +
+      `TEL;TYPE=CELL:+${phone}\n` +
+      `NOTE:Cliente ZT — ${new Date().toLocaleDateString('es-CO')}\n` +
+      'END:VCARD\n\n';
+
+    // Agregar al archivo (append)
+    fs.appendFileSync(vcfPath, vcard, 'utf8');
+    console.log(`[VCF] ✅ Contacto guardado: ${displayName} (+${phone})`);
+
+  } catch (error) {
+    console.error('[VCF] Error guardando contacto individual:', error.message);
+  }
+}
+
+// ============================================
+// EXPORTAR CONTACTOS A VCF
+// ============================================
+async function exportContactsToVCF() {
+  try {
+    console.log('[VCF] Exportando contactos de WhatsApp...');
+    const contacts = await client.getContacts();
+
+    let vcfContent = '';
+    let count = 0;
+
+    for (const contact of contacts) {
+      // Saltar contactos sin número o de tipo broadcast/grupo
+      if (!contact.number || contact.isGroup || contact.id._serialized === 'status@broadcast') continue;
+
+      const name = contact.pushname || contact.name || contact.shortName || contact.number;
+      const phone = contact.number;
+
+      vcfContent += 'BEGIN:VCARD\n';
+      vcfContent += 'VERSION:3.0\n';
+      vcfContent += `FN:${name}\n`;
+      if (contact.name) {
+        vcfContent += `N:${contact.name};;;;\n`;
+      } else {
+        vcfContent += `N:${name};;;;\n`;
+      }
+      vcfContent += `TEL;TYPE=CELL:+${phone}\n`;
+      vcfContent += 'END:VCARD\n\n';
+      count++;
+    }
+
+    if (count === 0) {
+      console.log('[VCF] No se encontraron contactos para exportar.');
+      return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    const vcfPath = path.join(__dirname, `contactos_whatsapp_${timestamp}.vcf`);
+    fs.writeFileSync(vcfPath, vcfContent, 'utf8');
+
+    console.log(`[VCF] ✅ ${count} contactos exportados a: ${vcfPath}`);
+  } catch (error) {
+    console.error('[VCF] Error exportando contactos:', error.message);
   }
 }
 

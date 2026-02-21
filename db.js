@@ -46,6 +46,10 @@ function initDatabase() {
     db.exec(`ALTER TABLE clients ADD COLUMN interaction_count INTEGER DEFAULT 0`);
     console.log('[DB] Columna interaction_count agregada');
   } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN ignored INTEGER DEFAULT 0`);
+    console.log('[DB] Columna ignored agregada');
+  } catch (e) { /* ya existe */ }
   // last_interaction ya no se usa — usamos updated_at
 
   // Tabla de empleados
@@ -435,6 +439,19 @@ function getClientProfile(phone) {
 }
 
 // ============================================
+// IGNORAR CONTACTO
+// ============================================
+function setIgnored(phone, ignored = true) {
+  db.prepare('UPDATE clients SET ignored = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?')
+    .run(ignored ? 1 : 0, phone);
+}
+
+function isIgnored(phone) {
+  const client = getClient(phone);
+  return client ? client.ignored === 1 : false;
+}
+
+// ============================================
 // EXPORTAR
 // ============================================
 module.exports = {
@@ -449,6 +466,8 @@ module.exports = {
   getClientProfile,
   updateClientNotes,
   resetClient,
+  setIgnored,
+  isIgnored,
   // Empleados
   getEmployee,
   getEmployeeByPhone,

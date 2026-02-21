@@ -1,7 +1,7 @@
 {
-  "name": "asesor-general-bot",
+  "name": "zona-traumatica-bot",
   "version": "1.0.0",
-  "description": "Bot empresarial de WhatsApp con CRM integrado y sistema de asignación de clientes a empleados",
+  "description": "Bot de WhatsApp para Zona Traumática — armas traumáticas legales, Club de Tiro y respaldo jurídico",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -19,6 +19,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.13.5",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^17.2.4",
