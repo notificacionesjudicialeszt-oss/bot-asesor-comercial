@@ -14,6 +14,7 @@ const PORT = 3000;
 
 // Migraciones — agregar columnas nuevas si no existen
 try { db.exec(`ALTER TABLE clients ADD COLUMN ignored INTEGER DEFAULT 0`); } catch(e) { /* ya existe */ }
+try { db.exec(`ALTER TABLE clients ADD COLUMN spam_flag INTEGER DEFAULT 0`); } catch(e) { /* ya existe */ }
 
 function getData() {
   const clients = db.prepare('SELECT * FROM clients ORDER BY updated_at DESC').all();
@@ -42,7 +43,10 @@ function getData() {
     )
   );
 
-  return { clients, conversations, assignments, employees, totalClients, newClients, activeAssignments, totalMessages, clientsToday, messagesToday, hotLeads };
+  // Posibles bots / spam
+  const spamFlagged = clients.filter(c => c.spam_flag == 1);
+
+  return { clients, conversations, assignments, employees, totalClients, newClients, activeAssignments, totalMessages, clientsToday, messagesToday, hotLeads, spamFlagged };
 }
 
 function getClientChat(phone, limit = 100) {
@@ -132,6 +136,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Marcar / desmarcar spam flag
+  if (url.pathname === '/api/set-spam-flag' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { phone, flagged } = JSON.parse(body);
+        const val = flagged ? 1 : 0;
+        db.prepare('UPDATE clients SET spam_flag = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(val, phone);
+        console.log(`[PANEL] 🚨 set-spam-flag: ${phone} → ${val}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Panel HTML
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(getHTML());
@@ -169,6 +193,19 @@ function getHTML() {
   .stat.red { border-left-color: #f85149; }
   .stat.purple .num { color: #bc8cff; }
   .stat.purple { border-left-color: #bc8cff; }
+  /* Alertas de spam/bot */
+  #spamAlerts { padding: 0 25px; }
+  .spam-alert-box { background: #2d1b1b; border: 1px solid #f85149; border-left: 4px solid #f85149; border-radius: 6px; padding: 12px 18px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .spam-alert-box .spam-info { flex: 1; }
+  .spam-alert-box .spam-title { color: #f85149; font-weight: 700; font-size: 14px; }
+  .spam-alert-box .spam-sub { color: #8b949e; font-size: 12px; margin-top: 2px; }
+  .spam-alert-box .spam-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .btn-spam-bot { background: #f85149; color: #fff; border: none; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .btn-spam-bot:hover { background: #da3633; }
+  .btn-spam-ok { background: #238636; color: #fff; border: none; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .btn-spam-ok:hover { background: #2ea043; }
+  .btn-spam-ver { background: #1c2733; color: #58a6ff; border: 1px solid #1c6fb5; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .btn-spam-ver:hover { background: #0d1117; }
   .container { display: flex; gap: 20px; padding: 0 25px 25px; height: calc(100vh - 220px); }
   .panel { background: #111820; border: 1px solid #1c2733; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
   .panel-left { flex: 1; min-width: 400px; }
@@ -243,6 +280,7 @@ function getHTML() {
   </div>
 </div>
 <div class="stats" id="stats"></div>
+<div id="spamAlerts"></div>
 <div class="container">
   <div class="panel panel-left">
     <div class="panel-header">
@@ -254,6 +292,7 @@ function getHTML() {
       <div class="tab" data-filter="new" onclick="setFilter('new',this)">Nuevos</div>
       <div class="tab" data-filter="hot" onclick="setFilter('hot',this)">🔥 Calientes</div>
       <div class="tab" data-filter="assigned" onclick="setFilter('assigned',this)">Asignados</div>
+      <div class="tab" data-filter="postventa" onclick="setFilter('postventa',this)">🛠️ Post-venta</div>
     </div>
     <div class="panel-body" id="clientList"></div>
   </div>
@@ -273,8 +312,47 @@ async function loadData() {
   const res = await fetch('/api/data');
   allData = await res.json();
   renderStats();
+  renderSpamAlerts();
   renderClients();
   document.getElementById('lastUpdate').textContent = 'Actualizado: ' + new Date().toLocaleTimeString();
+}
+
+function renderSpamAlerts() {
+  const container = document.getElementById('spamAlerts');
+  const flagged = allData.spamFlagged || [];
+  if (flagged.length === 0) { container.innerHTML = ''; return; }
+  container.innerHTML = flagged.map(c => \`
+    <div class="spam-alert-box" id="spam_\${c.phone}">
+      <div class="spam-info">
+        <div class="spam-title">🚨 Posible BOT / Spam detectado</div>
+        <div class="spam-sub">📱 \${c.phone} &nbsp;|&nbsp; \${c.name || 'Sin nombre'} &nbsp;|&nbsp; Demasiados mensajes por minuto — pendiente tu revisión</div>
+      </div>
+      <div class="spam-actions">
+        <button class="btn-spam-ver" onclick="selectClient('\${c.phone}')">👁️ Ver chat</button>
+        <button class="btn-spam-ok" onclick="resolveSpam('\${c.phone}', false)">✅ Es cliente real — reactivar</button>
+        <button class="btn-spam-bot" onclick="resolveSpam('\${c.phone}', true)">🤖 Es bot — silenciar</button>
+      </div>
+    </div>
+  \`).join('');
+}
+
+async function resolveSpam(phone, isBot) {
+  // Quitar el spam_flag siempre
+  await fetch('/api/set-spam-flag', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, flagged: false })
+  });
+  // Si es bot, además ignorarlo
+  if (isBot) {
+    await fetch('/api/set-ignored', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, ignored: true })
+    });
+  }
+  await loadData();
+  if (!isBot) selectClient(phone); // si es cliente real, abrirlo para atenderlo
 }
 
 function renderStats() {
@@ -296,6 +374,7 @@ function renderClients() {
   if (currentFilter === 'new') clients = clients.filter(c => c.status === 'new');
   else if (currentFilter === 'assigned') clients = clients.filter(c => c.status === 'assigned');
   else if (currentFilter === 'hot') clients = allData.hotLeads;
+  else if (currentFilter === 'postventa') clients = clients.filter(c => c.status === 'postventa');
 
   if (search) {
     clients = clients.filter(c =>

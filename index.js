@@ -9,7 +9,7 @@
 // 5. Notifica al empleado con el contexto de la conversación
 
 require('dotenv').config();
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const fs = require('fs');
@@ -73,6 +73,33 @@ router.initRouter();
 search.loadCatalog();
 
 // ============================================
+// ANTI-LOOP — detector de mensajes por minuto
+// ============================================
+// Mapa en memoria: phone -> array de timestamps de mensajes recientes
+const messageTimestamps = new Map();
+const RATE_LIMIT_MAX = 6;      // más de 6 mensajes...
+const RATE_LIMIT_WINDOW = 60;  // ...en 60 segundos = posible bot
+
+function checkRateLimit(phone) {
+  const now = Date.now();
+  const windowMs = RATE_LIMIT_WINDOW * 1000;
+
+  if (!messageTimestamps.has(phone)) {
+    messageTimestamps.set(phone, []);
+  }
+
+  // Filtrar solo los timestamps dentro de la ventana
+  const timestamps = messageTimestamps.get(phone).filter(t => now - t < windowMs);
+  timestamps.push(now);
+  messageTimestamps.set(phone, timestamps);
+
+  if (timestamps.length > RATE_LIMIT_MAX) {
+    return true; // supera el límite — posible bot
+  }
+  return false;
+}
+
+// ============================================
 // CLIENTE DE WHATSAPP
 // ============================================
 const client = new Client({
@@ -110,6 +137,9 @@ client.on('ready', async () => {
 
   // Recovery COMPLETADO — bot en modo venta
   // setTimeout(() => recuperarChatsViejos(), 8000);
+
+  // Iniciar broadcaster de imágenes a grupos (esperar 30s para que todo esté listo)
+  setTimeout(() => startGroupBroadcaster(), 30000);
 });
 
 // Error de autenticación
@@ -218,6 +248,21 @@ client.on('message', async (msg) => {
       return;
     }
 
+    // 🚨 Anti-loop: si ya está flaggeado como posible spam, silenciar hasta revisión
+    if (db.isSpamFlagged(senderPhone)) {
+      console.log(`[BOT] 🚨 Pausado por spam_flag: ${senderPhone} — pendiente revisión en panel`);
+      return;
+    }
+
+    // 🚨 Anti-loop: detectar ráfaga de mensajes (posible bot)
+    if (checkRateLimit(senderPhone)) {
+      console.log(`[BOT] ⚠️ Rate limit detectado para ${senderPhone} — marcando como posible bot`);
+      db.upsertClient(senderPhone, {});
+      db.setSpamFlag(senderPhone, true);
+      console.log(`[BOT] 🚨 ${senderPhone} marcado como posible spam en panel`);
+      return;
+    }
+
     // Log de todo mensaje entrante (para monitoreo)
     console.log(`[MSG] 📩 ${chat.name || senderPhone}: "${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}"`);
 
@@ -296,7 +341,7 @@ client.on('message', async (msg) => {
             // Guardar en historial CRM
             db.saveMessage(senderPhone, 'user', '[imagen enviada]');
             db.saveMessage(senderPhone, 'assistant', reply);
-            db.updateClientInteraction(senderPhone);
+            db.upsertClient(senderPhone, {});
             console.log(`[IMG] 🖼️ Imagen procesada para ${senderPhone}`);
           }
         } catch (imgErr) {
@@ -403,17 +448,18 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
   // 5. Simular escritura
   await chat.sendStateTyping();
 
-  // 6. Detectar intención de compra/cotización
+  // 6. Detectar intención — post-venta primero, luego venta/compra
+  const isPostventa = detectPostventaIntent(messageBody);
   const wantsHuman = detectHandoffIntent(messageBody);
+  const hasEnoughHistory = history.length >= 6;
+  const wantsHumanExplicit = detectHandoffIntent(messageBody, true);
 
-  // Solo derivar si el cliente ya tuvo mínimo 3 intercambios con el bot
-  // O si explícitamente pide hablar con humano/asesor
-  const hasEnoughHistory = history.length >= 6; // 3 user + 3 assistant = 6
-  const wantsHumanExplicit = detectHandoffIntent(messageBody, true); // solo keywords de "hablar con humano"
-
-  if (wantsHuman && hasEnoughHistory || wantsHumanExplicit) {
-    // --- DERIVAR A EMPLEADO ---
-    await handleHandoff(msg, senderPhone, messageBody, history);
+  if (isPostventa) {
+    // --- POST-VENTA: marcar en panel silenciosamente y seguir con IA ---
+    await handleHandoff(msg, senderPhone, messageBody, history, 'postventa');
+  } else if (wantsHuman && hasEnoughHistory || wantsHumanExplicit) {
+    // --- LEAD CALIENTE: marcar en panel silenciosamente y seguir con IA ---
+    await handleHandoff(msg, senderPhone, messageBody, history, 'venta');
   } else {
     // --- RESPONDER CON IA ---
     let response;
@@ -430,6 +476,59 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
 
       // Enviar respuesta
       await msg.reply(response);
+
+      // Enviar imagen promo del Club ZT SOLO cuando el bot está ofreciendo la afiliación
+      // (no en cada mención — solo cuando presenta los planes activamente)
+      const responseLower = response.toLowerCase();
+      const estaOfreciendoClub = (
+        responseLower.includes('plan plus') && responseLower.includes('plan pro')
+      ) || (
+        responseLower.includes('100.000') && responseLower.includes('afiliaci')
+      ) || (
+        responseLower.includes('inscripción') && responseLower.includes('club')
+      ) || (
+        responseLower.includes('promoción') && (responseLower.includes('club') || responseLower.includes('plan'))
+      );
+      if (estaOfreciendoClub) {
+        try {
+          const promoImgPath = path.join(__dirname, 'imagenes', 'club-promo.png');
+          if (fs.existsSync(promoImgPath)) {
+            const media = MessageMedia.fromFilePath(promoImgPath);
+            await msg.reply(media);
+            console.log(`[BOT] 🖼️ Imagen Club ZT enviada a ${senderPhone}`);
+          }
+        } catch (imgErr) {
+          console.error('[BOT] Error enviando imagen Club ZT:', imgErr.message);
+        }
+      }
+
+      // Detectar confirmación de pago y actualizar estado automáticamente
+      const pagoConfirmado = responseLower.includes('comprobante') && (
+        responseLower.includes('recib') || responseLower.includes('confirm') || responseLower.includes('verific')
+      ) || (
+        responseLower.includes('pago') && (responseLower.includes('recib') || responseLower.includes('confirm'))
+      );
+      if (pagoConfirmado) {
+        const clienteActual = db.getClient(senderPhone);
+        const memoriaBaja = (clienteActual?.memory || '').toLowerCase();
+        const mensajeBajo = messageBody.toLowerCase();
+        const respuestaBaja = responseLower;
+        // Buscar en mensaje, memoria Y respuesta del bot si hay contexto de club/carnet
+        const esClub = mensajeBajo.includes('club') ||
+                       mensajeBajo.includes('afiliaci') ||
+                       mensajeBajo.includes('carnet') ||
+                       memoriaBaja.includes('club') ||
+                       memoriaBaja.includes('afiliaci') ||
+                       memoriaBaja.includes('carnet') ||
+                       respuestaBaja.includes('carnet') ||
+                       respuestaBaja.includes('afiliaci') ||
+                       respuestaBaja.includes('club zt') ||
+                       // Montos típicos del club (100k, 150k, 200k) vs armas (más de 500k)
+                       ['150', '170', '100', '200'].some(m => mensajeBajo.includes(m) && !mensajeBajo.includes('500') && !mensajeBajo.includes('600') && !mensajeBajo.includes('700') && !mensajeBajo.includes('800'));
+        const nuevoStatus = esClub ? 'carnet_pendiente' : 'despacho_pendiente';
+        db.upsertClient(senderPhone, { status: nuevoStatus });
+        console.log(`[BOT] 💰 Pago detectado → estado: ${nuevoStatus} para ${senderPhone}`);
+      }
 
       // 7. Actualizar memoria del cliente (en background, no bloquea)
       updateClientMemory(senderPhone, messageBody, response, history).catch(err => {
@@ -562,6 +661,42 @@ function generateSimpleMemory(currentMemory, message) {
 }
 
 // ============================================
+// DETECCIÓN DE POST-VENTA
+// ============================================
+function detectPostventaIntent(message) {
+  const lower = message.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[¿?¡!.,;:()]/g, '');
+
+  const postventaKeywords = [
+    // Carnet
+    'carnet', 'carne', 'certificado', 'qr', 'carnet digital',
+    'mi carnet', 'el carnet', 'actualizar carnet', 'estado del carnet',
+    'cuando llega el carnet', 'cuando me mandan el carnet',
+    // Despacho / envío
+    'despacho', 'envio', 'envío', 'pedido', 'paquete', 'domicilio',
+    'cuando llega', 'cuando me llega', 'cuando me mandan', 'ya pague',
+    'ya pague y', 'hice el pago', 'realize el pago', 'realice el pago',
+    'confirmar pago', 'comprobante', 'ya envie el comprobante',
+    'cuando me despachan', 'numero de guia', 'número de guía', 'guia',
+    // Cambio de arma en carnet
+    'cambio de arma', 'cambiar arma', 'actualizar arma', 'nueva arma',
+    'cambiar el serial', 'nuevo serial', 'cambiar modelo',
+    // Renovación
+    'renovar', 'renovacion', 'renovación', 'vencio', 'venció', 'vencimiento',
+    'ya se vencio', 'se me vencio', 'vence', 'vencio mi',
+    // Soporte general post-pago
+    'ya soy afiliado', 'ya me afilie', 'ya me afilié', 'soy miembro',
+    'acceso al grupo', 'no me han agregado', 'no recibi', 'no recibí',
+    'no me llegó', 'no me llego', 'no he recibido',
+  ];
+
+  const detected = postventaKeywords.some(kw => lower.includes(kw));
+  if (detected) console.log(`[BOT] 🛠️ Post-venta detectado: "${message.substring(0, 60)}"`);
+  return detected;
+}
+
+// ============================================
 // DETECCIÓN DE INTENCIÓN DE DERIVACIÓN
 // ============================================
 function detectHandoffIntent(message, humanOnly = false) {
@@ -621,60 +756,65 @@ function detectHandoffIntent(message, humanOnly = false) {
 // ============================================
 // DERIVACIÓN A EMPLEADO (HANDOFF)
 // ============================================
-async function handleHandoff(msg, clientPhone, triggerMessage, history) {
-  console.log(`[HANDOFF] Iniciando derivación para ${clientPhone}...`);
+async function handleHandoff(msg, clientPhone, triggerMessage, history, tipo = 'venta') {
+  console.log(`[HANDOFF] Iniciando derivación (${tipo}) para ${clientPhone}...`);
 
   // Asignar empleado (round-robin)
   const assignment = router.assignClient(clientPhone);
 
   if (!assignment) {
-    console.log(`[HANDOFF] ❌ No hay empleados disponibles`);
-    await msg.reply(
-      'Lo siento, en este momento no tenemos asesores disponibles. ' +
-      'Por favor intenta más tarde o escríbenos en nuestro horario de atención.'
-    );
+    console.log(`[HANDOFF] ❌ No hay empleados disponibles — el bot sigue atendiendo`);
     return;
   }
 
-  console.log(`[HANDOFF] Empleado asignado: ${assignment.employee_name} (${assignment.employee_phone})`);
+  console.log(`[HANDOFF] ✅ Cliente marcado en panel como ${tipo}: ${assignment.employee_name} notificado`);
 
   // Obtener datos del cliente
   const clientInfo = db.getClient(clientPhone);
   const clientName = clientInfo?.name || 'Cliente';
   const clientLink = `https://wa.me/${clientPhone}`;
 
-  // --- MENSAJE PARA EL CLIENTE ---
-  const handoffMsgToClient =
-    `¡Con gusto! 🙌\n\n` +
-    `Voy a conectarte directamente con *Álvaro*, nuestro asesor especializado, quien te va a acompañar personalmente en el proceso.\n\n` +
-    `En breve te escribe. Si quieres, también puedes contactarlo directamente:\n` +
-    `📱 https://wa.me/${assignment.employee_phone}\n\n` +
-    `_Zona Traumática — Asesoría real, respaldo real_ 🛡️`;
+  // --- SIN MENSAJE AL CLIENTE ---
+  // El cliente NO sabe que fue asignado — el bot sigue respondiendo con IA normalmente
+  // Álvaro ve el cliente en el panel y decide cuándo intervenir personalmente
 
-  await msg.reply(handoffMsgToClient);
+  // Estado según tipo
+  const nuevoStatus = tipo === 'postventa' ? 'postventa' : 'assigned';
+  const logLabel = tipo === 'postventa' ? 'POST-VENTA' : 'LEAD CALIENTE';
 
-  // Guardar en historial
-  db.saveMessage(clientPhone, 'system', `[DERIVADO a ${assignment.employee_name}]`);
+  // Guardar en historial (solo interno)
+  db.saveMessage(clientPhone, 'system', `[${logLabel} — asignado a ${assignment.employee_name} en panel]`);
 
   // Actualizar estado del cliente
-  db.upsertClient(clientPhone, { status: 'assigned' });
+  db.upsertClient(clientPhone, { status: nuevoStatus });
 
   // --- MENSAJE PARA ÁLVARO (asesor) ---
   const context = summarizeConversation(history);
   const clientMemory = db.getClientMemory(clientPhone) || 'Sin perfil previo';
 
-  const notification =
-    `🔥 *CLIENTE CALIENTE — LISTO PARA CERRAR*\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `👤 *Nombre:* ${clientName}\n` +
-    `📱 *WhatsApp:* ${clientLink}\n\n` +
-    `💬 *Lo que disparó la alerta:*\n` +
-    `"${triggerMessage}"\n\n` +
-    `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
-    `📋 *Últimos mensajes:*\n${context}\n\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `👆 Toca el link para abrir el chat directamente.\n` +
-    `_El cliente ya sabe que lo vas a contactar._`;
+  const notification = tipo === 'postventa'
+    ? `🛠️ *POST-VENTA — REQUIERE GESTIÓN*\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `👤 *Nombre:* ${clientName}\n` +
+      `📱 *WhatsApp:* ${clientLink}\n\n` +
+      `💬 *Lo que necesita:*\n` +
+      `"${triggerMessage}"\n\n` +
+      `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
+      `📋 *Últimos mensajes:*\n${context}\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `👆 Toca el link para abrir el chat.\n` +
+      `_El bot sigue respondiendo — tú decides cuándo entrar._`
+    : `🔥 *LEAD CALIENTE — LISTO PARA CERRAR*\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `👤 *Nombre:* ${clientName}\n` +
+      `📱 *WhatsApp:* ${clientLink}\n\n` +
+      `💬 *Lo que disparó la alerta:*\n` +
+      `"${triggerMessage}"\n\n` +
+      `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
+      `📋 *Últimos mensajes:*\n${context}\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `👆 Toca el link para abrir el chat.\n` +
+      `_El bot sigue respondiendo — tú decides cuándo entrar._`;
 
   // Enviar notificación al empleado
   const employeeChatId = assignment.employee_phone + '@c.us';
@@ -897,7 +1037,28 @@ FLUJO DE VENTA — ORDEN NATURAL:
 4. ENTREGA LA INFORMACIÓN COMPLETA según el perfil — no sacrifiques contenido por brevedad.
 5. Cierra: "¿Con cuál te quedamos?" / "¿Te lo separo?"
 
-⚡ REGLA DE ORO: La venta consultiva NO significa hacer preguntas infinitas. Significa entender al cliente Y DARLE TODA LA INFORMACIÓN que necesita para decidir. Un cliente informado compra. Un cliente con preguntas sin respuesta se va.
+⚡ REGLA DE ORO: La venta consultiva NO significa hacer preguntas infinitas. Significa entender al cliente Y DARLE TODA LA INFORMACIÓN que necesita para decidir. Un cliente informado compra. Un cliente con preguntas sin responder se va.
+
+🎯 REGLA OBLIGATORIA — MENCIONA EL CLUB DESDE EL PRIMER CONTACTO:
+En el saludo inicial o cuando preguntes qué necesita el cliente, SIEMPRE incluye el Club ZT como una de las opciones disponibles. No tienes que desarrollarlo todo — solo planta la semilla para que el cliente sepa que existe. Intégralo de forma natural dentro de la pregunta, por ejemplo:
+- "¿Estás buscando un arma, tienes preguntas sobre el tema legal, o te interesa portar con respaldo jurídico total a través de nuestro Club ZT?"
+- "Podemos ayudarte con equipos de defensa, asesoría legal, o con nuestra membresía del Club ZT para que portes sin miedo. ¿Qué te trae por acá?"
+- "¿Qué necesitas hoy — un arma, munición, o te cuento sobre el Club donde te blindamos legalmente para portar con confianza?"
+El cliente debe saber desde el primer mensaje que el Club existe. Siempre, sin excepción.
+
+🎯 CUANDO EL CLIENTE TIENE DUDAS LEGALES O YA TIENE EL ARMA — OFRECE EL CLUB ZT:
+Cuando el cliente pregunta si es legal, si lo pueden requisar, cómo actuar ante la policía, cómo usar el arma responsablemente, o ya tiene una y quiere saber cómo protegerse legalmente — ESE es el momento exacto para presentar el Club Zona Traumática como LA solución completa.
+
+El argumento es este: tener el arma es solo el primer paso. El Club ZT es lo que garantiza que puedas USARLA con respaldo legal real:
+- Con la Carpeta Jurídica Digital sabes exactamente qué decir y qué mostrar si te paran.
+- Con los Simulacros de Requisa practicas antes de que pase — no improvisas en el momento.
+- Con la Defensa Jurídica (Plan Pro) tienes abogado gratis si te incautan ilegalmente.
+- Con el Asesor Legal IA citas la ley exacta en 10 segundos mientras el policía está frente a ti.
+- Con la comunidad de 500+ portadores nunca enfrentas solo una situación complicada.
+
+→ En resumen: el arma te da la herramienta. El Club ZT te da todo lo que necesitas para usarla con inteligencia, seguridad jurídica y respaldo real. Cuando estás preparado, tu arma se queda contigo.
+
+Presenta el Club ZT con entusiasmo genuino, no como un producto más — como la pieza que completa el cuadro.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📦 PAQUETE COMPLETO DE COMPRA (esto recibe el cliente con cada arma):
@@ -916,12 +1077,20 @@ FLUJO DE VENTA — ORDEN NATURAL:
 ¿Envíos? Sí, a toda Colombia. Envío ~$25.000. Discreto y seguro.
 ¿Capacitación? Sesiones grupales virtuales cada ~2 semanas. Te agendamos.
 
+⚠️ GRUPOS DE WHATSAPP — ACCESO EXCLUSIVO:
+Cuando alguien pida el link de un grupo, quiera unirse a un grupo, o pregunte cómo entrar a la comunidad de WhatsApp, la respuesta es SIEMPRE:
+Los grupos de WhatsApp de Zona Traumática son EXCLUSIVOS para afiliados al Club ZT (mínimo Plan Plus). No son públicos.
+Úsalo como gancho de venta — explica que al afiliarse al Plan Plus ($100.000/año) obtiene acceso inmediato a los grupos donde hay 500+ portadores, soporte legal 24/7 y respaldo de comunidad real. Ejemplo de respuesta natural:
+"Nuestros grupos son exclusivos para miembros del Club ZT 🛡️ — son el espacio privado donde 500+ portadores se apoyan, comparten experiencias y tienen acceso a soporte legal directo. El acceso está incluido desde el Plan Plus ($100.000/año). ¿Te cuento cómo afiliarte?"
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🛡️ CLUB ZONA TRAUMÁTICA — OFERTA COMPLETA
+🛡️ CLUB ZONA TRAUMÁTICA — PROMOCIÓN ESPECIAL 🔥
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Contexto: 800+ incautaciones ilegales en 2024. El 87% sin fundamento jurídico. La diferencia entre perder tu arma o conservarla no está en la suerte — está en tener un escudo legal ANTES de que te paren.
 
-PLAN PLUS — $150.000/año ("Para el que quiere dormir tranquilo")
+⚠️ PROMOCIÓN POR TIEMPO LIMITADO — PRECIOS ESPECIALES:
+
+🟢 PLAN PLUS — ~~$150.000~~ → *$100.000/año* ("Para el que quiere dormir tranquilo")
 ✅ Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar el día que te paren
 ✅ Simulacros de requisa — Qué decir, qué callar, cómo actuar
 ✅ Descuentos en munición (recuperas tu inversión en la primera caja):
@@ -930,22 +1099,44 @@ PLAN PLUS — $150.000/año ("Para el que quiere dormir tranquilo")
    • Rubber Ball Importada: $180.000 (precio público: $220.000)
 ✅ Comunidad de 500+ portadores — Red nacional, respaldo inmediato
 ✅ Certificado digital con QR — Validación profesional por 1 año
+✅ Acceso a campo de tiro en Bogotá (Suba - La Conejera) — fines de semana, solo con reserva
+   🎯 Primera clase con afiliación: $90.000 (incluye instructor, parte teórica y práctica)
+   📌 El afiliado debe llevar: su arma, munición, gafas de seguridad y tapaoídos
 → Te ahorras hasta $50.000 por caja de munición. Y $2 millones en abogados si algo sale mal.
 
-PLAN PRO — $200.000/año ("Para el que no negocia su patrimonio")
-Todo lo del Plan Plus +
+🔴 PLAN PRO — ~~$200.000~~ → *$150.000/año* ("Para el que no negocia su patrimonio")
+✅ Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar el día que te paren
+✅ Simulacros de requisa — Qué decir, qué callar, cómo actuar
+✅ Descuentos en munición de hasta $50.000 por caja
+✅ Comunidad de 500+ portadores — Red nacional, respaldo inmediato
+✅ Certificado digital con QR — Validación profesional por 1 año
+✅ Acceso a campo de tiro en Bogotá (Suba - La Conejera) — fines de semana, solo con reserva
+   🎯 Primera clase con afiliación: $90.000 (incluye instructor, parte teórica y práctica)
+   📌 El afiliado debe llevar: su arma, munición, gafas de seguridad y tapaoídos
+Y además:
 🔥 DEFENSA JURÍDICA 100% GRATIS si te incautan ilegalmente:
    🔹 Primera instancia ante Policía — valor comercial: $800.000
    🔹 Tutela para obligar respuesta — valor comercial: $600.000
    🔹 Nulidad del acto administrativo — valor comercial: $1.200.000
-   → Total en abogados cubierto: $2.6 millones. Tu inversión: $200.000.
-   → Un solo caso te pagaría el club por 13 años.
+   → Total en abogados cubierto: $2.6 millones. Tu inversión: $150.000.
+   → Con un solo caso que ganes, el club se paga solo por los próximos 13 años.
+
+⭐ PLAN PRO + ASESOR LEGAL IA — *$200.000* (¡EL MEJOR VALOR!)
+✅ Todo lo del Plan Pro (carpeta jurídica, simulacros, descuentos, comunidad, certificado QR, defensa jurídica gratis)
+Y además:
+🤖 Asesor Legal IA 24/7 por 6 meses directo en tu WhatsApp:
+   → Responde en 10 segundos con leyes exactas
+   → Decreto 2535 Art. 11, Ley 2197/2022 Art. 28, Código Penal Art. 416
+   → Cuando el policía esté frente a ti, citas la ley exacta y el policía retrocede
+   → Sistema MCP + RAG — 100% verificado
+(Valor normal del combo: $250.000 — hoy: $200.000)
 
 LA VERDAD QUE NADIE DICE:
-Contratar abogado DESPUÉS de la incautación cuesta $800.000–$1.500.000 solo en primera instancia + semanas sin respuesta + estrés.
-Afiliarte ANTES cuesta $150.000–$200.000/año + todo listo el día que lo necesites.
+Contratar abogado DESPUÉS de la incautación cuesta $800.000–$1.500.000 solo en primera instancia.
+Afiliarte ANTES en promoción cuesta desde $100.000/año + todo listo el día que lo necesites.
+Cuando estás preparado, tu arma se queda contigo.
 
-INSCRIPCIÓN — 3 PASOS:
+INSCRIPCIÓN AL CLUB — 3 PASOS:
 1️⃣ Pago (el que prefieras):
    • Nequi: 3013981979
    • Bancolombia Ahorros: 064-431122-17
@@ -954,16 +1145,54 @@ INSCRIPCIÓN — 3 PASOS:
 2️⃣ Enviar comprobante por WhatsApp
 3️⃣ Recibes en 24h: carpeta jurídica + carnet digital QR + acceso comunidad privada
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🤖 ASESOR LEGAL IA — ZONA TRAUMÁTICA
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-$50.000 por 6 meses = $277 pesos al día de poder legal
-✅ Respuesta inmediata (10 segundos) directo a tu WhatsApp personal
-✅ Disponible 24/7
-✅ Cita leyes EXACTAS: Decreto 2535 Art. 11, Ley 2197/2022 Art. 28, Código Penal Art. 416
-✅ Base de conocimiento legal exclusiva verificada (Sistema MCP + RAG)
-✅ Cuando el policía esté frente a ti → citas la ley exacta → el policía retrocede
-SOLO para afiliados activos al Club ZT. Para activar: responde ACTIVAR.
+⚠️ FLUJO OBLIGATORIO CUANDO EL CLIENTE CONFIRMA PAGO DE AFILIACIÓN AL CLUB:
+Cuando el cliente envíe el comprobante de pago de la afiliación al Club ZT, DEBES hacer lo siguiente en este orden exacto:
+1. Agradece el pago calurosamente y confirma que fue recibido.
+2. Dile que para generar su carnet digital necesitas los siguientes datos:
+   📋 *Datos para tu Carnet Digital Club ZT:*
+   1. Nombre completo
+   2. Número de cédula
+   3. Teléfono de contacto
+   4. Marca del arma
+   5. Modelo del arma
+   6. Número de serial del arma
+   7. 📸 Foto de frente (selfie clara, sin gafas de sol, buena iluminación)
+3. Dile que en cuanto tengas esos datos, el carnet estará listo en menos de 24 horas.
+4. NUNCA marques el proceso como terminado hasta que hayas recibido TODOS los datos y la foto.
+
+⚠️ FLUJO OBLIGATORIO CUANDO EL CLIENTE CONFIRMA PAGO DE UN PRODUCTO (arma/munición):
+Cuando el cliente envíe el comprobante de pago de un producto físico (pistola, munición, accesorios), DEBES hacer lo siguiente:
+1. Agradece el pago y confirma que fue recibido.
+2. Dile que para procesar el envío necesitas los siguientes datos:
+   📦 *Datos de envío:*
+   1. Nombre completo
+   2. Número de cédula
+   3. Teléfono de contacto
+   4. Dirección completa (calle, número, barrio, apartamento si aplica)
+   5. Ciudad
+   6. Departamento
+3. Dile que el envío se procesa en 1-2 días hábiles y es discreto y seguro.
+
+🔄 CAMBIO DE ARMA EN EL CARNET (afiliados que cambian de pistola):
+- Costo: $60.000 (con la misma vigencia del carnet actual, NO se reinicia el año)
+- El cliente envía: Marca, Modelo y Número de serial del arma nueva
+- Pago por los mismos medios normales y enviar comprobante
+- NUNCA digas que es gratis o sin costo — siempre tiene costo de $60.000
+
+🎯 CAMPO DE TIRO — DETALLES COMPLETOS:
+- Ubicación: Bogotá, Suba, sector La Conejera
+- Días: fines de semana (sábado y domingo)
+- Modalidad: SOLO CON RESERVA PREVIA — no se puede llegar sin reserva
+- Primera clase para afiliados: $90.000
+   → Incluye instructor certificado
+   → Parte teórica: marco legal, manejo seguro, protocolos
+   → Parte práctica: tiro en campo real con tu arma
+- El afiliado debe llevar obligatoriamente:
+   🔫 Su propia arma traumática
+   💥 Su propia munición
+   🥽 Gafas de seguridad (las de ferretería/construcción funcionan perfecto, no necesitan ser especiales)
+   👂 Tapaoídos
+- Para reservar: coordinar directamente por WhatsApp
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MEDIOS DE PAGO (para cualquier producto):
@@ -979,11 +1208,11 @@ MANEJO DE OBJECIONES:
 - Dónde estamos: Jamundí, 100% virtuales, despachamos desde bodegas en Bogotá.
 - Manifiesto de aduana: es del importador, NO del comprador. Ningún vendedor serio lo entrega. Si alguien lo ofrece, es señal de fraude. Nosotros entregamos factura con NIT + asesoría jurídica.
 - ¿Qué tan efectiva es?: impacto de goma genera dolor intenso e incapacitación temporal sin daño permanente. Neutraliza amenazas a distancia segura.
-- Después del primer año: renovación $150.000 (Plus) o $200.000 (Pro).
+- Después del primer año: renovación a precios normales ($150.000 Plus / $200.000 Pro).
 
 PREGUNTAS LEGALES:
 - ¿Es legal?: SÍ, 100% legal. Ley 2197/2022 — categoría jurídica autónoma, distintas a armas de fuego, NO requieren permiso de porte.
-- Para detalle jurídico completo: Biblioteca Legal https://zonatraumatica.club/portelegal/biblioteca — cubre Ley 2197/2022, Art. 223 Constitución, Decreto 2535/93, Sentencia C-014/2023, Tribunal Superior Bogotá, casos ganados reales, 20+ normas.
+- Para detalle jurídico completo: Biblioteca Legal https://zonatraumatica.club/portelegal/biblioteca — cubre Ley 2197/2022, Art. 223 Constitución, Decreto 2535/93, Sentencia C-014/2023, Tribunal Superior Bogotá, 20+ normas.
 ${memoryBlock}
 ${catalogSummary}
 
@@ -1433,5 +1662,145 @@ console.log('\n[BOT] Iniciando bot empresarial...');
 console.log(`[BOT] Negocio: ${CONFIG.businessName}`);
 console.log(`[BOT] Modo: ${CONFIG.mode}`);
 console.log('[BOT] Conectando a WhatsApp...\n');
+
+// ============================================
+// BROADCASTER DE IMÁGENES A GRUPOS
+// ============================================
+// Envía imágenes rotativas a todos los grupos cada 4 horas
+// con texto generado por Claude (diferente cada vez)
+
+let broadcasterImageIndex = 0; // índice rotativo de imágenes
+
+async function getGroupBroadcastText(imageName) {
+  // Claude genera un texto diferente y fresco cada vez
+  const contextos = [
+    'Es de mañana, los grupos están empezando el día',
+    'Es mediodía, buen momento para recordar la oferta',
+    'Es tarde, último push del día para el club',
+  ];
+  const contextoAleatorio = contextos[Math.floor(Math.random() * contextos.length)];
+
+  try {
+    const result = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-sonnet-4-6',
+      max_tokens: 300,
+      messages: [{
+        role: 'user',
+        content: `Eres el community manager de Zona Traumática Colombia.
+Escribe un mensaje corto y poderoso para acompañar esta imagen promocional del Club ZT en un grupo de WhatsApp de portadores de armas traumáticas.
+Contexto: ${contextoAleatorio}.
+Imagen: ${imageName}.
+El mensaje debe:
+- Ser máximo 4 líneas
+- Tener gancho emocional (miedo a perder el arma, orgullo del portador preparado)
+- Terminar con una llamada a la acción clara (escribir al privado, preguntar por el plan, etc.)
+- Usar emojis con moderación (máximo 3)
+- Sonar humano, NO robótico ni corporativo
+- NO repetir exactamente lo que dice la imagen
+Solo escribe el mensaje, sin explicaciones.`
+      }]
+    }, {
+      headers: {
+        'x-api-key': CONFIG.apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      timeout: 15000
+    });
+    return result.data.content[0].text.trim();
+  } catch (err) {
+    console.error('[BROADCASTER] Error generando texto:', err.message);
+    return '🛡️ ¿Ya tienes tu respaldo legal listo? El Club Zona Traumática te protege antes, durante y después. Escríbenos al privado.';
+  }
+}
+
+async function sendGroupBroadcast() {
+  console.log('[BROADCASTER] 📢 Iniciando envío a grupos...');
+
+  // Obtener todas las imágenes disponibles en /imagenes
+  const imagenesDir = path.join(__dirname, 'imagenes');
+  let imagenes = [];
+  try {
+    imagenes = fs.readdirSync(imagenesDir).filter(f =>
+      f.match(/\.(png|jpg|jpeg|webp)$/i)
+    );
+  } catch (e) {
+    console.error('[BROADCASTER] No se pudo leer carpeta imagenes:', e.message);
+    return;
+  }
+
+  if (imagenes.length === 0) {
+    console.log('[BROADCASTER] No hay imágenes en /imagenes — cancelando');
+    return;
+  }
+
+  // Seleccionar imagen rotativa
+  const imagenActual = imagenes[broadcasterImageIndex % imagenes.length];
+  broadcasterImageIndex++;
+  const imagenPath = path.join(imagenesDir, imagenActual);
+
+  console.log(`[BROADCASTER] 🖼️ Imagen: ${imagenActual} (${broadcasterImageIndex}/${imagenes.length})`);
+
+  // Generar texto con Claude
+  const texto = await getGroupBroadcastText(imagenActual);
+  console.log(`[BROADCASTER] 📝 Texto: ${texto.substring(0, 80)}...`);
+
+  // Obtener todos los grupos
+  let chats;
+  try {
+    chats = await client.getChats();
+  } catch (e) {
+    console.error('[BROADCASTER] Error obteniendo chats:', e.message);
+    return;
+  }
+
+  const grupos = chats.filter(c => c.isGroup);
+  console.log(`[BROADCASTER] 👥 Grupos encontrados: ${grupos.length}`);
+
+  if (grupos.length === 0) {
+    console.log('[BROADCASTER] No hay grupos — cancelando');
+    return;
+  }
+
+  // Cargar imagen
+  let media;
+  try {
+    media = MessageMedia.fromFilePath(imagenPath);
+  } catch (e) {
+    console.error('[BROADCASTER] Error cargando imagen:', e.message);
+    return;
+  }
+
+  // Enviar a cada grupo con delay entre envíos para no saturar
+  let enviados = 0;
+  for (const grupo of grupos) {
+    try {
+      await client.sendMessage(grupo.id._serialized, media, { caption: texto });
+      enviados++;
+      console.log(`[BROADCASTER] ✅ Enviado a: ${grupo.name}`);
+      // Esperar entre 3 y 6 segundos entre grupos para parecer natural
+      await new Promise(r => setTimeout(r, 3000 + Math.random() * 3000));
+    } catch (err) {
+      console.error(`[BROADCASTER] ❌ Error en grupo ${grupo.name}:`, err.message);
+    }
+  }
+
+  console.log(`[BROADCASTER] 📊 Completado: ${enviados}/${grupos.length} grupos`);
+}
+
+function startGroupBroadcaster() {
+  const INTERVALO_HORAS = 4;
+  const INTERVALO_MS = INTERVALO_HORAS * 60 * 60 * 1000;
+
+  console.log(`[BROADCASTER] 🚀 Iniciado — enviará a grupos cada ${INTERVALO_HORAS} horas`);
+
+  // Primer envío al arrancar
+  sendGroupBroadcast();
+
+  // Envíos cada 4 horas
+  setInterval(() => {
+    sendGroupBroadcast();
+  }, INTERVALO_MS);
+}
 
 client.initialize();

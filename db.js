@@ -50,6 +50,10 @@ function initDatabase() {
     db.exec(`ALTER TABLE clients ADD COLUMN ignored INTEGER DEFAULT 0`);
     console.log('[DB] Columna ignored agregada');
   } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN spam_flag INTEGER DEFAULT 0`);
+    console.log('[DB] Columna spam_flag agregada');
+  } catch (e) { /* ya existe */ }
   // last_interaction ya no se usa — usamos updated_at
 
   // Tabla de empleados
@@ -452,6 +456,23 @@ function isIgnored(phone) {
 }
 
 // ============================================
+// SPAM FLAG — posible bot/loop
+// ============================================
+function setSpamFlag(phone, flagged = true) {
+  db.prepare('UPDATE clients SET spam_flag = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?')
+    .run(flagged ? 1 : 0, phone);
+}
+
+function isSpamFlagged(phone) {
+  const client = getClient(phone);
+  return client ? client.spam_flag === 1 : false;
+}
+
+function getSpamFlagged() {
+  return db.prepare('SELECT * FROM clients WHERE spam_flag = 1 ORDER BY updated_at DESC').all();
+}
+
+// ============================================
 // EXPORTAR
 // ============================================
 module.exports = {
@@ -468,6 +489,9 @@ module.exports = {
   resetClient,
   setIgnored,
   isIgnored,
+  setSpamFlag,
+  isSpamFlagged,
+  getSpamFlagged,
   // Empleados
   getEmployee,
   getEmployeeByPhone,
