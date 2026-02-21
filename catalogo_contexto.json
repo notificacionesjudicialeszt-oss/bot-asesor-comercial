@@ -1,9 +1,9 @@
 {
   "metadata": {
     "fuente": "Zona Traumática — Catálogo interno",
-    "fecha_generacion": "2026-02-19",
-    "total_productos": 18,
-    "categorias": 3,
+    "fecha_generacion": "2026-02-20",
+    "total_productos": 20,
+    "categorias": 4,
     "nota_precios": "El precio incluye el Plan de Respaldo (Plus o Pro) según la columna seleccionada"
   },
   "categorias": {
@@ -227,6 +227,47 @@
         "marca": "BLOW",
         "modelo": "TR 92K",
         "url": "https://zonatraumatica.club/producto/blow-tr92/"
+      }
+    ],
+    "SERVICIOS": [
+      {
+        "titulo": "Afiliación Club Zona Traumática",
+        "descripcion": "Membresía al Club ZT — la comunidad de portadores legales más grande de Colombia. Incluye: carnet de miembro activo, Plan de Respaldo Jurídico Plus por 1 año (asesoría legal ante retenciones o incautaciones), acceso a capacitaciones presenciales y virtuales, red de portadores activos, y descuentos en futuros productos. El carnet es tu respaldo ante cualquier autoridad.",
+        "precio": "$150.000 (anual)",
+        "precio_anual": "$150.000",
+        "disponible": true,
+        "categoria": "Servicio / Membresía",
+        "incluye": [
+          "Carnet físico de miembro activo",
+          "Plan de Respaldo Jurídico Plus 1 año",
+          "Acceso a capacitaciones ZT",
+          "Red de portadores activos Colombia",
+          "Asesoría ante retenciones",
+          "Descuentos en productos ZT"
+        ],
+        "keywords": ["afiliacion", "club", "carnet", "membresia", "plan respaldo", "juridico", "capacitacion"],
+        "url": "https://zonatraumatica.club"
+      },
+      {
+        "titulo": "Asesor Legal IA — Zona Traumática",
+        "descripcion": "Acceso por 6 meses al Asesor Legal IA de Zona Traumática: un sistema de inteligencia artificial especializado en legislación de armas traumáticas en Colombia. Responde en 10 segundos, disponible 24/7 directamente en tu WhatsApp personal. Cita leyes exactas (Decreto 2535, Ley 2197/2022, Código Penal Art. 416), argumenta ante policías, y tiene base de conocimiento legal exclusiva verificada. Cuando ese policía esté frente a ti, citas la ley exacta y el policía retrocede.",
+        "precio": "$50.000 (6 meses) — equivale a $277 pesos al día",
+        "precio_semestral": "$50.000",
+        "disponible": true,
+        "categoria": "Servicio / IA Legal",
+        "incluye": [
+          "Acceso 6 meses al bot legal vía WhatsApp personal",
+          "Respuesta inmediata (10 segundos)",
+          "Disponible 24/7",
+          "Base legal completa: Decreto 2535, Ley 2197/2022, Código Penal",
+          "Citas exactas de sentencias reales",
+          "Consecuencias penales para funcionarios",
+          "Sistema MCP + RAG (100% confiable y verificado)",
+          "Solo para afiliados activos al Club ZT"
+        ],
+        "keywords": ["asesor legal", "asesor ia", "bot legal", "legal", "policia", "retencion", "decreto 2535", "ley 2197", "juridico", "ia legal"],
+        "nota": "Solo disponible para afiliados activos al Club ZT. Para activar: responder ACTIVAR al número 3013981979.",
+        "url": "https://zonatraumatica.club"
       }
     ]
   }

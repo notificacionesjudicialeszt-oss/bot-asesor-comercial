@@ -12,6 +12,9 @@ const path = require('path');
 const db = new Database(path.join(__dirname, 'crm.db'));
 const PORT = 3000;
 
+// Migraciones — agregar columnas nuevas si no existen
+try { db.exec(`ALTER TABLE clients ADD COLUMN ignored INTEGER DEFAULT 0`); } catch(e) { /* ya existe */ }
+
 function getData() {
   const clients = db.prepare('SELECT * FROM clients ORDER BY updated_at DESC').all();
   const conversations = db.prepare('SELECT * FROM conversations ORDER BY created_at DESC LIMIT 200').all();
@@ -42,8 +45,13 @@ function getData() {
   return { clients, conversations, assignments, employees, totalClients, newClients, activeAssignments, totalMessages, clientsToday, messagesToday, hotLeads };
 }
 
-function getClientChat(phone) {
-  return db.prepare('SELECT * FROM conversations WHERE client_phone = ? ORDER BY created_at ASC').all(phone);
+function getClientChat(phone, limit = 100) {
+  // Traer los últimos N mensajes en orden cronológico (más reciente al final)
+  return db.prepare(`
+    SELECT * FROM (
+      SELECT * FROM conversations WHERE client_phone = ? ORDER BY created_at DESC LIMIT ?
+    ) ORDER BY created_at ASC
+  `).all(phone, limit);
 }
 
 const server = http.createServer((req, res) => {
@@ -58,8 +66,9 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/api/chat') {
     const phone = url.searchParams.get('phone');
+    const limit = parseInt(url.searchParams.get('limit') || '100');
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(getClientChat(phone)));
+    res.end(JSON.stringify(getClientChat(phone, limit)));
     return;
   }
 
@@ -69,27 +78,53 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
       try {
-        const { phone, note, append } = JSON.parse(body);
+        const { phone, note, append, status } = JSON.parse(body);
         const client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
         if (!client) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Cliente no encontrado' }));
           return;
         }
-        let newMemory;
-        if (append && client.memory) {
-          // Agregar al final de la memoria existente
-          newMemory = client.memory + '\n[PANEL] ' + note;
-        } else if (append) {
-          newMemory = '[PANEL] ' + note;
-        } else {
-          // Reemplazar memoria completa
-          newMemory = note;
+        // Actualizar status si se envió
+        if (status) {
+          db.prepare('UPDATE clients SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(status, phone);
         }
-        db.prepare('UPDATE clients SET memory = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(newMemory, phone);
+        // Actualizar memoria si se envió nota
+        let newMemory = client.memory || '';
+        if (note) {
+          if (append && client.memory) {
+            newMemory = client.memory + '\n[PANEL] ' + note;
+          } else if (append) {
+            newMemory = '[PANEL] ' + note;
+          } else {
+            newMemory = note;
+          }
+          db.prepare('UPDATE clients SET memory = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(newMemory, phone);
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, memory: newMemory }));
+        res.end(JSON.stringify({ ok: true, memory: newMemory, status: status || client.status }));
       } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Ignorar / des-ignorar contacto
+  if (url.pathname === '/api/set-ignored' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { phone, ignored } = JSON.parse(body);
+        const val = ignored ? 1 : 0;
+        const result = db.prepare('UPDATE clients SET ignored = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(val, phone);
+        console.log(`[PANEL] 🔇 set-ignored: ${phone} → ${val} (rows: ${result.changes})`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, ignored: val, changes: result.changes }));
+      } catch (e) {
+        console.error('[PANEL] set-ignored error:', e.message);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
       }
@@ -137,7 +172,15 @@ function getHTML() {
   .container { display: flex; gap: 20px; padding: 0 25px 25px; height: calc(100vh - 220px); }
   .panel { background: #111820; border: 1px solid #1c2733; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
   .panel-left { flex: 1; min-width: 400px; }
-  .panel-right { flex: 1; min-width: 400px; }
+  .panel-right { flex: 1.4; min-width: 400px; display: flex; flex-direction: column; }
+  .panel-right-detail { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-bottom: 2px solid #f8514933; }
+  .panel-right-detail::-webkit-scrollbar { width: 4px; }
+  .panel-right-detail::-webkit-scrollbar-track { background: #0a0e13; }
+  .panel-right-detail::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 3px; }
+  .panel-right-chat { flex: 1; overflow-y: auto; min-height: 0; }
+  .panel-right-chat::-webkit-scrollbar { width: 6px; }
+  .panel-right-chat::-webkit-scrollbar-track { background: #0a0e13; }
+  .panel-right-chat::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 3px; }
   .panel-header { padding: 12px 15px; border-bottom: 1px solid #1c2733; font-size: 15px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
   .panel-header input { background: #0a0e13; border: 1px solid #1c2733; color: #e6edf3; padding: 8px 14px; border-radius: 4px; font-size: 14px; width: 220px; font-family: 'Rajdhani', sans-serif; }
   .panel-header input:focus { border-color: #f85149; outline: none; }
@@ -216,8 +259,8 @@ function getHTML() {
   </div>
   <div class="panel panel-right">
     <div class="panel-header"><span id="chatTitle">💬 Selecciona un cliente</span></div>
-    <div id="clientDetail" style="display:none;"></div>
-    <div class="panel-body" id="chatArea"><div class="chat-empty">Selecciona un cliente para ver su conversación</div></div>
+    <div class="panel-right-detail" id="clientDetail" style="display:none;"></div>
+    <div class="panel-right-chat" id="chatArea"><div class="chat-empty">Selecciona un cliente para ver su conversación</div></div>
   </div>
 </div>
 
@@ -316,6 +359,9 @@ async function selectClient(phone) {
           <div class="crm-chip" onclick="addNote('\${client.phone}', '📋 Pendiente: enviar carnet')">🕐 Pendiente carnet</div>
           <div class="crm-chip" onclick="addNote('\${client.phone}', '📋 Pendiente: despachar dispositivo')">🕐 Pendiente despacho</div>
           <div class="crm-chip danger" onclick="addNote('\${client.phone}', '🚫 Cliente marcado como NO interesado')">❌ No interesado</div>
+          <div class="crm-chip" style="background:\${client.ignored == 1 ? '#7c1d1d' : '#1c2733'};border-color:\${client.ignored == 1 ? '#f85149' : '#30363d'};color:\${client.ignored == 1 ? '#f85149' : '#8b949e'};" onclick="toggleIgnored('\${client.phone}', \${client.ignored == 1 ? 0 : 1})">\${client.ignored == 1 ? '🔇 IGNORADO — click para reactivar' : '🔇 Silenciar — no es cliente'}</div>
+          <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#8b949e;" onclick="changeStatus('\${client.phone}', 'new')">↩️ Resetear a Nuevo</div>
+          <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#d29922;" onclick="changeStatus('\${client.phone}', 'completed')">✅ Marcar Completado</div>
         </div>
         <div class="crm-note-row">
           <input class="crm-note-input" id="noteInput_\${client.phone}" type="text" placeholder="Nota interna... (ej: ya le expliqué los precios, espera depósito)" onkeydown="if(event.key==='Enter') saveNote('\${client.phone}')">
@@ -341,8 +387,14 @@ async function selectClient(phone) {
     </div>
   \`).join('');
 
-  document.getElementById('chatArea').innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>';
-  document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
+  const chatArea = document.getElementById('chatArea');
+  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>';
+  // Esperar a que el DOM renderice antes de hacer scroll
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      chatArea.scrollTop = chatArea.scrollHeight;
+    });
+  });
 }
 
 function setFilter(filter, el) {
@@ -362,20 +414,17 @@ async function addNote(phone, note) {
       body: JSON.stringify({ phone, note, append: true })
     });
     const data = await res.json();
-    const fb = document.getElementById('noteFeedback_' + phone);
     if (data.ok) {
-      if (fb) { fb.textContent = '✅ Guardado: ' + note; setTimeout(() => { if(fb) fb.textContent = ''; }, 3000); }
-      // Actualizar memoria en allData sin recargar todo
-      const client = allData.clients.find(c => c.phone === phone);
-      if (client) client.memory = data.memory;
-      // Refrescar solo el detalle
+      await loadData(); // recargar todo para que hotLeads y listas estén al día
+      selectedPhone = phone;
       selectClient(phone);
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) { fb.textContent = '✅ Guardado: ' + note; setTimeout(() => { if(fb) fb.textContent = ''; }, 3000); }
     } else {
-      if (fb) fb.textContent = '❌ Error: ' + data.error;
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
     }
-  } catch(e) {
-    console.error(e);
-  }
+  } catch(e) { console.error(e); }
 }
 
 async function saveNote(phone) {
@@ -384,6 +433,48 @@ async function saveNote(phone) {
   const note = input.value.trim();
   await addNote(phone, note);
   input.value = '';
+}
+
+async function toggleIgnored(phone, ignored) {
+  try {
+    const res = await fetch('/api/set-ignored', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, ignored })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData(); // recargar todo
+      selectedPhone = phone;
+      selectClient(phone);
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = ignored ? '🔇 Silenciado — el bot no responderá' : '✅ Reactivado — el bot responderá de nuevo';
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 3000);
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function changeStatus(phone, status) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note: '', append: true, status })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData(); // recargar todo para que los tabs reflejen el nuevo estado
+      selectedPhone = phone;
+      selectClient(phone);
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '✅ Estado actualizado a: ' + status;
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 3000);
+      }
+    }
+  } catch(e) { console.error(e); }
 }
 
 // Auto-refresh cada 15 segundos

@@ -26,7 +26,7 @@ function loadCatalog() {
           categoria,
           _tituloLower: p.titulo.toLowerCase(),
           _descLower: (p.descripcion || '').toLowerCase(),
-          _searchText: `${p.titulo} ${p.descripcion} ${p.marca || ''} ${p.modelo || ''} ${categoria}`.toLowerCase(),
+          _searchText: `${p.titulo} ${p.descripcion} ${p.marca || ''} ${p.modelo || ''} ${categoria} ${(p.keywords || []).join(' ')}`.toLowerCase(),
         });
       });
     }
@@ -95,6 +95,12 @@ const SYNONYMS = {
   'plan': ['plus', 'pro', 'membresía', 'membresia', 'club'],
   'plus': ['plan plus', 'plan', 'club'],
   'pro': ['plan pro', 'plan', 'club'],
+  'asesor': ['asesor legal', 'ia legal', 'bot legal', 'legal ia'],
+  'policia': ['policía', 'retencion', 'retención', 'incautacion', 'ley'],
+  'retencion': ['retención', 'policia', 'policía', 'incautacion', 'ley'],
+  'decreto': ['decreto 2535', 'ley 2197', 'legal', 'juridico'],
+  'afiliacion': ['afiliación', 'club', 'membresia', 'carnet'],
+  'afiliación': ['afiliacion', 'club', 'membresia', 'carnet'],
 };
 
 // ============================================
@@ -152,6 +158,7 @@ function searchProducts(message, maxResults = 6) {
       if (product.categoria.toLowerCase().includes(keyword)) score += 5;
       if ((product.marca || '').toLowerCase().includes(keyword)) score += 8;
       if ((product.modelo || '').toLowerCase().includes(keyword)) score += 8;
+      if (product._searchText.includes(keyword)) score += 2; // keywords del catálogo
     });
 
     if (product.disponible) score += 1;
