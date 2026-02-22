@@ -92,6 +92,22 @@ function initDatabase() {
     )
   `);
 
+  // Tabla de comprobantes pendientes de verificación
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS comprobantes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_phone TEXT NOT NULL,
+      client_name TEXT DEFAULT '',
+      info TEXT DEFAULT '',
+      imagen_base64 TEXT,
+      imagen_mime TEXT DEFAULT 'image/jpeg',
+      tipo TEXT DEFAULT 'desconocido',
+      estado TEXT DEFAULT 'pendiente',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      verified_at DATETIME
+    )
+  `);
+
   console.log('[DB] Base de datos inicializada correctamente');
 }
 
@@ -509,4 +525,30 @@ module.exports = {
   getStats,
   getGeneralReport,
   getSalesReport,
+  // Comprobantes
+  saveComprobante,
+  getComprobantesPendientes,
+  updateComprobanteEstado,
 };
+
+// ============================================
+// COMPROBANTES DE PAGO
+// ============================================
+function saveComprobante(phone, name, info, imagenBase64, imagenMime, tipo) {
+  return db.prepare(`
+    INSERT INTO comprobantes (client_phone, client_name, info, imagen_base64, imagen_mime, tipo, estado)
+    VALUES (?, ?, ?, ?, ?, ?, 'pendiente')
+  `).run(phone, name || '', info || '', imagenBase64 || '', imagenMime || 'image/jpeg', tipo || 'desconocido');
+}
+
+function getComprobantesPendientes() {
+  return db.prepare(`
+    SELECT * FROM comprobantes WHERE estado = 'pendiente' ORDER BY created_at DESC
+  `).all();
+}
+
+function updateComprobanteEstado(id, estado) {
+  return db.prepare(`
+    UPDATE comprobantes SET estado = ?, verified_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(estado, id);
+}

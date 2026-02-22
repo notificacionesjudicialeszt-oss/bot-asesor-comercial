@@ -8,6 +8,7 @@
 const http = require('http');
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 const db = new Database(path.join(__dirname, 'crm.db'));
 const PORT = 3000;
@@ -15,9 +16,21 @@ const PORT = 3000;
 // Migraciones — agregar columnas nuevas si no existen
 try { db.exec(`ALTER TABLE clients ADD COLUMN ignored INTEGER DEFAULT 0`); } catch(e) { /* ya existe */ }
 try { db.exec(`ALTER TABLE clients ADD COLUMN spam_flag INTEGER DEFAULT 0`); } catch(e) { /* ya existe */ }
+try { db.exec(`CREATE TABLE IF NOT EXISTS comprobantes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_phone TEXT NOT NULL,
+  client_name TEXT DEFAULT '',
+  info TEXT DEFAULT '',
+  imagen_base64 TEXT,
+  imagen_mime TEXT DEFAULT 'image/jpeg',
+  tipo TEXT DEFAULT 'desconocido',
+  estado TEXT DEFAULT 'pendiente',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  verified_at DATETIME
+)`); } catch(e) { /* ya existe */ }
 
 function getData() {
-  const clients = db.prepare('SELECT * FROM clients ORDER BY updated_at DESC').all();
+  const clients = db.prepare('SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at) DESC').all();
   const conversations = db.prepare('SELECT * FROM conversations ORDER BY created_at DESC LIMIT 200').all();
   const assignments = db.prepare(`
     SELECT a.*, e.name as employee_name
@@ -156,6 +169,152 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Reactivar clientes calientes — llama directo al bot por HTTP (puerto 3001)
+  if (url.pathname === '/api/reactivar-calientes' && req.method === 'POST') {
+    try {
+      const calientes = db.prepare(`
+        SELECT * FROM clients
+        WHERE status IN ('hot', 'assigned', 'new')
+        AND ignored = 0
+        AND spam_flag = 0
+        AND memory IS NOT NULL AND memory != ''
+        AND phone IS NOT NULL
+        ORDER BY updated_at DESC
+      `).all();
+
+      if (calientes.length === 0) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, msg: 'No hay clientes calientes con contexto para reactivar' }));
+        return;
+      }
+
+      const clientes = calientes.map(c => ({
+        phone: c.phone,
+        name: c.name || 'Cliente',
+        memory: c.memory || '',
+        status: c.status
+      }));
+
+      // Llamar directamente al bot por HTTP — sin archivos, sin polling
+      const payload = JSON.stringify({ clientes });
+      const botReq = http.request({
+        hostname: 'localhost',
+        port: 3001,
+        path: '/reactivar',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      }, botRes => {
+        let data = '';
+        botRes.on('data', chunk => data += chunk);
+        botRes.on('end', () => {
+          console.log(`[PANEL] 🔥 Reactivación iniciada en bot: ${clientes.length} clientes`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, total: clientes.length, msg: `${clientes.length} clientes enviados al bot` }));
+        });
+      });
+
+      botReq.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+      });
+
+      botReq.write(payload);
+      botReq.end();
+
+    } catch (e) {
+      console.error('[PANEL] Error reactivar-calientes:', e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Confirmar o rechazar comprobante — relay al bot en puerto 3001
+  if (url.pathname === '/api/confirmar-comprobante' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = body; // reenviar tal cual al bot
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/confirmar-comprobante',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 💰 Comprobante procesado:`, data);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+        botReq.write(payload);
+        botReq.end();
+      } catch(e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Migración única: assigned → hot
+  if (url.pathname === '/api/migrar-assigned' && req.method === 'POST') {
+    try {
+      const result = db.prepare(`UPDATE clients SET status = 'hot', updated_at = datetime('now') WHERE status = 'assigned'`).run();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, migrados: result.changes }));
+    } catch(e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Cambiar status de un cliente (para mover a post-venta manualmente)
+  if (url.pathname === '/api/cambiar-status' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { phone, status } = JSON.parse(body);
+        const validStatuses = ['new', 'hot', 'warm', 'completed', 'postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+        if (!phone || !validStatuses.includes(status)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'phone o status inválido' }));
+          return;
+        }
+        db.prepare(`UPDATE clients SET status = ?, updated_at = datetime('now') WHERE phone = ?`).run(status, phone);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch(e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Comprobantes pendientes
+  if (url.pathname === '/api/comprobantes') {
+    try {
+      const comprobantes = db.prepare(`SELECT id, client_phone, client_name, info, imagen_base64, imagen_mime, tipo, estado, created_at FROM comprobantes WHERE estado = 'pendiente' ORDER BY created_at DESC`).all();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(comprobantes));
+    } catch(e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // Panel HTML
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(getHTML());
@@ -179,6 +338,9 @@ function getHTML() {
   .header h1 span { color: #f85149; }
   .refresh-btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
   .refresh-btn:hover { background: #2ea043; }
+  .reactivar-btn { background: linear-gradient(135deg, #f85149, #c0392b); color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; margin-right: 8px; }
+  .reactivar-btn:hover { background: linear-gradient(135deg, #ff6b6b, #e74c3c); }
+  .reactivar-btn:disabled { background: #333; color: #666; cursor: not-allowed; }
   .stats { display: flex; gap: 15px; padding: 20px 25px; flex-wrap: wrap; }
   .stat { background: #111820; border: 1px solid #1c2733; border-radius: 6px; padding: 15px 20px; flex: 1; min-width: 140px; border-left: 3px solid #30363d; }
   .stat .num { font-size: 34px; font-weight: 700; letter-spacing: 1px; }
@@ -206,7 +368,7 @@ function getHTML() {
   .btn-spam-ok:hover { background: #2ea043; }
   .btn-spam-ver { background: #1c2733; color: #58a6ff; border: 1px solid #1c6fb5; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
   .btn-spam-ver:hover { background: #0d1117; }
-  .container { display: flex; gap: 20px; padding: 0 25px 25px; height: calc(100vh - 220px); }
+  .container { display: flex; gap: 20px; padding: 0 25px 25px; height: calc(100vh - 265px); }
   .panel { background: #111820; border: 1px solid #1c2733; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
   .panel-left { flex: 1; min-width: 400px; }
   .panel-right { flex: 1.4; min-width: 400px; display: flex; flex-direction: column; }
@@ -237,6 +399,12 @@ function getHTML() {
   .status-new { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb44; }
   .status-assigned { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
   .status-completed { background: #23863622; color: #3fb950; border: 1px solid #23863644; }
+  .status-postventa { background: #3fb95022; color: #3fb950; border: 1px solid #3fb95044; }
+  .status-carnet_pendiente, .status-carnet-pendiente { background: #bc8cff22; color: #bc8cff; border: 1px solid #bc8cff44; }
+  .status-despacho_pendiente, .status-despacho-pendiente { background: #f0883e22; color: #f0883e; border: 1px solid #f0883e44; }
+  .status-municion_pendiente, .status-municion-pendiente { background: #f8514922; color: #f85149; border: 1px solid #f8514944; }
+  .status-recuperacion_pendiente, .status-recuperacion-pendiente { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
+  .status-bot_asesor_pendiente, .status-bot-asesor-pendiente { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff44; }
   .client-count { font-size: 11px; color: #3d4f5f; font-family: 'Share Tech Mono', monospace; }
   .client-memory { font-size: 12px; color: #586776; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
   .chat-container { padding: 15px; display: flex; flex-direction: column; gap: 8px; }
@@ -269,6 +437,42 @@ function getHTML() {
   .tab { padding: 10px 18px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: #586776; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; transition: all 0.15s; }
   .tab.active { color: #e6edf3; border-bottom-color: #f85149; }
   .tab:hover { color: #e6edf3; }
+  /* Tabs de vista principal */
+  .main-tabs { display: flex; border-bottom: 2px solid #1c2733; padding: 0 25px; background: #0d1117; gap: 0; }
+  .main-tab { padding: 12px 22px; font-size: 14px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; color: #586776; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; transition: all 0.15s; font-family: 'Chakra Petch', sans-serif; }
+  .main-tab.active { color: #e6edf3; border-bottom-color: #f85149; }
+  .main-tab:hover { color: #e6edf3; }
+  .main-tab .badge { background: #f85149; color: #fff; border-radius: 10px; font-size: 10px; padding: 1px 6px; margin-left: 6px; font-weight: 700; }
+  /* Vista comprobantes */
+  #viewClientes, #viewComprobantes, #viewPostventa { display: none; }
+  #viewClientes.active, #viewPostventa.active { display: flex; }
+  #viewComprobantes.active { display: flex; flex-direction: column; padding: 20px 25px; gap: 15px; overflow-y: auto; height: calc(100vh - 265px); }
+  .comprobante-card { background: #111820; border: 1px solid #1c2733; border-left: 4px solid #d29922; border-radius: 6px; padding: 18px; display: flex; gap: 18px; align-items: flex-start; }
+  .comprobante-img { width: 120px; height: 120px; object-fit: cover; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; flex-shrink: 0; background: #0a0e13; }
+  .comprobante-img-placeholder { width: 120px; height: 120px; border-radius: 4px; border: 1px solid #30363d; background: #0a0e13; display: flex; align-items: center; justify-content: center; color: #3d4f5f; font-size: 12px; flex-shrink: 0; text-align: center; }
+  .comprobante-info { flex: 1; min-width: 0; }
+  .comprobante-name { font-size: 17px; font-weight: 700; font-family: 'Chakra Petch', sans-serif; letter-spacing: 0.5px; }
+  .comprobante-phone { font-size: 12px; color: #586776; font-family: 'Share Tech Mono', monospace; margin-top: 2px; }
+  .comprobante-detail { font-size: 13px; color: #8b949e; margin-top: 8px; line-height: 1.6; }
+  .comprobante-detail strong { color: #d29922; }
+  .comprobante-tipo { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; margin-top: 6px; }
+  .tipo-club { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb44; }
+  .tipo-producto { background: #23863622; color: #3fb950; border: 1px solid #23863644; }
+  .tipo-bot { background: #bc8cff22; color: #bc8cff; border: 1px solid #bc8cff44; }
+  .tipo-desconocido { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
+  .comprobante-time { font-size: 11px; color: #3d4f5f; font-family: 'Share Tech Mono', monospace; margin-top: 4px; }
+  .comprobante-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; align-self: center; }
+  .btn-confirmar { background: linear-gradient(135deg, #238636, #2ea043); color: #fff; border: none; border-radius: 4px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Chakra Petch', sans-serif; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .btn-confirmar:hover { background: linear-gradient(135deg, #2ea043, #3fb950); }
+  .btn-confirmar:disabled { background: #1a4a1a; color: #3fb950; cursor: not-allowed; }
+  .btn-rechazar { background: linear-gradient(135deg, #6e1313, #9b1c1c); color: #fff; border: none; border-radius: 4px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Chakra Petch', sans-serif; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .btn-rechazar:hover { background: linear-gradient(135deg, #9b1c1c, #b91c1c); }
+  .btn-rechazar:disabled { background: #3a1010; color: #f85149; cursor: not-allowed; }
+  .comprobante-empty { display: flex; align-items: center; justify-content: center; height: 200px; color: #3d4f5f; font-size: 15px; text-transform: uppercase; letter-spacing: 2px; font-family: 'Chakra Petch', sans-serif; }
+  /* Lightbox para ver imagen completa */
+  #imgLightbox { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#000000cc; z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+  #imgLightbox.open { display:flex; }
+  #imgLightbox img { max-width: 90%; max-height: 90%; border-radius: 6px; border: 2px solid #30363d; }
 </style>
 </head>
 <body>
@@ -276,23 +480,32 @@ function getHTML() {
   <h1>🔫 Panel <span>Zona Traumática</span></h1>
   <div>
     <span id="lastUpdate" style="color:#484f58;font-size:12px;margin-right:15px;"></span>
-    <button class="refresh-btn" onclick="loadData()">🔄 Actualizar</button>
+    <button class="reactivar-btn" id="btnReactivar" onclick="reactivarCalientes()">🔥 Reactivar Calientes</button>
+    <button id="btnMigrar" onclick="migrarAssigned()" style="background:#1c2733;border:1px solid #30363d;color:#8b949e;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Migración única: mueve todos los clientes 'asignados' a Calientes">🔄 Migrar Asignados → Calientes</button>
+    <button class="refresh-btn" onclick="refreshAll()">🔄 Actualizar</button>
   </div>
 </div>
 <div class="stats" id="stats"></div>
 <div id="spamAlerts"></div>
-<div class="container">
+
+<!-- Tabs de vista principal -->
+<div class="main-tabs">
+  <div class="main-tab active" id="mainTabComercial" onclick="switchMainTab('comercial')">💼 Comercial</div>
+  <div class="main-tab" id="mainTabComprobantes" onclick="switchMainTab('comprobantes')">💰 Por Verificar <span class="badge" id="comprobanteBadge" style="display:none">0</span></div>
+  <div class="main-tab" id="mainTabPostventa" onclick="switchMainTab('postventa')">🛠️ Post-venta <span class="badge" id="postventaBadge" style="display:none">0</span></div>
+</div>
+
+<!-- Vista: Comercial -->
+<div id="viewClientes" class="container active">
   <div class="panel panel-left">
     <div class="panel-header">
-      <span>👥 Clientes (<span id="clientCount">0</span>)</span>
+      <span>💼 Comercial (<span id="clientCount">0</span>)</span>
       <input type="text" id="searchInput" placeholder="🔍 Buscar..." oninput="filterClients()">
     </div>
     <div class="tabs">
       <div class="tab active" data-filter="all" onclick="setFilter('all',this)">Todos</div>
       <div class="tab" data-filter="new" onclick="setFilter('new',this)">Nuevos</div>
       <div class="tab" data-filter="hot" onclick="setFilter('hot',this)">🔥 Calientes</div>
-      <div class="tab" data-filter="assigned" onclick="setFilter('assigned',this)">Asignados</div>
-      <div class="tab" data-filter="postventa" onclick="setFilter('postventa',this)">🛠️ Post-venta</div>
     </div>
     <div class="panel-body" id="clientList"></div>
   </div>
@@ -303,10 +516,69 @@ function getHTML() {
   </div>
 </div>
 
+<!-- Vista: Comprobantes por verificar -->
+<div id="viewComprobantes">
+  <div id="comprobantesList"></div>
+</div>
+
+<!-- Vista: Post-venta -->
+<div id="viewPostventa" class="container">
+  <div class="panel panel-left">
+    <div class="panel-header">
+      <span>🛠️ Post-venta (<span id="postventaCount">0</span>)</span>
+      <input type="text" id="searchPostventa" placeholder="🔍 Buscar..." oninput="filterPostventa()">
+    </div>
+    <div class="tabs" style="flex-wrap:wrap;">
+      <div class="tab active" data-pvfilter="all" onclick="setPvFilter('all',this)">Todos</div>
+      <div class="tab" data-pvfilter="carnet_pendiente" onclick="setPvFilter('carnet_pendiente',this)">🪪 Carnet Club</div>
+      <div class="tab" data-pvfilter="despacho_pendiente" onclick="setPvFilter('despacho_pendiente',this)">📦 Dispositivo</div>
+      <div class="tab" data-pvfilter="municion_pendiente" onclick="setPvFilter('municion_pendiente',this)">🔫 Munición</div>
+      <div class="tab" data-pvfilter="recuperacion_pendiente" onclick="setPvFilter('recuperacion_pendiente',this)">🔧 Recuperación</div>
+      <div class="tab" data-pvfilter="bot_asesor_pendiente" onclick="setPvFilter('bot_asesor_pendiente',this)">🤖 Bot Asesor</div>
+    </div>
+    <div class="panel-body" id="postventaList"></div>
+  </div>
+  <div class="panel panel-right">
+    <div class="panel-header"><span id="chatTitlePv">💬 Selecciona un cliente</span></div>
+    <div class="panel-right-detail" id="clientDetailPv" style="display:none;"></div>
+    <div class="panel-right-chat" id="chatAreaPv"><div class="chat-empty">Selecciona un cliente para ver su conversación</div></div>
+  </div>
+</div>
+
+<!-- Lightbox imagen -->
+<div id="imgLightbox" onclick="closeLightbox()"><img id="imgLightboxImg" src="" alt="comprobante"></div>
+
 <script>
 let allData = null;
 let currentFilter = 'all';
 let selectedPhone = null;
+
+async function reactivarCalientes() {
+  const btn = document.getElementById('btnReactivar');
+  btn.disabled = true;
+  btn.textContent = '⏳ Procesando...';
+  try {
+    const res = await fetch('/api/reactivar-calientes', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ ' + data.msg;
+      btn.style.background = '#238636';
+      setTimeout(() => {
+        btn.textContent = '🔥 Reactivar Calientes';
+        btn.style.background = '';
+        btn.disabled = false;
+      }, 5000);
+    } else {
+      alert('⚠️ ' + (data.msg || data.error || 'Error desconocido'));
+      btn.textContent = '🔥 Reactivar Calientes';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+    btn.textContent = '🔥 Reactivar Calientes';
+    btn.disabled = false;
+  }
+}
 
 async function loadData() {
   const res = await fetch('/api/data');
@@ -357,24 +629,29 @@ async function resolveSpam(phone, isBot) {
 
 function renderStats() {
   const d = allData;
+  const PV_ST = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+  const pvCount = d.clients.filter(c => PV_ST.includes(c.status)).length;
   document.getElementById('stats').innerHTML = \`
     <div class="stat blue"><div class="num">\${d.totalClients}</div><div class="label">Total clientes</div></div>
     <div class="stat green"><div class="num">\${d.clientsToday}</div><div class="label">Nuevos hoy</div></div>
-    <div class="stat orange"><div class="num">\${d.activeAssignments}</div><div class="label">Asignados activos</div></div>
     <div class="stat red"><div class="num">\${d.hotLeads.length}</div><div class="label">🔥 Leads calientes</div></div>
+    <div class="stat orange"><div class="num">\${pvCount}</div><div class="label">🛠️ En post-venta</div></div>
     <div class="stat purple"><div class="num">\${d.totalMessages}</div><div class="label">Mensajes totales</div></div>
     <div class="stat green"><div class="num">\${d.messagesToday}</div><div class="label">Mensajes hoy</div></div>
   \`;
 }
 
 function renderClients() {
-  let clients = allData.clients;
+  // Comercial solo muestra clientes que NO están en post-venta
+  const PV_ST = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+  let clients = allData.clients.filter(c => !PV_ST.includes(c.status));
   const search = document.getElementById('searchInput').value.toLowerCase();
 
   if (currentFilter === 'new') clients = clients.filter(c => c.status === 'new');
-  else if (currentFilter === 'assigned') clients = clients.filter(c => c.status === 'assigned');
-  else if (currentFilter === 'hot') clients = allData.hotLeads;
-  else if (currentFilter === 'postventa') clients = clients.filter(c => c.status === 'postventa');
+  else if (currentFilter === 'hot') clients = clients.filter(c =>
+    c.memory && (c.memory.toLowerCase().includes('comprar') || c.memory.toLowerCase().includes('interesado') ||
+    c.memory.toLowerCase().includes('listo') || c.memory.toLowerCase().includes('precio'))
+  );
 
   if (search) {
     clients = clients.filter(c =>
@@ -441,6 +718,19 @@ async function selectClient(phone) {
           <div class="crm-chip" style="background:\${client.ignored == 1 ? '#7c1d1d' : '#1c2733'};border-color:\${client.ignored == 1 ? '#f85149' : '#30363d'};color:\${client.ignored == 1 ? '#f85149' : '#8b949e'};" onclick="toggleIgnored('\${client.phone}', \${client.ignored == 1 ? 0 : 1})">\${client.ignored == 1 ? '🔇 IGNORADO — click para reactivar' : '🔇 Silenciar — no es cliente'}</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#8b949e;" onclick="changeStatus('\${client.phone}', 'new')">↩️ Resetear a Nuevo</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#d29922;" onclick="changeStatus('\${client.phone}', 'completed')">✅ Marcar Completado</div>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:#8b949e;font-family:'Chakra Petch',sans-serif;">📦 Mover a Post-venta:</span>
+          <select id="pvSelect_\${client.phone}" style="background:#111820;border:1px solid #30363d;color:#e6edf3;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+            <option value="">— seleccionar —</option>
+            <option value="carnet_pendiente">🪪 Pendiente Carnet Club</option>
+            <option value="despacho_pendiente">📦 Pendiente Envío Dispositivo</option>
+            <option value="municion_pendiente">🔫 Pendiente Envío Munición</option>
+            <option value="recuperacion_pendiente">🔧 Pendiente Recuperación</option>
+            <option value="bot_asesor_pendiente">🤖 Pendiente Bot Asesor</option>
+            <option value="postventa">📋 Post-venta general</option>
+          </select>
+          <button onclick="moverPostventa('\${client.phone}')" style="background:#238636;border:none;color:white;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">✅ Mover</button>
         </div>
         <div class="crm-note-row">
           <input class="crm-note-input" id="noteInput_\${client.phone}" type="text" placeholder="Nota interna... (ej: ya le expliqué los precios, espera depósito)" onkeydown="if(event.key==='Enter') saveNote('\${client.phone}')">
@@ -556,9 +846,300 @@ async function changeStatus(phone, status) {
   } catch(e) { console.error(e); }
 }
 
+async function moverPostventa(phone) {
+  const select = document.getElementById('pvSelect_' + phone);
+  const status = select ? select.value : '';
+  if (!status) { alert('Selecciona una sub-categoría de post-venta'); return; }
+  try {
+    const res = await fetch('/api/cambiar-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, status })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      switchMainTab('postventa');
+    } else { alert('Error: ' + (data.error || 'desconocido')); }
+  } catch(e) { console.error(e); }
+}
+
+async function migrarAssigned() {
+  const btn = document.getElementById('btnMigrar');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Migrando...'; }
+  try {
+    const res = await fetch('/api/migrar-assigned', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      alert(\`✅ Migración lista: \${data.migrados} clientes pasados de "asignados" → 🔥 Calientes\`);
+      await loadData();
+    } else { alert('Error: ' + (data.error || 'desconocido')); }
+  } catch(e) { alert('Error de conexión'); }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Migrar Asignados → Calientes'; }
+}
+
+async function loadComprobanteBadge() {
+  try {
+    const res = await fetch('/api/comprobantes');
+    const comp = await res.json();
+    const badge = document.getElementById('comprobanteBadge');
+    if (badge) {
+      if (comp.length > 0) { badge.textContent = comp.length; badge.style.display = 'inline'; }
+      else badge.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
+async function refreshAll() {
+  await loadData();
+  await loadComprobanteBadge();
+  // Badge post-venta (todos los status del grupo PV)
+  if (allData) {
+    const pvStatuses = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+    const pvCount = allData.clients.filter(c => pvStatuses.includes(c.status)).length;
+    const badge = document.getElementById('postventaBadge');
+    if (badge) { badge.textContent = pvCount; badge.style.display = pvCount > 0 ? 'inline' : 'none'; }
+  }
+  // Si estamos en post-venta, refrescar la lista
+  if (currentMainTab === 'postventa') renderPostventa();
+}
+
 // Auto-refresh cada 15 segundos
-loadData();
-setInterval(loadData, 15000);
+refreshAll();
+setInterval(refreshAll, 15000);
+
+// ====== VISTA PRINCIPAL TABS ======
+let currentMainTab = 'comercial';
+
+function switchMainTab(tab) {
+  currentMainTab = tab;
+  document.getElementById('mainTabComercial').classList.toggle('active', tab === 'comercial');
+  document.getElementById('mainTabComprobantes').classList.toggle('active', tab === 'comprobantes');
+  document.getElementById('mainTabPostventa').classList.toggle('active', tab === 'postventa');
+  document.getElementById('viewClientes').classList.toggle('active', tab === 'comercial');
+  document.getElementById('viewComprobantes').classList.toggle('active', tab === 'comprobantes');
+  document.getElementById('viewPostventa').classList.toggle('active', tab === 'postventa');
+  if (tab === 'comprobantes') loadComprobantes();
+  if (tab === 'postventa') renderPostventa();
+}
+
+// ====== POST-VENTA ======
+let selectedPhonePv = null;
+let currentPvFilter = 'all';
+
+// Todos los status que pertenecen a post-venta
+const PV_STATUSES = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+
+const PV_LABELS = {
+  'postventa': 'Post-venta',
+  'carnet_pendiente': '🪪 Carnet',
+  'despacho_pendiente': '📦 Dispositivo',
+  'municion_pendiente': '🔫 Munición',
+  'recuperacion_pendiente': '🔧 Recuperación',
+  'bot_asesor_pendiente': '🤖 Bot Asesor'
+};
+
+function setPvFilter(filter, el) {
+  currentPvFilter = filter;
+  document.querySelectorAll('[data-pvfilter]').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderPostventa();
+}
+
+function renderPostventa() {
+  if (!allData) return;
+  // Todos los clientes de post-venta = cualquier status del grupo PV
+  let allPv = allData.clients.filter(c => PV_STATUSES.includes(c.status));
+
+  // Aplicar sub-filtro
+  let clients = currentPvFilter === 'all'
+    ? allPv
+    : allPv.filter(c => c.status === currentPvFilter);
+
+  // Búsqueda
+  const search = document.getElementById('searchPostventa')?.value.toLowerCase() || '';
+  if (search) clients = clients.filter(c =>
+    (c.name||'').toLowerCase().includes(search) ||
+    c.phone.includes(search)
+  );
+
+  document.getElementById('postventaCount').textContent = allPv.length;
+
+  // Badge en tab principal (total de todos los PV)
+  const badge = document.getElementById('postventaBadge');
+  if (badge) { badge.textContent = allPv.length; badge.style.display = allPv.length > 0 ? 'inline' : 'none'; }
+
+  const html = clients.map(c => {
+    const initial = (c.name || c.phone).charAt(0).toUpperCase();
+    const statusLabel = PV_LABELS[c.status] || c.status;
+    const statusClass = 'status-' + c.status.replace(/_/g, '-');
+    return \`<div class="client-row \${selectedPhonePv === c.phone ? 'active' : ''}" onclick="selectClientPv('\${c.phone}')">
+      <div class="client-avatar" style="color:#3fb950;">\${initial}</div>
+      <div class="client-info">
+        <div class="client-name">\${c.name || 'Sin nombre'}</div>
+        <div class="client-phone">\${c.phone}</div>
+        \${c.memory ? '<div class="client-memory">💭 ' + c.memory.substring(0, 80) + '</div>' : ''}
+      </div>
+      <div class="client-meta">
+        <div class="client-status \${statusClass}" style="font-size:9px;">\${statusLabel}</div>
+        <div class="client-count">\${c.interaction_count || 0} msgs</div>
+      </div>
+    </div>\`;
+  }).join('');
+  document.getElementById('postventaList').innerHTML = html || '<div class="chat-empty">Sin clientes en esta categoría</div>';
+}
+
+function filterPostventa() { renderPostventa(); }
+
+async function selectClientPv(phone) {
+  selectedPhonePv = phone;
+  renderPostventa();
+  const client = allData.clients.find(c => c.phone === phone);
+  document.getElementById('chatTitlePv').textContent = '💬 ' + (client.name || phone);
+  document.getElementById('clientDetailPv').style.display = 'block';
+  document.getElementById('clientDetailPv').innerHTML = \`
+    <div class="client-detail">
+      <h3>\${client.name || 'Sin nombre'} <span class="client-status status-postventa">postventa</span></h3>
+      <div class="detail-grid">
+        <div class="detail-item"><span class="dl">📱 Teléfono:</span> <span class="dv">\${client.phone}</span></div>
+        <div class="detail-item"><span class="dl">💬 Mensajes:</span> <span class="dv">\${client.interaction_count || 0}</span></div>
+      </div>
+      \${client.memory ? '<div class="memory-box">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : ''}
+      <div class="crm-actions">
+        <div class="crm-actions-title">📂 Categorizar</div>
+        <div class="crm-chips">
+          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'carnet_pendiente')">🪪 Pend. Carnet Club</div>
+          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'despacho_pendiente')">📦 Pend. Dispositivo</div>
+          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'municion_pendiente')">🔫 Pend. Munición</div>
+          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'recuperacion_pendiente')">🔧 Pend. Recuperación</div>
+          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'bot_asesor_pendiente')">🤖 Pend. Bot Asesor</div>
+        </div>
+        <div class="crm-actions-title" style="margin-top:10px;">⚡ Acciones</div>
+        <div class="crm-chips">
+          <div class="crm-chip" onclick="addNote('\${client.phone}', '✅ Caso resuelto')">✅ Caso resuelto</div>
+          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'completed')">🏁 Marcar completado</div>
+          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'new')">↩️ Devolver a Comercial</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;"><a href="https://wa.me/\${client.phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir WhatsApp</a></div>
+    </div>
+  \`;
+  const res = await fetch('/api/chat?phone=' + phone);
+  const messages = await res.json();
+  const chatHtml = messages.map(m => \`
+    <div style="display:flex;flex-direction:column;align-items:\${m.role === 'user' ? 'flex-start' : 'flex-end'};">
+      <div class="chat-bubble chat-\${m.role}">\${m.message}</div>
+      <div class="chat-time">\${new Date(m.created_at).toLocaleString()}</div>
+    </div>
+  \`).join('');
+  const chatArea = document.getElementById('chatAreaPv');
+  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>';
+  requestAnimationFrame(() => requestAnimationFrame(() => { chatArea.scrollTop = chatArea.scrollHeight; }));
+}
+
+// ====== COMPROBANTES ======
+async function loadComprobantes() {
+  try {
+    const res = await fetch('/api/comprobantes');
+    const comprobantes = await res.json();
+
+    // Actualizar badge
+    const badge = document.getElementById('comprobanteBadge');
+    if (comprobantes.length > 0) {
+      badge.textContent = comprobantes.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const container = document.getElementById('comprobantesList');
+    if (!comprobantes.length) {
+      container.innerHTML = '<div class="comprobante-empty">✅ No hay comprobantes pendientes de verificar</div>';
+      return;
+    }
+
+    container.innerHTML = comprobantes.map(c => {
+      const tipoClass = c.tipo === 'club' ? 'tipo-club' : c.tipo === 'producto' ? 'tipo-producto' : c.tipo === 'bot_asesor' ? 'tipo-bot' : 'tipo-desconocido';
+      const tipoLabel = c.tipo === 'club' ? '🏆 Club ZT' : c.tipo === 'producto' ? '📦 Producto' : c.tipo === 'bot_asesor' ? '🤖 Bot Asesor' : '❓ Desconocido';
+      const fecha = new Date(c.created_at).toLocaleString('es-CO');
+      const imgHtml = c.imagen_base64
+        ? \`<img class="comprobante-img" src="data:\${c.imagen_mime};base64,\${c.imagen_base64}" alt="comprobante" onclick="openLightbox(this.src)" title="Click para ver completo">\`
+        : \`<div class="comprobante-img-placeholder">📄 Sin imagen</div>\`;
+
+      return \`
+        <div class="comprobante-card" id="comp_\${c.id}">
+          \${imgHtml}
+          <div class="comprobante-info">
+            <div class="comprobante-name">\${c.client_name || 'Sin nombre'}</div>
+            <div class="comprobante-phone">📱 \${c.client_phone}</div>
+            <div class="comprobante-detail">
+              \${c.info ? c.info.split(',').map(p => '<strong>' + p.trim() + '</strong>').join(' &nbsp;·&nbsp; ') : '<em style="color:#3d4f5f">Sin info detectada</em>'}
+            </div>
+            <div><span class="comprobante-tipo \${tipoClass}">\${tipoLabel}</span></div>
+            <div class="comprobante-time">📅 \${fecha}</div>
+            <div style="margin-top:8px;"><a href="https://wa.me/\${c.client_phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir en WhatsApp</a></div>
+          </div>
+          <div class="comprobante-actions">
+            <button class="btn-confirmar" id="btn_confirm_\${c.id}" onclick="accionComprobante(\${c.id}, 'confirmar', '\${c.client_phone}', '\${c.tipo}')">✅ Confirmar pago</button>
+            <button class="btn-rechazar" id="btn_reject_\${c.id}" onclick="accionComprobante(\${c.id}, 'rechazar', '\${c.client_phone}', '\${c.tipo}')">❌ Rechazar</button>
+          </div>
+        </div>
+      \`;
+    }).join('');
+  } catch(e) {
+    console.error('Error cargando comprobantes:', e);
+  }
+}
+
+async function accionComprobante(id, accion, phone, tipo) {
+  const btnConfirm = document.getElementById('btn_confirm_' + id);
+  const btnReject = document.getElementById('btn_reject_' + id);
+  if (btnConfirm) btnConfirm.disabled = true;
+  if (btnReject) btnReject.disabled = true;
+  const label = accion === 'confirmar' ? (btnConfirm || {}) : (btnReject || {});
+  if (accion === 'confirmar' && btnConfirm) btnConfirm.textContent = '⏳ Confirmando...';
+  if (accion === 'rechazar' && btnReject) btnReject.textContent = '⏳ Rechazando...';
+
+  try {
+    const res = await fetch('/api/confirmar-comprobante', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, accion, phone, tipo })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const card = document.getElementById('comp_' + id);
+      if (card) {
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+        const status = accion === 'confirmar'
+          ? '<div style="color:#3fb950;font-size:13px;font-weight:700;margin-top:8px;">✅ Pago confirmado — bot solicitando datos al cliente</div>'
+          : '<div style="color:#f85149;font-size:13px;font-weight:700;margin-top:8px;">❌ Rechazado — bot notificó al cliente</div>';
+        card.querySelector('.comprobante-actions').innerHTML = status;
+      }
+      // Recargar badge después de 2s
+      setTimeout(loadComprobantes, 2000);
+    } else {
+      alert('❌ Error: ' + (data.error || 'No se pudo conectar con el bot'));
+      if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Confirmar pago'; }
+      if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar'; }
+    }
+  } catch(e) {
+    alert('❌ Error de red. ¿Está corriendo el panel?');
+    if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Confirmar pago'; }
+    if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar'; }
+  }
+}
+
+// Lightbox para ver comprobante completo
+function openLightbox(src) {
+  document.getElementById('imgLightboxImg').src = src;
+  document.getElementById('imgLightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('imgLightbox').classList.remove('open');
+}
+
 </script>
 </body>
 </html>`;
