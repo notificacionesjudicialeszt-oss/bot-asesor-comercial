@@ -265,6 +265,35 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Resolver LIDs a números reales — relay al bot
+  if (url.pathname === '/api/resolver-lids' && req.method === 'POST') {
+    const lidCount = db.prepare("SELECT COUNT(*) as c FROM clients WHERE length(phone) >= 13 OR chat_id LIKE '%@c.us'").get().c;
+    if (lidCount === 0) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, total: 0, msg: 'Sin clientes LID pendientes' }));
+      return;
+    }
+    const botReq = http.request({
+      hostname: 'localhost', port: 3001, path: '/resolver-lids', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': 2 }
+    }, botRes => {
+      let data = '';
+      botRes.on('data', chunk => data += chunk);
+      botRes.on('end', () => {
+        console.log(`[PANEL] 🔍 Resolución LIDs iniciada: ${lidCount} clientes`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(data);
+      });
+    });
+    botReq.on('error', () => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+    });
+    botReq.write('{}');
+    botReq.end();
+    return;
+  }
+
   // Migración única: assigned → hot
   if (url.pathname === '/api/migrar-assigned' && req.method === 'POST') {
     try {
@@ -482,6 +511,7 @@ function getHTML() {
     <span id="lastUpdate" style="color:#484f58;font-size:12px;margin-right:15px;"></span>
     <button class="reactivar-btn" id="btnReactivar" onclick="reactivarCalientes()">🔥 Reactivar Calientes</button>
     <button id="btnMigrar" onclick="migrarAssigned()" style="background:#1c2733;border:1px solid #30363d;color:#8b949e;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Migración única: mueve todos los clientes 'asignados' a Calientes">🔄 Migrar Asignados → Calientes</button>
+    <button id="btnResolverLid" onclick="resolverLids()" style="background:#1c2733;border:1px solid #388bfd;color:#388bfd;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Resuelve LIDs de WhatsApp a números de teléfono reales">🔍 Resolver LIDs</button>
     <button class="refresh-btn" onclick="refreshAll()">🔄 Actualizar</button>
   </div>
 </div>
@@ -580,6 +610,37 @@ async function reactivarCalientes() {
   }
 }
 
+async function resolverLids() {
+  const btn = document.getElementById('btnResolverLid');
+  btn.disabled = true;
+  btn.textContent = '⏳ Resolviendo...';
+  try {
+    const res = await fetch('/api/resolver-lids', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.total === 0) {
+        btn.textContent = '✅ Sin LIDs pendientes';
+      } else {
+        btn.textContent = '⏳ Procesando ' + data.total + ' en background...';
+        // Esperar un momento y recargar datos para mostrar los resueltos
+        setTimeout(() => {
+          loadData();
+          btn.textContent = '🔍 Resolver LIDs';
+          btn.style.color = '#388bfd';
+          btn.disabled = false;
+        }, Math.min(data.total * 1200, 30000));
+        return;
+      }
+    } else {
+      alert('⚠️ ' + (data.msg || data.error || 'Error'));
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+  }
+  btn.textContent = '🔍 Resolver LIDs';
+  btn.disabled = false;
+}
+
 async function loadData() {
   const res = await fetch('/api/data');
   allData = await res.json();
@@ -645,7 +706,10 @@ function renderClients() {
   // Comercial solo muestra clientes que NO están en post-venta
   const PV_ST = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
   let clients = allData.clients.filter(c => !PV_ST.includes(c.status));
-  const search = document.getElementById('searchInput').value.toLowerCase();
+  const rawSearch = document.getElementById('searchInput').value.toLowerCase().trim();
+  // Para búsqueda de teléfono: quitar +, espacios y guiones
+  const searchDigits = rawSearch.replace(/[^0-9]/g, '');
+  const search = rawSearch;
 
   if (currentFilter === 'new') clients = clients.filter(c => c.status === 'new');
   else if (currentFilter === 'hot') clients = clients.filter(c =>
@@ -656,7 +720,7 @@ function renderClients() {
   if (search) {
     clients = clients.filter(c =>
       (c.name||'').toLowerCase().includes(search) ||
-      c.phone.includes(search) ||
+      (searchDigits && c.phone.includes(searchDigits)) ||
       (c.memory||'').toLowerCase().includes(search)
     );
   }
@@ -670,7 +734,7 @@ function renderClients() {
       <div class="client-avatar">\${initial}</div>
       <div class="client-info">
         <div class="client-name">\${c.name || 'Sin nombre'}\${isHot ? '<span class="hot-badge">🔥 HOT</span>' : ''}</div>
-        <div class="client-phone">\${c.phone}</div>
+        <div class="client-phone">\${isLid(c.phone) ? '🔒 ID privado' : c.phone}</div>
         \${c.memory ? '<div class="client-memory">💭 ' + c.memory.substring(0, 80) + '</div>' : ''}
       </div>
       <div class="client-meta">
@@ -698,7 +762,7 @@ async function selectClient(phone) {
     <div class="client-detail">
       <h3>\${client.name || 'Sin nombre'} <span class="client-status status-\${client.status}">\${client.status}</span></h3>
       <div class="detail-grid">
-        <div class="detail-item"><span class="dl">📱 Teléfono:</span> <span class="dv">\${client.phone}</span></div>
+        <div class="detail-item"><span class="dl">\${isLid(client.phone) ? '🔒 ID WA:' : '📱 Teléfono:'}</span> <span class="dv">\${isLid(client.phone) ? '<span style=\\"color:#8b949e;font-size:11px;\\">' + client.phone + ' (privado)</span>' : client.phone}</span></div>
         <div class="detail-item"><span class="dl">💬 Mensajes:</span> <span class="dv">\${client.interaction_count || 0}</span></div>
         <div class="detail-item"><span class="dl">📅 Registro:</span> <span class="dv">\${new Date(client.created_at).toLocaleDateString()}</span></div>
         <div class="detail-item"><span class="dl">👔 Asignado:</span> <span class="dv">\${assignment ? assignment.employee_name : 'No'}</span></div>
@@ -740,7 +804,7 @@ async function selectClient(phone) {
       </div>
 
       <div style="margin-top:10px;">
-        <a href="https://wa.me/\${client.phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir WhatsApp</a>
+        \${waLink(client.phone)}
       </div>
     </div>
   \`;
@@ -774,6 +838,19 @@ function setFilter(filter, el) {
 }
 
 function filterClients() { renderClients(); }
+
+// Detectar si un phone es LID (ID interno de WA, no número real)
+function isLid(phone) { return phone && phone.length >= 13; }
+// Mostrar phone legible
+function displayPhone(phone) {
+  if (isLid(phone)) return '<span style="color:#8b949e;font-size:11px;">🔒 ID WhatsApp (privado)</span>';
+  return phone;
+}
+// Enlace wa.me solo si es teléfono real
+function waLink(phone) {
+  if (isLid(phone)) return '<span style="color:#8b949e;font-size:12px;">📵 Sin número real (usuario LID)</span>';
+  return '<a href="https://wa.me/' + phone + '" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir WhatsApp</a>';
+}
 
 async function addNote(phone, note) {
   try {
@@ -957,10 +1034,11 @@ function renderPostventa() {
     : allPv.filter(c => c.status === currentPvFilter);
 
   // Búsqueda
-  const search = document.getElementById('searchPostventa')?.value.toLowerCase() || '';
-  if (search) clients = clients.filter(c =>
-    (c.name||'').toLowerCase().includes(search) ||
-    c.phone.includes(search)
+  const rawSearchPv = (document.getElementById('searchPostventa')?.value || '').toLowerCase().trim();
+  const searchPvDigits = rawSearchPv.replace(/[^0-9]/g, '');
+  if (rawSearchPv) clients = clients.filter(c =>
+    (c.name||'').toLowerCase().includes(rawSearchPv) ||
+    (searchPvDigits && c.phone.includes(searchPvDigits))
   );
 
   document.getElementById('postventaCount').textContent = allPv.length;
@@ -977,7 +1055,7 @@ function renderPostventa() {
       <div class="client-avatar" style="color:#3fb950;">\${initial}</div>
       <div class="client-info">
         <div class="client-name">\${c.name || 'Sin nombre'}</div>
-        <div class="client-phone">\${c.phone}</div>
+        <div class="client-phone">\${isLid(c.phone) ? '🔒 ID privado' : c.phone}</div>
         \${c.memory ? '<div class="client-memory">💭 ' + c.memory.substring(0, 80) + '</div>' : ''}
       </div>
       <div class="client-meta">
@@ -1001,7 +1079,7 @@ async function selectClientPv(phone) {
     <div class="client-detail">
       <h3>\${client.name || 'Sin nombre'} <span class="client-status status-postventa">postventa</span></h3>
       <div class="detail-grid">
-        <div class="detail-item"><span class="dl">📱 Teléfono:</span> <span class="dv">\${client.phone}</span></div>
+        <div class="detail-item"><span class="dl">\${isLid(client.phone) ? '🔒 ID WA:' : '📱 Teléfono:'}</span> <span class="dv">\${isLid(client.phone) ? '<span style=\\"color:#8b949e;font-size:11px;\\">' + client.phone + ' (privado)</span>' : client.phone}</span></div>
         <div class="detail-item"><span class="dl">💬 Mensajes:</span> <span class="dv">\${client.interaction_count || 0}</span></div>
       </div>
       \${client.memory ? '<div class="memory-box">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : ''}
@@ -1021,7 +1099,7 @@ async function selectClientPv(phone) {
           <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'new')">↩️ Devolver a Comercial</div>
         </div>
       </div>
-      <div style="margin-top:10px;"><a href="https://wa.me/\${client.phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir WhatsApp</a></div>
+      <div style="margin-top:10px;">\${waLink(client.phone)}</div>
     </div>
   \`;
   const res = await fetch('/api/chat?phone=' + phone);
@@ -1112,9 +1190,16 @@ async function accionComprobante(id, accion, phone, tipo) {
       if (card) {
         card.style.opacity = '0.4';
         card.style.pointerEvents = 'none';
-        const status = accion === 'confirmar'
-          ? '<div style="color:#3fb950;font-size:13px;font-weight:700;margin-top:8px;">✅ Pago confirmado — bot solicitando datos al cliente</div>'
-          : '<div style="color:#f85149;font-size:13px;font-weight:700;margin-top:8px;">❌ Rechazado — bot notificó al cliente</div>';
+        let status;
+        if (!data.waSent) {
+          // BD actualizada pero el mensaje de WA falló
+          const accionLabel = accion === 'confirmar' ? '✅ BD actualizada' : '❌ BD actualizada';
+          status = '<div style="color:#d29922;font-size:13px;font-weight:700;margin-top:8px;">' + accionLabel + ' — ⚠️ No se pudo notificar al cliente por WhatsApp (' + (data.waWarning || 'error LID') + '). Notifícalo manualmente.</div>';
+        } else {
+          status = accion === 'confirmar'
+            ? '<div style="color:#3fb950;font-size:13px;font-weight:700;margin-top:8px;">✅ Pago confirmado — bot solicitando datos al cliente</div>'
+            : '<div style="color:#f85149;font-size:13px;font-weight:700;margin-top:8px;">❌ Rechazado — bot notificó al cliente</div>';
+        }
         card.querySelector('.comprobante-actions').innerHTML = status;
       }
       // Recargar badge después de 2s

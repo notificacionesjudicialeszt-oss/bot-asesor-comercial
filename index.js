@@ -515,7 +515,8 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
               const textPart = msg.body || 'El cliente envió esta imagen.';
               const visionModel = genAI.getGenerativeModel({
                 model: 'gemini-2.5-pro',
-                systemInstruction: systemPrompt
+                systemInstruction: systemPrompt,
+                generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
               });
               const visionChat = visionModel.startChat({ history: geminiHistory });
               const visionResult = await visionChat.sendMessage([imagePart, textPart]);
@@ -567,7 +568,8 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
 
           const audioModel = genAI.getGenerativeModel({
             model: 'gemini-2.5-pro',
-            systemInstruction: systemPrompt
+            systemInstruction: systemPrompt,
+            generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
           const audioChat = audioModel.startChat({ history: geminiHistoryAudio });
           const audioResult = await audioChat.sendMessage([audioPart, textPart]);
@@ -624,7 +626,8 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
 
           const pdfModel = genAI.getGenerativeModel({
             model: 'gemini-2.5-pro',
-            systemInstruction: systemPrompt
+            systemInstruction: systemPrompt,
+            generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
           const pdfChat = pdfModel.startChat({ history: geminiHistoryPdf });
           const pdfResult = await pdfChat.sendMessage([pdfPart, textPart]);
@@ -688,14 +691,54 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
 }
 
 // ============================================
+// SAFE SEND — envía por WhatsApp con auto-sanación de chat_id
+// El phone es el identificador universal. El chat_id (@c.us o @lid) es solo
+// un caché de transporte. Si falla por "No LID", resuelve el ID canónico,
+// lo guarda en BD y reintenta una vez.
+// ============================================
+async function safeSend(phone, message) {
+  const chatId = db.getClientChatId(phone);
+  try {
+    await client.sendMessage(chatId, message);
+  } catch (err) {
+    if (!err.message || !err.message.includes('LID')) throw err; // otro error, relanzar
+    console.warn(`[SEND] ⚠️ "No LID" para ${phone} con ${chatId} — resolviendo ID canónico...`);
+    try {
+      const waId = await client.getNumberId(phone);
+      if (!waId) throw new Error('getNumberId no devolvió resultado');
+      const canonicalId = waId._serialized;
+      // Actualizar chat_id en BD para la próxima vez
+      db.db.prepare('UPDATE clients SET chat_id = ? WHERE phone = ?').run(canonicalId, phone);
+      console.log(`[SEND] 🔄 chat_id actualizado: ${phone} → ${canonicalId} — reintentando...`);
+      await client.sendMessage(canonicalId, message);
+    } catch (retryErr) {
+      console.error(`[SEND] ❌ Reintento fallido para ${phone}: ${retryErr.message}`);
+      throw retryErr;
+    }
+  }
+}
+
+// ============================================
 // FLUJO DE CLIENTE
 // ============================================
 async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) {
-  // 1. Obtener nombre del perfil de WhatsApp
+  // 1. Obtener nombre del perfil y teléfono real de WhatsApp
   let profileName = '';
   try {
     const contact = await rawMsg.getContact();
     profileName = contact.pushname || contact.name || contact.shortName || '';
+
+    // contact.number resuelve el teléfono real incluso cuando el mensaje llegó con LID
+    const realNumber = (contact.number || '').replace(/\D/g, '');
+    if (realNumber && realNumber !== senderPhone) {
+      console.log(`[BOT] 📱 LID resuelto: ${senderPhone} → ${realNumber}`);
+      // Si existe registro viejo bajo el LID, migrarlo al número real
+      if (db.getClient(senderPhone) && !db.getClient(realNumber)) {
+        db.migrateClientPhone(senderPhone, realNumber);
+      }
+      senderPhone = realNumber;
+    }
+
     if (CONFIG.debug) {
       console.log(`[DEBUG] Perfil WhatsApp: "${profileName}" (${senderPhone})`);
     }
@@ -707,15 +750,21 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
   const existingClient = db.getClient(senderPhone);
   const isNewClient = !existingClient;
 
+  // chat_id = msg.from completo (puede ser @c.us o @lid) — guardarlo siempre
+  const chatIdFromMsg = rawMsg.from || (senderPhone + '@c.us');
+
   if (isNewClient) {
-    // Cliente nuevo → crear con nombre de perfil
-    db.upsertClient(senderPhone, { name: profileName });
-    console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone})`);
+    // Cliente nuevo → crear con nombre de perfil y chat_id real
+    db.upsertClient(senderPhone, { name: profileName, chat_id: chatIdFromMsg });
+    console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone}) [${chatIdFromMsg}]`);
     saveContactToVCF(senderPhone, profileName);
 
-  } else if (profileName && !existingClient.name) {
-    db.upsertClient(senderPhone, { name: profileName });
-    saveContactToVCF(senderPhone, profileName);
+  } else {
+    // Cliente existente → actualizar chat_id siempre (puede cambiar de @c.us a @lid)
+    const updateData = { chat_id: chatIdFromMsg };
+    if (profileName && !existingClient.name) updateData.name = profileName;
+    db.upsertClient(senderPhone, updateData);
+    if (profileName && !existingClient.name) saveContactToVCF(senderPhone, profileName);
   }
 
   // ⛔ Contacto ignorado desde el panel — silencio total
@@ -1240,7 +1289,8 @@ async function getClaudeResponse(clientPhone, message, history) {
       try {
         const model = genAI.getGenerativeModel({
           model: 'gemini-2.5-pro',
-          systemInstruction: systemPrompt
+          systemInstruction: systemPrompt,
+          generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
         });
 
         const chat = model.startChat({ history: geminiHistory });
@@ -1411,11 +1461,7 @@ Y además:
 ⭐ PLAN PRO + ASESOR LEGAL IA — *$200.000* (¡EL MEJOR VALOR!)
 ✅ Todo lo del Plan Pro (carpeta jurídica, simulacros, descuentos, comunidad, certificado QR, defensa jurídica gratis)
 Y además:
-🤖 Asesor Legal IA 24/7 por 6 meses directo en tu WhatsApp:
-   → Responde en 10 segundos con leyes exactas
-   → Decreto 2535 Art. 11, Ley 2197/2022 Art. 28, Código Penal Art. 416
-   → Cuando el policía esté frente a ti, citas la ley exacta y el policía retrocede
-   → Sistema MCP + RAG — 100% verificado
+🤖 Asesor Legal IA 24/7 por 6 meses directo en tu WhatsApp (ver detalles completos abajo)
 (Valor normal del combo: $250.000 — hoy: $200.000)
 
 LA VERDAD QUE NADIE DICE:
@@ -1467,6 +1513,44 @@ Una vez el equipo confirme el pago (lo harán directamente), el proceso de datos
    🥽 Gafas de seguridad (las de ferretería/construcción funcionan perfecto, no necesitan ser especiales)
    👂 Tapaoídos
 - Para reservar: coordinar directamente por WhatsApp
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 ASESOR LEGAL IA — PRODUCTO INDEPENDIENTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Este es el TERCER producto de Zona Traumática (además de armas y afiliación al Club). Es un chatbot de inteligencia artificial especializado en derecho de armas traumáticas en Colombia, disponible directo en el WhatsApp personal del cliente.
+
+💰 *$50.000 / 6 meses* — $277 pesos al día de poder legal
+⚠️ REQUISITO: Solo disponible para AFILIADOS ACTIVOS del Club ZT (mínimo Plan Plus vigente)
+
+🔥 LA DIFERENCIA — SIN EL BOT vs CON EL BOT:
+❌ SIN EL BOT: Dudas, balbuceas, "Creo que eso ya no aplica...", el policía percibe inseguridad → Retención.
+✅ CON EL BOT: Consultas WhatsApp en 10 segundos, citas "Decreto 2535 Art. 11, Ley 2197/2022 Art. 28, retención ilegal = Art. 416 Código Penal" → El policía retrocede.
+
+📊 95% DE ÉXITO cuando tienes el fundamento legal exacto.
+
+QUÉ INCLUYE EL ASESOR LEGAL IA:
+✅ Respuesta inmediata en 10 segundos con leyes exactas
+✅ Disponible 24/7 — siempre activo, siempre listo
+✅ 100% confiable — Sistema MCP + RAG verificado
+✅ Base de conocimiento legal exclusiva y actualizada
+✅ Razonamiento IA avanzado con respuestas verificadas
+✅ Fundamento legal exacto: Ley 2197/2022, Decreto 2535, Sentencia C-014/2023, Código Penal
+✅ Citas de sentencias reales — no inventa, cita fuentes
+✅ Consecuencias penales para funcionarios que actúen ilegalmente (Art. 416 Código Penal)
+✅ Directo en tu WhatsApp personal — no necesitas app ni plataforma aparte
+
+CÓMO VENDER EL ASESOR LEGAL IA:
+- Si el cliente ya es afiliado al Club: ofrécelo como el complemento perfecto para tener poder legal en el bolsillo.
+- Si el cliente NO es afiliado: explícale que primero necesita afiliarse al Club (mínimo Plan Plus) y luego puede activar el bot.
+- Si el cliente pregunta por la legalidad, por requisas, o por cómo actuar ante la policía: es el momento PERFECTO para presentar el bot.
+- Frase clave: "Cuando ese policía esté frente a ti... ¿Vas a dudar o vas a citar la ley exacta?"
+- El bot se activa respondiendo "ACTIVAR" al número 3013981979.
+
+ACTIVACIÓN DEL ASESOR LEGAL IA — PASOS:
+1️⃣ Ser afiliado activo del Club ZT (Plan Plus o Pro vigente)
+2️⃣ Pagar $50.000 por los medios habituales
+3️⃣ Enviar comprobante por WhatsApp
+4️⃣ Se activa en 24h directo en tu WhatsApp personal por 6 meses
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MEDIOS DE PAGO (para cualquier producto):
@@ -2148,18 +2232,8 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
       const result = await reactivarModel.generateContent(prompt);
       const mensaje = result.response.text().trim();
 
-      let chatId;
-      let phoneForDb;
-      if (cliente.phone.includes('@lid')) {
-        // LID interno de WhatsApp — enviar directo con el formato @lid
-        chatId = cliente.phone;
-        phoneForDb = cliente.phone.replace(/@.*/g, '');
-      } else {
-        const phoneClean = cliente.phone.replace(/@.*/g, '').replace(/\D/g, '');
-        chatId = phoneClean + '@c.us';
-        phoneForDb = phoneClean;
-      }
-      await client.sendMessage(chatId, mensaje);
+      const phoneForDb = cliente.phone.replace(/@.*/g, '').replace(/\D/g, '');
+      await safeSend(phoneForDb, mensaje);
       db.saveMessage(phoneForDb, 'assistant', mensaje);
       console.log(`[REACTIVAR] ✅ (${i + 1}/${clientes.length}) Enviado a ${cliente.name} (${cliente.phone})`);
 
@@ -2208,23 +2282,21 @@ function startReactivacionServer() {
       req.on('end', async () => {
         try {
           const { id, accion, phone, tipo } = JSON.parse(body);
-          // accion: 'confirmar' o 'rechazar'
+
+          // 1. Actualizar BD primero — esto SIEMPRE debe ocurrir
           db.updateComprobanteEstado(id, accion === 'confirmar' ? 'confirmado' : 'rechazado');
 
-          // Limpiar phone: si es @lid usar directo, si no construir @c.us
-          let chatId;
-          let phoneClean;
-          if (phone.includes('@lid')) {
-            chatId = phone;
-            phoneClean = phone.replace(/@.*/g, '');
-          } else {
-            phoneClean = phone.replace(/@.*/g, '').replace(/\D/g, '');
-            chatId = phoneClean + '@c.us';
-          }
+          // 2. Intentar notificar al cliente por WhatsApp (puede fallar sin romper nada)
+          const phoneClean = phone.replace(/@.*/g, '').replace(/\D/g, '');
+          const chatId = db.getClientChatId(phoneClean);
+          let waSent = true;
+          let waError = null;
+
+          // 3. Preparar mensaje y actualizar BD de estado (siempre ocurre)
+          let msgDatos = null;
+          let msgRechazado = null;
 
           if (accion === 'confirmar') {
-            // Pago confirmado — bot le pide los datos al cliente según el tipo
-            let msgDatos;
             let nuevoStatus;
             if (tipo === 'club') {
               msgDatos = `✅ ¡Confirmamos tu pago! Bienvenido al Club ZT 🛡️\n\nPara generar tu carnet digital necesito estos datos:\n\n` +
@@ -2252,11 +2324,9 @@ function startReactivacionServer() {
                 `El envío se procesa en 1-2 días hábiles, es discreto y seguro 🔒`;
               nuevoStatus = 'despacho_pendiente';
             }
-            await client.sendMessage(chatId, msgDatos);
-            db.saveMessage(phoneClean, 'assistant', msgDatos);
-            db.upsertClient(phoneClean, { status: nuevoStatus });
 
-            // Actualizar memoria para que el bot sepa que ya pagó y NO siga vendiendo
+            // Actualizar estado y memoria — operaciones BD, siempre deben ocurrir
+            db.upsertClient(phoneClean, { status: nuevoStatus });
             const memoriaActual = db.getClientMemory(phoneClean) || '';
             const tagPago = tipo === 'club'
               ? '✅ YA AFILIADO AL CLUB ZT — comprobante confirmado. NO ofrecer más productos de club.'
@@ -2265,26 +2335,89 @@ function startReactivacionServer() {
               : '✅ YA COMPRÓ PRODUCTO — comprobante confirmado. NO ofrecer más ventas, está en proceso de envío.';
             const nuevaMemoria = memoriaActual ? memoriaActual + '\n' + tagPago : tagPago;
             db.updateClientMemory(phoneClean, nuevaMemoria);
-
-            console.log(`[COMPROBANTE] ✅ Pago confirmado ID #${id} → mensaje enviado a ${phone}`);
+            console.log(`[COMPROBANTE] ✅ BD actualizada ID #${id} para ${phone}`);
 
           } else {
-            // Pago rechazado — avisar al cliente
-            const msgRechazado = `⚠️ Revisamos tu comprobante y el monto no coincide con el valor del plan seleccionado.\n\n` +
+            msgRechazado = `⚠️ Revisamos tu comprobante y el monto no coincide con el valor del plan seleccionado.\n\n` +
               `Por favor verifica el monto y vuelve a enviarnos el comprobante correcto. Si tienes dudas, con gusto te ayudamos 🙏`;
-            await client.sendMessage(chatId, msgRechazado);
-            db.saveMessage(phone, 'assistant', msgRechazado);
-            console.log(`[COMPROBANTE] ❌ Pago rechazado ID #${id} → notificado a ${phone}`);
           }
 
+          // 4. Intentar notificar al cliente por WhatsApp — puede fallar sin romper nada
+          try {
+            if (msgDatos) {
+              await safeSend(phoneClean, msgDatos);
+              db.saveMessage(phoneClean, 'assistant', msgDatos);
+              console.log(`[COMPROBANTE] 📱 Notificación enviada a ${phone}`);
+            } else if (msgRechazado) {
+              await safeSend(phoneClean, msgRechazado);
+              db.saveMessage(phoneClean, 'assistant', msgRechazado);
+              console.log(`[COMPROBANTE] 📱 Rechazo notificado a ${phone}`);
+            }
+            waSent = true;
+          } catch (waErr) {
+            waSent = false;
+            waError = waErr.message;
+            console.error(`[COMPROBANTE] ⚠️ No se pudo notificar a ${phone}: ${waErr.message}`);
+          }
+
+          // BD ya fue actualizada — siempre responder ok:true
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true }));
+          res.end(JSON.stringify({ ok: true, waSent, waWarning: waError }));
         } catch (e) {
           console.error('[COMPROBANTE] Error confirmar:', e.message);
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
       });
+    } else if (req.url === '/resolver-lids' && req.method === 'POST') {
+      // Resolver phones LID: clientes cuyo phone >= 13 dígitos NO son un número real
+      // Solo responsabilidad: dejar el número real como phone. El chat_id se auto-sana al enviar.
+      const lidClients = db.getLidClients();
+
+      if (lidClients.length === 0) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, total: 0, msg: 'Sin clientes LID pendientes' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, total: lidClients.length }));
+
+      (async () => {
+        let resueltos = 0;
+        let fallidos = 0;
+        console.log(`[LID] 🔍 Resolviendo ${lidClients.length} phones LID a número real...`);
+
+        for (const c of lidClients) {
+          try {
+            const chatId = c.chat_id || (c.phone + '@lid');
+            const contact = await client.getContactById(chatId);
+            const realNumber = (contact.number || '').replace(/\D/g, '');
+
+            if (!realNumber || realNumber === c.phone) {
+              console.log(`[LID] ⏭️  ${c.phone} — sin cambio`);
+            } else {
+              const existeReal = db.getClient(realNumber);
+              if (existeReal) {
+                const betterName = (c.name && c.name.trim()) ? c.name : existeReal.name;
+                db.upsertClient(realNumber, { name: betterName, chat_id: chatId });
+                db.db.prepare('DELETE FROM clients WHERE phone = ?').run(c.phone);
+              } else {
+                db.migrateClientPhone(c.phone, realNumber);
+                db.upsertClient(realNumber, { chat_id: chatId });
+              }
+              console.log(`[LID] ✅ ${c.phone} → ${realNumber}`);
+              resueltos++;
+            }
+            await new Promise(r => setTimeout(r, 800));
+          } catch (err) {
+            console.error(`[LID] ❌ ${c.phone}: ${err.message}`);
+            fallidos++;
+          }
+        }
+
+        console.log(`[LID] 🎉 Completado — ${resueltos} resueltos, ${fallidos} fallidos`);
+      })().catch(e => console.error('[LID] Error general:', e.message));
+
     } else {
       res.writeHead(404);
       res.end();

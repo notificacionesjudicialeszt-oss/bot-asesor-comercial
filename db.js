@@ -54,6 +54,10 @@ function initDatabase() {
     db.exec(`ALTER TABLE clients ADD COLUMN spam_flag INTEGER DEFAULT 0`);
     console.log('[DB] Columna spam_flag agregada');
   } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN chat_id TEXT DEFAULT ''`);
+    console.log('[DB] Columna chat_id agregada');
+  } catch (e) { /* ya existe */ }
   // last_interaction ya no se usa — usamos updated_at
 
   // Tabla de empleados
@@ -117,11 +121,16 @@ function initDatabase() {
 
 // Buscar cliente por teléfono
 function getClient(phone) {
-  return db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
+  const clean = phone.replace(/@.*/, '').replace(/\D/g, '');
+  return db.prepare('SELECT * FROM clients WHERE phone = ?').get(clean);
 }
 
 // Crear o actualizar cliente
 function upsertClient(phone, data = {}) {
+  // Normalizar phone: quitar @c.us, @lid, @g.us y cualquier no-dígito
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  if (!phone) return null;
+
   const existing = getClient(phone);
 
   if (existing) {
@@ -134,6 +143,7 @@ function upsertClient(phone, data = {}) {
     if (data.notes) { fields.push('notes = ?'); values.push(data.notes); }
     if (data.memory) { fields.push('memory = ?'); values.push(data.memory); }
     if (data.status) { fields.push('status = ?'); values.push(data.status); }
+    if (data.chat_id) { fields.push('chat_id = ?'); values.push(data.chat_id); }
 
     // Siempre incrementar interacciones y actualizar fecha
     fields.push('interaction_count = interaction_count + 1');
@@ -145,10 +155,11 @@ function upsertClient(phone, data = {}) {
   } else {
     // Crear nuevo cliente
     db.prepare(`
-      INSERT INTO clients (phone, name, email, notes, memory, status, interaction_count)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO clients (phone, chat_id, name, email, notes, memory, status, interaction_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       phone,
+      data.chat_id || '',
       data.name || '',
       data.email || '',
       data.notes || '',
@@ -425,6 +436,27 @@ function closeAssignment(clientPhone) {
 // MEMORIA DEL CLIENTE
 // ============================================
 
+// Migrar un cliente de un phone viejo (LID) al número real resuelto
+function migrateClientPhone(oldPhone, newPhone) {
+  oldPhone = oldPhone.replace(/@.*/, '').replace(/\D/g, '');
+  newPhone = newPhone.replace(/@.*/, '').replace(/\D/g, '');
+  const migrate = db.transaction(() => {
+    db.prepare('UPDATE clients       SET phone = ? WHERE phone = ?').run(newPhone, oldPhone);
+    db.prepare('UPDATE conversations SET client_phone = ? WHERE client_phone = ?').run(newPhone, oldPhone);
+    db.prepare('UPDATE assignments   SET client_phone = ? WHERE client_phone = ?').run(newPhone, oldPhone);
+  });
+  migrate();
+  console.log(`[DB] 📱 Migrado: ${oldPhone} → ${newPhone}`);
+}
+
+// Obtener el chat_id correcto para enviar mensajes (con fallback a @c.us)
+function getClientChatId(phone) {
+  const client = getClient(phone);
+  if (client && client.chat_id) return client.chat_id;
+  // fallback: construir @c.us con solo dígitos
+  return phone.replace(/@.*/g, '').replace(/\D/g, '') + '@c.us';
+}
+
 // Obtener memoria de un cliente
 function getClientMemory(phone) {
   const client = getClient(phone);
@@ -488,6 +520,15 @@ function getSpamFlagged() {
   return db.prepare('SELECT * FROM clients WHERE spam_flag = 1 ORDER BY updated_at DESC').all();
 }
 
+// Clientes cuyo phone es un LID (>=13 dígitos) — pendientes de resolver a número real
+function getLidClients() {
+  return db.prepare(`
+    SELECT phone, name, chat_id FROM clients
+    WHERE length(phone) >= 13
+    ORDER BY updated_at DESC
+  `).all();
+}
+
 // ============================================
 // EXPORTAR
 // ============================================
@@ -498,6 +539,8 @@ module.exports = {
   getClient,
   upsertClient,
   getAllClients,
+  getClientChatId,
+  migrateClientPhone,
   getClientMemory,
   updateClientMemory,
   getClientProfile,
@@ -508,6 +551,7 @@ module.exports = {
   setSpamFlag,
   isSpamFlagged,
   getSpamFlagged,
+  getLidClients,
   // Empleados
   getEmployee,
   getEmployeeByPhone,
