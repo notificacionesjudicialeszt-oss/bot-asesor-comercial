@@ -243,7 +243,7 @@ async function enviarTransicionAdmin(clientPhone, alvaroMsg) {
       `${h.role === 'user' ? 'Cliente' : h.role === 'admin' ? 'Álvaro' : 'Bot'}: ${h.message}`
     ).join('\n');
 
-    const transModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const transModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `El director Álvaro acaba de escribirle directamente a un cliente de Zona Traumática.
 
 MENSAJE DE ÁLVARO: "${alvaroMsg}"
@@ -1108,7 +1108,7 @@ NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
     // Usar Gemini Flash para memoria (barato y rápido)
-    const memoryModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const memoryModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const memoryResult = await memoryModel.generateContent(memoryPrompt);
     const newMemory = memoryResult.response.text().trim();
 
