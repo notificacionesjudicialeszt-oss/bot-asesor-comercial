@@ -324,7 +324,7 @@ client.on('message', async (msg) => {
       'uber', 'didi', 'indriver', 'beat',
       'taskus', 'task us', 'task_us',
       'google', 'whatsapp', 'meta', 'facebook', 'instagram', 'telegram',
-      'chatgpt', 'openai', 'gemini', 'copilot', 'claude', 'bot',
+      'chatgpt', 'openai', 'gemini', 'copilot', 'claude',
       'verificación', 'verificacion', 'verification', 'security', 'seguridad',
       'notificación', 'notificacion', 'notification', 'alerta', 'alert',
     ];
@@ -357,7 +357,8 @@ client.on('message', async (msg) => {
     const isBotMessage = BOT_PATTERNS.some(pattern => pattern.test(msg.body || ''));
 
     if (isShortNumber || isBlockedName || isBotMessage) {
-      console.log(`[BOT] 🚫 BLOQUEADO: ${senderRaw} (${chat.name || 'sin nombre'})${isBotMessage ? ' [msg automático]' : ''}`);
+      const razon = isShortNumber ? 'número corto' : isBlockedName ? `nombre bloqueado (${senderName})` : 'msg automático';
+      console.log(`[BOT] 🚫 BLOQUEADO: ${senderRaw} (${chat.name || 'sin nombre'}) [${razon}]`);
       return;
     }
 
@@ -532,10 +533,10 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             let esComprobante = false;
             let infoComprobante = '';
             try {
-              const checkModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+              const checkModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
               const checkResult = await checkModel.generateContent([
                 imagePart,
-                'Esta imagen, ¿es un comprobante de pago (transferencia bancaria, Nequi, Bancolombia, Daviplata, Bold, etc.)? Responde SOLO con JSON: {"esComprobante": true/false, "monto": "valor si lo ves o null", "entidad": "banco/app o null"}'
+                'Analiza esta imagen. ¿Es un COMPROBANTE DE PAGO real (captura de transferencia bancaria, Nequi, Bancolombia, Daviplata, Bold, PSE, etc.)? \n\nIMPORTANTE: Fotos de PRODUCTOS (armas, ropa, accesorios), selfies, memes, catálogos, o cualquier imagen que NO sea una captura de pantalla de una transacción financiera = esComprobante: false.\n\nResponde SOLO con JSON: {"esComprobante": true/false, "monto": "valor si lo ves o null", "entidad": "banco/app o null"}'
               ]);
               const checkText = checkResult.response.text().trim().replace(/```json|```/g, '').trim();
               const checkData = JSON.parse(checkText);
@@ -543,6 +544,8 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               if (esComprobante) {
                 infoComprobante = `Monto: ${checkData.monto || 'no visible'} | Entidad: ${checkData.entidad || 'no visible'}`;
                 console.log(`[COMPROBANTE] 💰 Detectado de ${senderPhone}: ${infoComprobante}`);
+              } else {
+                console.log(`[COMPROBANTE] ❌ No es comprobante (${senderPhone}): imagen normal`);
               }
             } catch (e) {
               // Si falla la detección, tratar como imagen normal
