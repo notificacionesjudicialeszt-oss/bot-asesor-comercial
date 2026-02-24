@@ -823,6 +823,9 @@ client.on('message_create', async (msg) => {
     // No capturar comandos admin (!stats, !client, etc.)
     if (body.startsWith('!')) return;
 
+    // Si ya está pausado = este mensaje es del BOT (la transición), no de Álvaro
+    if (isBotPaused(clientPhone)) return;
+
     // Guardar mensaje de Álvaro en historial
     db.saveMessage(clientPhone, 'admin', body);
     console.log(`[ADMIN] 📝 Álvaro respondió a ${clientPhone}: "${body.substring(0, 60)}"`);
