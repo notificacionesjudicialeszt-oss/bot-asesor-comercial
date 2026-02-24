@@ -61,6 +61,11 @@ function getClientChat(phone, limit = 100) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
+  // Log de requests (excepto /api/data que es el polling)
+  if (url.pathname !== '/api/data' && url.pathname !== '/') {
+    console.log(`[PANEL] ${req.method} ${url.pathname}`);
+  }
+
   // API endpoints
   if (url.pathname === '/api/data') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -83,6 +88,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { phone, note, append, status } = JSON.parse(body);
+        console.log(`[PANEL] 📝 Actualizando cliente ${phone}${status ? ' → status: ' + status : ''}${note ? ' → nota: "' + note.substring(0, 40) + '"' : ''}`);
         const client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
         if (!client) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -161,6 +167,8 @@ const server = http.createServer((req, res) => {
     let bodyData = '';
     req.on('data', chunk => bodyData += chunk);
     req.on('end', () => {
+      const parsed = JSON.parse(bodyData);
+      console.log(`[PANEL] 👤 Enviando como Álvaro a ${parsed.phone}: "${(parsed.message || '').substring(0, 60)}"`);
       const payload = bodyData;
       const botReq = http.request({
         hostname: 'localhost',
