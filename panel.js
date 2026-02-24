@@ -357,6 +357,42 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Devolver cliente al bot — relay al bot en puerto 3001
+  if (url.pathname === '/api/devolver-bot' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = body;
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/devolver-bot',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 🤖 Devolver al bot:`, data);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Comprobantes pendientes
   if (url.pathname === '/api/comprobantes') {
     try {
@@ -822,6 +858,7 @@ async function selectClient(phone) {
           <div class="crm-chip" style="background:\${client.ignored == 1 ? '#7c1d1d' : '#1c2733'};border-color:\${client.ignored == 1 ? '#f85149' : '#30363d'};color:\${client.ignored == 1 ? '#f85149' : '#8b949e'};" onclick="toggleIgnored('\${client.phone}', \${client.ignored == 1 ? 0 : 1})">\${client.ignored == 1 ? '🔇 IGNORADO — click para reactivar' : '🔇 Silenciar — no es cliente'}</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#8b949e;" onclick="changeStatus('\${client.phone}', 'new')">↩️ Resetear a Nuevo</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#d29922;" onclick="changeStatus('\${client.phone}', 'completed')">✅ Marcar Completado</div>
+          <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
         </div>
         <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-size:12px;color:#8b949e;font-family:'Chakra Petch',sans-serif;">📦 Mover a Post-venta:</span>
@@ -989,6 +1026,29 @@ async function changeStatus(phone, status) {
       }
     }
   } catch(e) { console.error(e); }
+}
+
+async function devolverAlBot(phone) {
+  if (!confirm('¿Devolver este cliente al bot? El bot volverá a responder automáticamente.')) return;
+  try {
+    const res = await fetch('/api/devolver-bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '🤖 Cliente devuelto al bot — responderá automáticamente';
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 4000);
+      }
+    } else {
+      alert('❌ ' + (data.error || 'Error devolviendo al bot'));
+    }
+  } catch(e) {
+    alert('❌ Error conectando con el bot. ¿Está corriendo?');
+  }
 }
 
 async function moverPostventa(phone) {
@@ -1270,8 +1330,8 @@ async function accionComprobante(id, accion, phone, tipo) {
         }
         card.querySelector('.comprobante-actions').innerHTML = status;
       }
-      // Recargar badge después de 2s
-      setTimeout(loadComprobantes, 2000);
+      // Recargar solo si seguimos en el tab de comprobantes
+      if (currentMainTab === 'comprobantes') setTimeout(loadComprobantes, 2000);
     } else {
       alert('❌ Error: ' + (data.error || 'No se pudo conectar con el bot'));
       if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Confirmar pago'; }

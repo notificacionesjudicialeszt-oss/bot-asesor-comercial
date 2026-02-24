@@ -224,6 +224,18 @@ client.on('disconnected', async (reason) => {
 // CONVIVENCIA HUMANO-BOT
 // ============================================
 const adminPauseMap = new Map(); // phone → timestamp hasta cuándo pausado
+const botSentMessages = new Set(); // IDs de mensajes enviados por el bot (para filtrar en message_create)
+
+// Monkey-patch client.sendMessage para registrar TODO lo que envíe el API de whatsapp-web.js
+// Esto previene que el bot capture sus propias respuestas automáticas como si fueran de Álvaro.
+const originalSendMessage = client.sendMessage.bind(client);
+client.sendMessage = async function (chatId, content, options = {}) {
+  const sentMsg = await originalSendMessage(chatId, content, options);
+  if (sentMsg && sentMsg.id) {
+    botSentMessages.add(sentMsg.id._serialized || sentMsg.id.toString());
+  }
+  return sentMsg;
+};
 
 function isBotPaused(phone) {
   const pauseUntil = adminPauseMap.get(phone);
@@ -265,7 +277,8 @@ Solo escribe el mensaje, sin explicaciones.`;
     const transMsg = result.response.text().trim();
 
     // Enviar directo al chatId original (evita problemas con LID)
-    await client.sendMessage(chatId, transMsg);
+    const sentMsg = await client.sendMessage(chatId, transMsg);
+    if (sentMsg && sentMsg.id) botSentMessages.add(sentMsg.id._serialized || sentMsg.id.toString());
     db.saveMessage(clientPhone, 'assistant', transMsg);
     console.log(`[ADMIN] ✅ Transición enviada a ${clientPhone}`);
 
@@ -823,6 +836,13 @@ client.on('message_create', async (msg) => {
     if (msg.to.includes('@g.us')) return; // ignorar grupos
     if (msg.to.includes('@newsletter')) return;
     if (msg.to.includes('@broadcast')) return;
+
+    // Filtrar mensajes que el BOT envió (transiciones, notificaciones, etc.)
+    const msgId = msg.id?._serialized || msg.id?.toString();
+    if (msgId && botSentMessages.has(msgId)) {
+      botSentMessages.delete(msgId); // limpiar
+      return;
+    }
 
     const clientPhone = msg.to.replace('@c.us', '').replace('@lid', '');
     const body = msg.body || '';
@@ -2608,12 +2628,42 @@ function startReactivacionServer() {
           // Pausar bot para este cliente
           adminPauseMap.set(phone, Date.now() + 30 * 60 * 1000);
 
+          // Disparar mensaje de transición manualmente (ya que message_create lo ignorará por el monkey-patch)
+          enviarTransicionAdmin(phone, chatId, message).catch(e => console.error('[PANEL] Error en transición:', e));
+
           console.log(`[PANEL] 📝 Mensaje enviado como Álvaro a ${phone}: "${message.substring(0, 60)}"`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
         } catch (e) {
           console.error('[PANEL] Error enviar-mensaje:', e.message);
           res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+
+      // POST /devolver-bot — panel devuelve un cliente al bot (quita pausa de admin)
+    } else if (req.url === '/devolver-bot' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone } = JSON.parse(body);
+          if (!phone) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'phone es requerido' }));
+            return;
+          }
+
+          // Quitar pausa de admin
+          const wasPaused = adminPauseMap.has(phone);
+          adminPauseMap.delete(phone);
+
+          console.log(`[PANEL] 🤖 Cliente ${phone} devuelto al bot (estaba pausado: ${wasPaused})`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, wasPaused }));
+        } catch (e) {
+          console.error('[PANEL] Error devolver-bot:', e.message);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
       });
