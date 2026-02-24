@@ -61,8 +61,9 @@ function getClientChat(phone, limit = 100) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
-  // Log de requests (excepto /api/data que es el polling)
-  if (url.pathname !== '/api/data' && url.pathname !== '/') {
+  // Log de requests (excepto polling que genera ruido)
+  const silentRoutes = ['/api/data', '/api/comprobantes', '/api/chat', '/'];
+  if (!silentRoutes.includes(url.pathname)) {
     console.log(`[PANEL] ${req.method} ${url.pathname}`);
   }
 
