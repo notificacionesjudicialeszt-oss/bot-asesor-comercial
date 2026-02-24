@@ -221,6 +221,58 @@ client.on('disconnected', async (reason) => {
 });
 
 // ============================================
+// CONVIVENCIA HUMANO-BOT
+// ============================================
+const adminPauseMap = new Map(); // phone → timestamp hasta cuándo pausado
+
+function isBotPaused(phone) {
+  const pauseUntil = adminPauseMap.get(phone);
+  if (!pauseUntil) return false;
+  if (Date.now() > pauseUntil) {
+    adminPauseMap.delete(phone);
+    return false;
+  }
+  return true;
+}
+
+async function enviarTransicionAdmin(clientPhone, alvaroMsg) {
+  try {
+    const memory = db.getClientMemory(clientPhone) || 'Sin datos previos';
+    const history = db.getConversationHistory(clientPhone, 5);
+    const histText = history.map(h =>
+      `${h.role === 'user' ? 'Cliente' : h.role === 'admin' ? 'Álvaro' : 'Bot'}: ${h.message}`
+    ).join('\n');
+
+    const transModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const prompt = `El director Álvaro acaba de escribirle directamente a un cliente de Zona Traumática.
+
+MENSAJE DE ÁLVARO: "${alvaroMsg}"
+
+CONTEXTO DEL CLIENTE:
+${histText}
+
+MEMORIA: ${memory}
+
+Genera un mensaje MUY CORTO (máximo 2 líneas) que el bot enviará al mismo chat para:
+1. Confirmar al cliente que ahora está siendo atendido directamente por el director
+2. Tono cálido y natural, como "¡Estás en buenas manos! Álvaro te atiende personalmente"
+3. NO repetir lo que Álvaro dijo
+4. Máximo 1 emoji
+
+Solo escribe el mensaje, sin explicaciones.`;
+
+    const result = await transModel.generateContent(prompt);
+    const transMsg = result.response.text().trim();
+
+    await safeSend(clientPhone, transMsg);
+    db.saveMessage(clientPhone, 'assistant', transMsg);
+    console.log(`[ADMIN] ✅ Transición enviada a ${clientPhone}`);
+  } catch (e) {
+    console.error('[ADMIN] Error generando transición:', e.message);
+  }
+}
+
+// ============================================
 // DEBOUNCE — acumula mensajes del mismo cliente
 // Timer corre desde el PRIMER mensaje, no se reinicia
 // ============================================
@@ -234,6 +286,7 @@ const DEBOUNCE_MS = 10000; // 10 segundos
 client.on('message', async (msg) => {
   try {
     // Ignorar ANTES de getChat() para evitar crash con canales/newsletters
+    // Ignorar mensajes propios del bot (los de Álvaro se capturan en message_create)
     if (msg.fromMe) return;
     if (msg.from === 'status@broadcast') return;
     if (msg.from.includes('@newsletter')) return;
@@ -750,6 +803,42 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
 }
 
 // ============================================
+// CAPTURA DE MENSAJES DE ÁLVARO (message_create)
+// El evento 'message' NO se dispara para fromMe.
+// 'message_create' se dispara para TODOS los mensajes (entrantes y salientes).
+// ============================================
+client.on('message_create', async (msg) => {
+  try {
+    if (!msg.fromMe) return; // solo nos interesan los mensajes de Álvaro
+    if (msg.to === 'status@broadcast') return;
+    if (msg.to.includes('@g.us')) return; // ignorar grupos
+    if (msg.to.includes('@newsletter')) return;
+    if (msg.to.includes('@broadcast')) return;
+
+    const clientPhone = msg.to.replace('@c.us', '').replace('@lid', '');
+    const body = msg.body || '';
+    if (!body.trim()) return; // ignorar mensajes vacíos / media sin caption
+
+    // No capturar comandos admin (!stats, !client, etc.)
+    if (body.startsWith('!')) return;
+
+    // Guardar mensaje de Álvaro en historial
+    db.saveMessage(clientPhone, 'admin', body);
+    console.log(`[ADMIN] 📝 Álvaro respondió a ${clientPhone}: "${body.substring(0, 60)}"`);
+
+    // Pausar el bot para este cliente (30 minutos)
+    adminPauseMap.set(clientPhone, Date.now() + 30 * 60 * 1000);
+
+    // Enviar mensaje de transición
+    enviarTransicionAdmin(clientPhone, body).catch(e =>
+      console.error('[ADMIN] Error en transición:', e.message)
+    );
+  } catch (err) {
+    console.error('[ADMIN] Error en message_create:', err.message);
+  }
+});
+
+// ============================================
 // SAFE SEND — envía por WhatsApp con auto-sanación de chat_id
 // El phone es el identificador universal. El chat_id (@c.us o @lid) es solo
 // un caché de transporte. Si falla por "No LID", resuelve el ID canónico,
@@ -781,6 +870,13 @@ async function safeSend(phone, message) {
 // FLUJO DE CLIENTE
 // ============================================
 async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) {
+  // Si Álvaro está atendiendo a este cliente → no responder
+  if (isBotPaused(senderPhone)) {
+    console.log(`[BOT] ⏸️ Bot pausado para ${senderPhone} (Álvaro atendiendo)`);
+    db.saveMessage(senderPhone, 'user', messageBody);
+    return;
+  }
+
   // 1. Obtener nombre del perfil y teléfono real de WhatsApp
   let profileName = '';
   try {
@@ -1329,10 +1425,17 @@ async function getClaudeResponse(clientPhone, message, history) {
     // El historial debe comenzar siempre con 'user'
     const geminiHistory = [];
     for (const m of history) {
-      const role = m.role === 'assistant' ? 'model' : 'user';
       // Saltar mensajes de sistema
       if (m.role === 'system') continue;
-      geminiHistory.push({ role, parts: [{ text: m.message }] });
+      if (m.role === 'admin') {
+        geminiHistory.push({
+          role: 'model',
+          parts: [{ text: `[ÁLVARO respondió directamente]: ${m.message}` }]
+        });
+      } else {
+        const role = m.role === 'assistant' ? 'model' : 'user';
+        geminiHistory.push({ role, parts: [{ text: m.message }] });
+      }
     }
 
     // Asegurar que el historial empiece con 'user'
@@ -1662,7 +1765,15 @@ REGLAS CRÍTICAS:
 
 ⚠️ DERIVACIONES:
 - NUNCA escribas "[TRANSFIRIENDO AL ASESOR]" ni simules transferencias.
-- Si el cliente quiere comprar o hablar con alguien: dile que escriba "quiero comprar" o "hablar con asesor" y el sistema lo conecta automáticamente.`;
+- Si el cliente quiere comprar o hablar con alguien: dile que escriba "quiero comprar" o "hablar con asesor" y el sistema lo conecta automáticamente.
+
+⚠️ INTERACCIONES DEL DIRECTOR:
+Cuando veas mensajes marcados como [ÁLVARO respondió directamente] en el historial:
+- Eso significa que el director ya habló con este cliente personalmente
+- NO contradigas lo que Álvaro prometió (precios, tiempos, condiciones)
+- Si Álvaro negoció un precio especial, respeta ese precio exacto
+- Si no entiendes qué acordó Álvaro, dile al cliente: "Déjame confirmar con mi equipo"
+- Sigue el tono y dirección que Álvaro estableció`;
 }
 
 
