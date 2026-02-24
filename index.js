@@ -235,7 +235,7 @@ function isBotPaused(phone) {
   return true;
 }
 
-async function enviarTransicionAdmin(clientPhone, alvaroMsg) {
+async function enviarTransicionAdmin(clientPhone, chatId, alvaroMsg) {
   try {
     const memory = db.getClientMemory(clientPhone) || 'Sin datos previos';
     const history = db.getConversationHistory(clientPhone, 5);
@@ -264,7 +264,8 @@ Solo escribe el mensaje, sin explicaciones.`;
     const result = await transModel.generateContent(prompt);
     const transMsg = result.response.text().trim();
 
-    await safeSend(clientPhone, transMsg);
+    // Enviar directo al chatId original (evita problemas con LID)
+    await client.sendMessage(chatId, transMsg);
     db.saveMessage(clientPhone, 'assistant', transMsg);
     console.log(`[ADMIN] ✅ Transición enviada a ${clientPhone}`);
   } catch (e) {
@@ -829,8 +830,8 @@ client.on('message_create', async (msg) => {
     // Pausar el bot para este cliente (30 minutos)
     adminPauseMap.set(clientPhone, Date.now() + 30 * 60 * 1000);
 
-    // Enviar mensaje de transición
-    enviarTransicionAdmin(clientPhone, body).catch(e =>
+    // Enviar mensaje de transición (pasar msg.to como chatId directo)
+    enviarTransicionAdmin(clientPhone, msg.to, body).catch(e =>
       console.error('[ADMIN] Error en transición:', e.message)
     );
   } catch (err) {
