@@ -62,7 +62,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   // Log de requests (excepto polling que genera ruido)
-  const silentRoutes = ['/api/data', '/api/comprobantes', '/api/chat', '/'];
+  const silentRoutes = ['/api/data', '/api/comprobantes-count', '/api/chat', '/'];
   if (!silentRoutes.includes(url.pathname)) {
     console.log(`[PANEL] ${req.method} ${url.pathname}`);
   }
@@ -361,8 +361,22 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/comprobantes') {
     try {
       const comprobantes = db.prepare(`SELECT id, client_phone, client_name, info, imagen_base64, imagen_mime, tipo, estado, created_at FROM comprobantes WHERE estado = 'pendiente' ORDER BY created_at DESC`).all();
+      console.log(`[PANEL] 💰 Comprobantes cargados: ${comprobantes.length} pendientes`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(comprobantes));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Count liviano de comprobantes (para el badge, sin cargar imágenes)
+  if (url.pathname === '/api/comprobantes-count') {
+    try {
+      const count = db.prepare(`SELECT COUNT(*) as c FROM comprobantes WHERE estado = 'pendiente'`).get().c;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ count }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
@@ -1011,11 +1025,11 @@ async function migrarAssigned() {
 
 async function loadComprobanteBadge() {
   try {
-    const res = await fetch('/api/comprobantes');
-    const comp = await res.json();
+    const res = await fetch('/api/comprobantes-count');
+    const { count } = await res.json();
     const badge = document.getElementById('comprobanteBadge');
     if (badge) {
-      if (comp.length > 0) { badge.textContent = comp.length; badge.style.display = 'inline'; }
+      if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
       else badge.style.display = 'none';
     }
   } catch(e) {}
