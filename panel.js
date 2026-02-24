@@ -805,14 +805,13 @@ function renderClients() {
 
   const html = clients.map(c => {
     const isHot = c.memory && (c.memory.toLowerCase().includes('comprar') || c.memory.toLowerCase().includes('interesado'));
-    const displayName = c.name || (isLid(c.phone) ? 'Sin nombre' : formatPhone(c.phone));
     const initial = (c.name || c.phone).charAt(0).toUpperCase();
     return \`<div class="client-row \${selectedPhone === c.phone ? 'active' : ''}" onclick="selectClient('\${c.phone}')">
       <div class="client-avatar">\${initial}</div>
       <div class="client-info">
-        <div class="client-name">\${displayName}\${isHot ? '<span class="hot-badge">\u{1F525} HOT</span>' : ''}</div>
-        <div class="client-phone">\${isLid(c.phone) ? '\u{1F512} ID privado' : c.phone}</div>
-        \${c.memory ? '<div class="client-memory">\u{1F4AD} ' + c.memory.substring(0, 80) + '</div>' : ''}
+        <div class="client-name">\${c.name || 'Sin nombre'}\${isHot ? '<span class="hot-badge">🔥 HOT</span>' : ''}</div>
+        <div class="client-phone">\${isLid(c.phone) ? '🔒 ID privado' : c.phone}</div>
+        \${c.memory ? '<div class="client-memory">💭 ' + c.memory.substring(0, 80) + '</div>' : ''}
       </div>
       <div class="client-meta">
         <div class="client-status status-\${c.status}">\${c.status}</div>
@@ -947,16 +946,6 @@ function filterClients() { renderClients(); }
 
 // Detectar si un phone es LID (ID interno de WA, no número real)
 function isLid(phone) { return phone && phone.length >= 13; }
-// Formatear teléfono legible: 573127983674 → +57 312 798 3674
-function formatPhone(phone) {
-  if (!phone) return '';
-  // Colombiano: 57 + 10 dígitos
-  if (phone.startsWith('57') && phone.length === 12) {
-    return '+57 ' + phone.substring(2, 5) + ' ' + phone.substring(5, 8) + ' ' + phone.substring(8);
-  }
-  // Otro formato: agregar + al inicio
-  return '+' + phone;
-}
 // Mostrar phone legible
 function displayPhone(phone) {
   if (isLid(phone)) return '<span style="color:#8b949e;font-size:11px;">🔒 ID WhatsApp (privado)</span>';
