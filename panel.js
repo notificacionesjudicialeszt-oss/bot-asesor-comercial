@@ -805,6 +805,7 @@ function renderClients() {
 
   const html = clients.map(c => {
     const isHot = c.memory && (c.memory.toLowerCase().includes('comprar') || c.memory.toLowerCase().includes('interesado'));
+    const displayName = c.name || (isLid(c.phone) ? 'Sin nombre' : formatPhone(c.phone));
     const initial = (c.name || c.phone).charAt(0).toUpperCase();
     return \`<div class="client-row \${selectedPhone === c.phone ? 'active' : ''}" onclick="selectClient('\${c.phone}')">
       <div class="client-avatar">\${initial}</div>
@@ -946,6 +947,15 @@ function filterClients() { renderClients(); }
 
 // Detectar si un phone es LID (ID interno de WA, no número real)
 function isLid(phone) { return phone && phone.length >= 13; }
+// Formatear teléfono legible: 573127983674 → +57 312 798 3674
+function formatPhone(phone) {
+  if (!phone) return '';
+  // Colombiano: 57 + 10 dígitos
+  if (phone.startsWith('57') && phone.length === 12) {
+    return '+57 ' + phone.substring(2, 5) + ' ' + phone.substring(5, 8) + ' ' + phone.substring(8);
+  }
+  return '+' + phone;
+}
 // Mostrar phone legible
 function displayPhone(phone) {
   if (isLid(phone)) return '<span style="color:#8b949e;font-size:11px;">🔒 ID WhatsApp (privado)</span>';

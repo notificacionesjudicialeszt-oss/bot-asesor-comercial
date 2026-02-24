@@ -913,7 +913,8 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
   let profileName = '';
   try {
     const contact = await rawMsg.getContact();
-    profileName = contact.pushname || contact.name || contact.shortName || '';
+    // Prioridad: pushname → contact.name → shortName → chat.name (nombre guardado en celular)
+    profileName = contact.pushname || contact.name || contact.shortName || chat.name || '';
 
     // contact.number resuelve el teléfono real incluso cuando el mensaje llegó con LID
     const realNumber = (contact.number || '').replace(/\D/g, '');
@@ -930,6 +931,8 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
       console.log(`[DEBUG] Perfil WhatsApp: "${profileName}" (${senderPhone})`);
     }
   } catch (err) {
+    // Si getContact() falla, usar chat.name como respaldo
+    profileName = chat.name || '';
     console.error('[BOT] Error obteniendo contacto:', err.message);
   }
 
@@ -949,9 +952,13 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
   } else {
     // Cliente existente → actualizar chat_id siempre (puede cambiar de @c.us a @lid)
     const updateData = { chat_id: chatIdFromMsg };
-    if (profileName && !existingClient.name) updateData.name = profileName;
+    // Actualizar nombre si no tiene — prioridad: profileName, luego chat.name
+    const bestName = profileName || chat.name || '';
+    if (bestName && !existingClient.name) {
+      updateData.name = bestName;
+      saveContactToVCF(senderPhone, bestName);
+    }
     db.upsertClient(senderPhone, updateData);
-    if (profileName && !existingClient.name) saveContactToVCF(senderPhone, profileName);
   }
 
   // ⛔ Contacto ignorado desde el panel — silencio total
