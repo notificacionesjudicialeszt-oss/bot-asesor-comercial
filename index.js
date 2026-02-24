@@ -2583,7 +2583,7 @@ function startReactivacionServer() {
       })().catch(e => console.error('[LID] Error general:', e.message));
 
       // POST /enviar-mensaje — panel envía mensaje como Álvaro
-    } else if (pathname === '/enviar-mensaje' && req.method === 'POST') {
+    } else if (req.url === '/enviar-mensaje' && req.method === 'POST') {
       let body = '';
       req.on('data', chunk => body += chunk);
       req.on('end', async () => {
