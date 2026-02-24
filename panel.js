@@ -13,21 +13,8 @@ const fs = require('fs');
 const db = new Database(path.join(__dirname, 'crm.db'));
 const PORT = 3000;
 
-// Migraciones — agregar columnas nuevas si no existen
-try { db.exec(`ALTER TABLE clients ADD COLUMN ignored INTEGER DEFAULT 0`); } catch(e) { /* ya existe */ }
-try { db.exec(`ALTER TABLE clients ADD COLUMN spam_flag INTEGER DEFAULT 0`); } catch(e) { /* ya existe */ }
-try { db.exec(`CREATE TABLE IF NOT EXISTS comprobantes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  client_phone TEXT NOT NULL,
-  client_name TEXT DEFAULT '',
-  info TEXT DEFAULT '',
-  imagen_base64 TEXT,
-  imagen_mime TEXT DEFAULT 'image/jpeg',
-  tipo TEXT DEFAULT 'desconocido',
-  estado TEXT DEFAULT 'pendiente',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  verified_at DATETIME
-)`); } catch(e) { /* ya existe */ }
+// Nota: Las migraciones se ejecutan en db.js al arrancar el bot.
+// El panel solo lee datos — no necesita crear tablas ni columnas.
 
 function getData() {
   const clients = db.prepare('SELECT * FROM clients ORDER BY COALESCE(updated_at, created_at) DESC').all();
@@ -257,7 +244,7 @@ const server = http.createServer((req, res) => {
         });
         botReq.write(payload);
         botReq.end();
-      } catch(e) {
+      } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
       }
@@ -300,7 +287,7 @@ const server = http.createServer((req, res) => {
       const result = db.prepare(`UPDATE clients SET status = 'hot', updated_at = datetime('now') WHERE status = 'assigned'`).run();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, migrados: result.changes }));
-    } catch(e) {
+    } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
     }
@@ -323,7 +310,7 @@ const server = http.createServer((req, res) => {
         db.prepare(`UPDATE clients SET status = ?, updated_at = datetime('now') WHERE phone = ?`).run(status, phone);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
-      } catch(e) {
+      } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
       }
@@ -337,7 +324,7 @@ const server = http.createServer((req, res) => {
       const comprobantes = db.prepare(`SELECT id, client_phone, client_name, info, imagen_base64, imagen_mime, tipo, estado, created_at FROM comprobantes WHERE estado = 'pendiente' ORDER BY created_at DESC`).all();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(comprobantes));
-    } catch(e) {
+    } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
     }

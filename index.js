@@ -25,7 +25,7 @@ const search = require('./search');
 // Inicializar Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const geminiPro = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
-const geminiFlash = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' }); // para memoria (barato y rápido)
+
 
 // ============================================
 // CONFIGURACIÓN
@@ -125,6 +125,46 @@ const client = new Client({
   }
 });
 
+// ============================================
+// GRACEFUL SHUTDOWN — prevenir corrupción de sesión
+// ============================================
+let isShuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n[BOT] ⚠️ Señal ${signal} recibida. Cerrando limpiamente...`);
+  try {
+    await client.destroy();
+    console.log('[BOT] ✅ Sesión guardada correctamente');
+  } catch (e) {
+    console.error('[BOT] Error cerrando:', e.message);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('uncaughtException', async (err) => {
+  console.error('[BOT] 💥 Error no capturado:', err);
+
+  const isSessionCorrupt = err.message && (
+    err.message.includes('Execution context was destroyed') ||
+    err.message.includes('Session closed') ||
+    err.message.includes('Protocol error') ||
+    err.message.includes('Target closed')
+  );
+
+  if (isSessionCorrupt) {
+    console.log('[BOT] 🧹 Crash por sesión corrupta detectado. Limpiando...');
+    const sessionDir = path.join(__dirname, 'session', 'session-client-one');
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      console.log('[BOT] ✅ Sesión corrupta eliminada. Reinicia el bot para escanear QR nuevo.');
+    }
+  }
+
+  process.exit(1);
+});
 // Mostrar QR para escanear
 client.on('qr', (qr) => {
   console.log('\n[BOT] Escanea este código QR con WhatsApp:');
@@ -151,14 +191,33 @@ client.on('ready', async () => {
   startReactivacionServer();
 });
 
-// Error de autenticación
-client.on('auth_failure', (msg) => {
-  console.error('[BOT] Error de autenticación:', msg);
+// Error de autenticación — limpiar sesión corrupta y reiniciar
+client.on('auth_failure', async (msg) => {
+  console.error('[BOT] ❌ Error de autenticación:', msg);
+  console.log('[BOT] 🧹 Limpiando sesión corrupta...');
+  const sessionDir = path.join(__dirname, 'session', 'session-client-one');
+  if (fs.existsSync(sessionDir)) {
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+    console.log('[BOT] ✅ Sesión borrada. Reiniciando para QR nuevo...');
+  }
+  setTimeout(() => {
+    console.log('[BOT] 🔄 Reiniciando cliente...');
+    client.initialize();
+  }, 5000);
 });
 
-// Desconexión
-client.on('disconnected', (reason) => {
-  console.log('[BOT] Desconectado:', reason);
+// Desconexión — intentar reconectar
+client.on('disconnected', async (reason) => {
+  console.log('[BOT] ⚠️ Desconectado:', reason);
+  if (reason === 'NAVIGATION' || reason === 'LOGOUT') {
+    console.log('[BOT] Sesión cerrada. Limpiando para QR nuevo...');
+    const sessionDir = path.join(__dirname, 'session', 'session-client-one');
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
+  }
+  console.log('[BOT] 🔄 Intentando reconectar en 10 segundos...');
+  setTimeout(() => client.initialize(), 10000);
 });
 
 // ============================================
@@ -359,8 +418,8 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
     // --- MANEJO DE AUDIOS Y MEDIA ---
     if (msg.hasMedia || msg.type === 'ptt' || msg.type === 'audio' ||
-        msg.type === 'image' || msg.type === 'video' || msg.type === 'document' ||
-        msg.type === 'sticker') {
+      msg.type === 'image' || msg.type === 'video' || msg.type === 'document' ||
+      msg.type === 'sticker') {
 
       // No responder a empleados ni auditor con esto
       if (db.getEmployeeByPhone(senderPhone) || isAuditor(senderPhone)) return;
@@ -853,12 +912,12 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
       const estaOfreciendoClub = (
         responseLower.includes('plan plus') && responseLower.includes('plan pro')
       ) || (
-        responseLower.includes('100.000') && responseLower.includes('afiliaci')
-      ) || (
-        responseLower.includes('inscripción') && responseLower.includes('club')
-      ) || (
-        responseLower.includes('promoción') && (responseLower.includes('club') || responseLower.includes('plan'))
-      );
+          responseLower.includes('100.000') && responseLower.includes('afiliaci')
+        ) || (
+          responseLower.includes('inscripción') && responseLower.includes('club')
+        ) || (
+          responseLower.includes('promoción') && (responseLower.includes('club') || responseLower.includes('plan'))
+        );
       if (estaOfreciendoClub) {
         try {
           const promoImgPath = path.join(__dirname, 'imagenes', 'club-promo.png');
@@ -895,11 +954,11 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
         const memoriaBaja = (clienteActual?.memory || '').toLowerCase();
         // Detectar si es pago de club o de producto — solo mirar mensaje del cliente y memoria
         const esClub = mensajeBajo.includes('club') ||
-                       mensajeBajo.includes('afiliaci') ||
-                       mensajeBajo.includes('carnet') ||
-                       memoriaBaja.includes('club') ||
-                       memoriaBaja.includes('afiliaci') ||
-                       memoriaBaja.includes('carnet');
+          mensajeBajo.includes('afiliaci') ||
+          mensajeBajo.includes('carnet') ||
+          memoriaBaja.includes('club') ||
+          memoriaBaja.includes('afiliaci') ||
+          memoriaBaja.includes('carnet');
         const nuevoStatus = esClub ? 'carnet_pendiente' : 'despacho_pendiente';
         db.upsertClient(senderPhone, { status: nuevoStatus });
         console.log(`[BOT] 💰 Pago detectado en mensaje del cliente → estado: ${nuevoStatus} para ${senderPhone}`);
@@ -953,7 +1012,7 @@ NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
     // Usar Gemini Flash para memoria (barato y rápido)
-    const memoryModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    const memoryModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
     const memoryResult = await memoryModel.generateContent(memoryPrompt);
     const newMemory = memoryResult.response.text().trim();
 
@@ -1104,7 +1163,7 @@ function detectHandoffIntent(message, humanOnly = false) {
   }
 
   const detected = buyKeywords.some(kw => lowerMessage.includes(kw)) ||
-         humanKeywords.some(kw => lowerMessage.includes(kw));
+    humanKeywords.some(kw => lowerMessage.includes(kw));
 
   if (detected) {
     console.log(`[BOT] 🚨 Intención de compra/derivación: "${message.substring(0, 60)}"`);
@@ -1160,27 +1219,27 @@ async function handleHandoff(msg, clientPhone, triggerMessage, history, tipo = '
 
   const notification = tipo === 'postventa'
     ? `🛠️ *POST-VENTA — REQUIERE GESTIÓN*\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `👤 *Nombre:* ${clientName}\n` +
-      `📱 *WhatsApp:* ${clientLink}\n\n` +
-      `💬 *Lo que necesita:*\n` +
-      `"${triggerMessage}"\n\n` +
-      `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
-      `📋 *Últimos mensajes:*\n${context}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
-      `👆 Toca el link para abrir el chat.\n` +
-      `_El bot sigue respondiendo — tú decides cuándo entrar._`
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `👤 *Nombre:* ${clientName}\n` +
+    `📱 *WhatsApp:* ${clientLink}\n\n` +
+    `💬 *Lo que necesita:*\n` +
+    `"${triggerMessage}"\n\n` +
+    `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
+    `📋 *Últimos mensajes:*\n${context}\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `👆 Toca el link para abrir el chat.\n` +
+    `_El bot sigue respondiendo — tú decides cuándo entrar._`
     : `🔥 *LEAD CALIENTE — LISTO PARA CERRAR*\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `👤 *Nombre:* ${clientName}\n` +
-      `📱 *WhatsApp:* ${clientLink}\n\n` +
-      `💬 *Lo que disparó la alerta:*\n` +
-      `"${triggerMessage}"\n\n` +
-      `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
-      `📋 *Últimos mensajes:*\n${context}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
-      `👆 Toca el link para abrir el chat.\n` +
-      `_El bot sigue respondiendo — tú decides cuándo entrar._`;
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `👤 *Nombre:* ${clientName}\n` +
+    `📱 *WhatsApp:* ${clientLink}\n\n` +
+    `💬 *Lo que disparó la alerta:*\n` +
+    `"${triggerMessage}"\n\n` +
+    `🧠 *Perfil del cliente (CRM):*\n${clientMemory}\n\n` +
+    `📋 *Últimos mensajes:*\n${context}\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `👆 Toca el link para abrir el chat.\n` +
+    `_El bot sigue respondiendo — tú decides cuándo entrar._`;
 
   // Enviar notificación siempre al número principal de Álvaro
   const notifPhone = CONFIG.businessPhone; // 573013981979
@@ -1606,21 +1665,6 @@ REGLAS CRÍTICAS:
 - Si el cliente quiere comprar o hablar con alguien: dile que escriba "quiero comprar" o "hablar con asesor" y el sistema lo conecta automáticamente.`;
 }
 
-function buildMessages(history, currentMessage) {
-  const messages = [];
-
-  // Agregar historial (solo user/assistant, no system)
-  for (const h of history) {
-    if (h.role === 'user' || h.role === 'assistant') {
-      messages.push({ role: h.role, content: h.message });
-    }
-  }
-
-  // Agregar mensaje actual
-  messages.push({ role: 'user', content: currentMessage });
-
-  return messages;
-}
 
 // ============================================
 // COMANDOS DE ADMIN / AUDITOR
@@ -1652,7 +1696,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     });
     await msg.reply(report);
 
-  // ── LISTA DE CLIENTES ──
+    // ── LISTA DE CLIENTES ──
   } else if (cmd === '!clients' || cmd === '!clientes') {
     const clients = db.getAllClients();
     if (clients.length === 0) {
@@ -1668,7 +1712,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     list += `\n_Total: ${clients.length} clientes_`;
     await msg.reply(list);
 
-  // ── FICHA DE CLIENTE ──
+    // ── FICHA DE CLIENTE ──
   } else if (cmd.startsWith('!client ') || cmd.startsWith('!cliente ')) {
     const targetPhone = parts[1]?.trim();
     if (!targetPhone) {
@@ -1707,7 +1751,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     }
     await msg.reply(card);
 
-  // ── INFORME GENERAL ──
+    // ── INFORME GENERAL ──
   } else if (cmd === '!informe' || cmd === '!report') {
     const r = db.getGeneralReport();
     let report = `📊 *INFORME GENERAL*\n`;
@@ -1735,7 +1779,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     }
     await msg.reply(report);
 
-  // ── INFORME DE VENTAS ──
+    // ── INFORME DE VENTAS ──
   } else if (cmd === '!informe ventas' || cmd === '!ventas' || cmd === '!pipeline') {
     const s = db.getSalesReport();
     let report = `💰 *INFORME DE VENTAS*\n`;
@@ -1764,7 +1808,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     });
     await msg.reply(report);
 
-  // ── AGREGAR NOTA A CLIENTE ──
+    // ── AGREGAR NOTA A CLIENTE ──
   } else if (cmd.startsWith('!note ') || cmd.startsWith('!nota ')) {
     const targetPhone = parts[1]?.trim();
     const noteText = parts.slice(2).join(' ').trim();
@@ -1786,7 +1830,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     db.updateClientNotes(targetPhone, newNotes);
     await msg.reply(`📝 Nota agregada a ${clientExists.name || targetPhone}:\n"${noteText}"`);
 
-  // ── RESETEAR CLIENTE ──
+    // ── RESETEAR CLIENTE ──
   } else if (cmd.startsWith('!reset ')) {
     const targetPhone = parts[1]?.trim();
     if (!targetPhone) {
@@ -1801,7 +1845,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     db.resetClient(targetPhone);
     await msg.reply(`🔄 Cliente ${clientExists.name || targetPhone} reseteado.\nHistorial limpio, estado: new, memoria borrada.`);
 
-  // ── CERRAR ASIGNACIÓN ──
+    // ── CERRAR ASIGNACIÓN ──
   } else if (cmd.startsWith('!close ') || cmd.startsWith('!cerrar ')) {
     const targetPhone = parts[1]?.trim();
     if (!targetPhone) {
@@ -1815,7 +1859,7 @@ async function handleAdminCommand(msg, senderPhone, command) {
     }
     await msg.reply(`✅ Asignación cerrada: ${targetPhone} ya no está asignado a ${closed.employee_name}`);
 
-  // ── AYUDA ──
+    // ── AYUDA ──
   } else if (cmd === '!help' || cmd === '!ayuda') {
     const help = `🤖 *Comandos de Admin:*\n\n` +
       `📊 *Informes:*\n` +
@@ -1874,7 +1918,7 @@ async function recuperarChatsViejos() {
 
         const phone = chat.id.user;
         if (phone === CONFIG.businessPhone.replace('57', '') ||
-            phone === '573150177199'.replace('57', '')) continue;
+          phone === '573150177199'.replace('57', '')) continue;
         if (yaEnviados[phone]) { omitidos++; continue; }
 
         // Bloquear bots empresariales (números cortos)
@@ -2204,7 +2248,7 @@ async function procesarClientesCalientes(clientes) {
     const cliente = clientes[i];
     try {
       const historial = db.getConversationHistory(cliente.phone, 10);
-      const resumenHistorial = historial.map(h => `${h.role === 'user' ? 'Cliente' : 'Bot'}: ${h.content}`).join('\n');
+      const resumenHistorial = historial.map(h => `${h.role === 'user' ? 'Cliente' : 'Bot'}: ${h.message}`).join('\n');
 
       const reactivarModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
       const prompt = `Eres un asesor de ventas de Zona Traumática (tienda de armas traumáticas y Club ZT en Colombia).
@@ -2331,8 +2375,8 @@ function startReactivacionServer() {
             const tagPago = tipo === 'club'
               ? '✅ YA AFILIADO AL CLUB ZT — comprobante confirmado. NO ofrecer más productos de club.'
               : tipo === 'bot_asesor'
-              ? '✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer más suscripciones.'
-              : '✅ YA COMPRÓ PRODUCTO — comprobante confirmado. NO ofrecer más ventas, está en proceso de envío.';
+                ? '✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer más suscripciones.'
+                : '✅ YA COMPRÓ PRODUCTO — comprobante confirmado. NO ofrecer más ventas, está en proceso de envío.';
             const nuevaMemoria = memoriaActual ? memoriaActual + '\n' + tagPago : tagPago;
             db.updateClientMemory(phoneClean, nuevaMemoria);
             console.log(`[COMPROBANTE] ✅ BD actualizada ID #${id} para ${phone}`);
