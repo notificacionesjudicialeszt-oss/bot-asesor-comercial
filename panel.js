@@ -156,6 +156,36 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Enviar mensaje como Álvaro — relay al bot en puerto 3001
+  if (url.pathname === '/api/enviar-mensaje' && req.method === 'POST') {
+    let bodyData = '';
+    req.on('data', chunk => bodyData += chunk);
+    req.on('end', () => {
+      const payload = bodyData;
+      const botReq = http.request({
+        hostname: 'localhost',
+        port: 3001,
+        path: '/enviar-mensaje',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      }, botRes => {
+        let data = '';
+        botRes.on('data', chunk => data += chunk);
+        botRes.on('end', () => {
+          res.writeHead(botRes.statusCode, { 'Content-Type': 'application/json' });
+          res.end(data);
+        });
+      });
+      botReq.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'No se pudo conectar con el bot. ¿Está corriendo?' }));
+      });
+      botReq.write(payload);
+      botReq.end();
+    });
+    return;
+  }
+
   // Reactivar clientes calientes — llama directo al bot por HTTP (puerto 3001)
   if (url.pathname === '/api/reactivar-calientes' && req.method === 'POST') {
     try {
@@ -802,13 +832,17 @@ async function selectClient(phone) {
 
   const chatHtml = messages.map(m => \`
     <div style="display:flex;flex-direction:column;align-items:\${m.role === 'user' ? 'flex-start' : 'flex-end'};">
-      <div class="chat-bubble chat-\${m.role}">\${m.message}</div>
-      <div class="chat-time">\${new Date(m.created_at).toLocaleString()}</div>
+      <div class="chat-bubble chat-\${m.role}" \${m.role === 'admin' ? 'style="background:#1a5276;border:1px solid #2980b9;"' : ''}>\${m.role === 'admin' ? '👤 ' : ''}\${m.message}</div>
+      <div class="chat-time">\${m.role === 'admin' ? 'Álvaro • ' : ''}\${new Date(m.created_at).toLocaleString()}</div>
     </div>
   \`).join('');
 
   const chatArea = document.getElementById('chatArea');
-  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>';
+  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:10px;padding:10px;background:#161b22;border-radius:8px;border:1px solid #30363d;">' +
+      '<textarea id="adminReplyInput" placeholder="Escribir como Álvaro..." style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:8px;resize:none;height:40px;font-family:inherit;font-size:13px;"></textarea>' +
+      '<button onclick="enviarMensajeAdmin()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
+    '</div>';
   // Esperar a que el DOM renderice antes de hacer scroll
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -822,6 +856,30 @@ function setFilter(filter, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   renderClients();
+}
+
+async function enviarMensajeAdmin() {
+  const input = document.getElementById('adminReplyInput');
+  const message = (input.value || '').trim();
+  if (!message || !selectedPhone) return;
+  input.disabled = true;
+  try {
+    const res = await fetch('/api/enviar-mensaje', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: selectedPhone, message })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      input.value = '';
+      selectClient(selectedPhone); // refrescar chat
+    } else {
+      alert('❌ ' + (data.error || 'Error enviando'));
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el bot');
+  }
+  input.disabled = false;
 }
 
 function filterClients() { renderClients(); }

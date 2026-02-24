@@ -268,6 +268,11 @@ Solo escribe el mensaje, sin explicaciones.`;
     await client.sendMessage(chatId, transMsg);
     db.saveMessage(clientPhone, 'assistant', transMsg);
     console.log(`[ADMIN] ✅ Transición enviada a ${clientPhone}`);
+
+    // Actualizar memoria con la interacción de Álvaro
+    updateClientMemory(clientPhone, `[ÁLVARO respondió]: ${alvaroMsg}`, transMsg,
+      db.getConversationHistory(clientPhone, 10)
+    ).catch(e => console.error('[ADMIN] Error actualizando memoria:', e.message));
   } catch (e) {
     console.error('[ADMIN] Error generando transición:', e.message);
   }
@@ -2576,6 +2581,39 @@ function startReactivacionServer() {
 
         console.log(`[LID] 🎉 Completado — ${resueltos} resueltos, ${fallidos} fallidos`);
       })().catch(e => console.error('[LID] Error general:', e.message));
+
+      // POST /enviar-mensaje — panel envía mensaje como Álvaro
+    } else if (pathname === '/enviar-mensaje' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone, message } = JSON.parse(body);
+          if (!phone || !message) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'phone y message son requeridos' }));
+            return;
+          }
+
+          // Enviar por WhatsApp
+          const chatId = db.getClientChatId(phone);
+          await client.sendMessage(chatId, message);
+
+          // Guardar como admin en historial
+          db.saveMessage(phone, 'admin', message);
+
+          // Pausar bot para este cliente
+          adminPauseMap.set(phone, Date.now() + 30 * 60 * 1000);
+
+          console.log(`[PANEL] 📝 Mensaje enviado como Álvaro a ${phone}: "${message.substring(0, 60)}"`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          console.error('[PANEL] Error enviar-mensaje:', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
 
     } else {
       res.writeHead(404);
