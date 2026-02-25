@@ -976,6 +976,10 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
     }
 
     if (response) {
+      // Limpiar enlaces Markdown [texto](url) -> url (ej: [Retay G17](https://...) -> https://...)
+      // Esto evita que WhatsApp rompa los links si Gemini ignora la instrucción
+      response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
+
       // Guardar respuesta del bot
       db.saveMessage(senderPhone, 'assistant', response);
 
