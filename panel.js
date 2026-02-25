@@ -198,61 +198,68 @@ const server = http.createServer((req, res) => {
 
   // Reactivar clientes calientes — llama directo al bot por HTTP (puerto 3001)
   if (url.pathname === '/api/reactivar-calientes' && req.method === 'POST') {
-    try {
-      const calientes = db.prepare(`
-        SELECT * FROM clients
-        WHERE status IN ('hot', 'assigned', 'new')
-        AND ignored = 0
-        AND spam_flag = 0
-        AND memory IS NOT NULL AND memory != ''
-        AND phone IS NOT NULL
-        ORDER BY updated_at DESC
-      `).all();
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payloadFromClient = body ? JSON.parse(body) : {};
+        const mode = payloadFromClient.mode || 'normal';
 
-      if (calientes.length === 0) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, msg: 'No hay clientes calientes con contexto para reactivar' }));
-        return;
-      }
+        const calientes = db.prepare(`
+          SELECT * FROM clients
+          WHERE status IN ('hot', 'assigned', 'new')
+          AND ignored = 0
+          AND spam_flag = 0
+          AND memory IS NOT NULL AND memory != ''
+          AND phone IS NOT NULL
+          ORDER BY updated_at DESC
+        `).all();
 
-      const clientes = calientes.map(c => ({
-        phone: c.phone,
-        name: c.name || 'Cliente',
-        memory: c.memory || '',
-        status: c.status
-      }));
-
-      // Llamar directamente al bot por HTTP — sin archivos, sin polling
-      const payload = JSON.stringify({ clientes });
-      const botReq = http.request({
-        hostname: 'localhost',
-        port: 3001,
-        path: '/reactivar',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-      }, botRes => {
-        let data = '';
-        botRes.on('data', chunk => data += chunk);
-        botRes.on('end', () => {
-          console.log(`[PANEL] 🔥 Reactivación iniciada en bot: ${clientes.length} clientes`);
+        if (calientes.length === 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, total: clientes.length, msg: `${clientes.length} clientes enviados al bot` }));
+          res.end(JSON.stringify({ ok: false, msg: 'No hay clientes calientes con contexto para reactivar' }));
+          return;
+        }
+
+        const clientes = calientes.map(c => ({
+          phone: c.phone,
+          name: c.name || 'Cliente',
+          memory: c.memory || '',
+          status: c.status
+        }));
+
+        // Llamar directamente al bot por HTTP — sin archivos, sin polling
+        const payload = JSON.stringify({ clientes, mode });
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/reactivar',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 🔥 Reactivación iniciada en bot: ${clientes.length} clientes (Modo: ${mode})`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, total: clientes.length, msg: `${clientes.length} clientes enviados al bot (${mode.toUpperCase()})` }));
+          });
         });
-      });
 
-      botReq.on('error', () => {
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+
+        botReq.write(payload);
+        botReq.end();
+
+      } catch (e) {
+        console.error('[PANEL] Error reactivar-calientes:', e.message);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
-      });
-
-      botReq.write(payload);
-      botReq.end();
-
-    } catch (e) {
-      console.error('[PANEL] Error reactivar-calientes:', e.message);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
-    }
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
     return;
   }
 
@@ -262,7 +269,7 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        const { phone } = JSON.parse(body);
+        const { phone, mode = 'normal' } = JSON.parse(body);
         if (!phone) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, msg: 'Teléfono requerido' }));
@@ -284,7 +291,7 @@ const server = http.createServer((req, res) => {
         }];
 
         // Llamar directamente al bot por HTTP
-        const payload = JSON.stringify({ clientes });
+        const payload = JSON.stringify({ clientes, mode });
         const botReq = http.request({
           hostname: 'localhost',
           port: 3001,
@@ -295,9 +302,9 @@ const server = http.createServer((req, res) => {
           let data = '';
           botRes.on('data', chunk => data += chunk);
           botRes.on('end', () => {
-            console.log(`[PANEL] 🔥 Reactivación individual iniciada para: ${clienteDb.phone}`);
+            console.log(`[PANEL] 🔥 Reactivación individual iniciada para: ${clienteDb.phone} (Modo: ${mode})`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, msg: 'Mensaje de reactivación enviado al bot' }));
+            res.end(JSON.stringify({ ok: true, msg: `Mensaje de reactivación (${mode}) enviado al bot` }));
           });
         });
 
@@ -665,7 +672,8 @@ function getHTML() {
   <div>
     <span id="lastUpdate" style="color:#484f58;font-size:12px;margin-right:15px;"></span>
     <button id="btnUpdateInventory" onclick="actualizarInventario()" style="background:linear-gradient(135deg, #8a2be2, #4b0082);color:white;border:none;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;margin-right:8px;text-transform:uppercase;letter-spacing:1px;" title="Actualiza el catálogo de productos leyendo la imagen con Inteligencia Artificial">🧠 Actualizar Inventario IA</button>
-    <button class="reactivar-btn" id="btnReactivar" onclick="reactivarCalientes()">🔥 Reactivar Calientes</button>
+    <button class="reactivar-btn" id="btnReactivar" onclick="reactivarCalientes('normal')" title="Mensajes para retomar ventas (catálogo oficial)">🔥 Reactivar Calientes</button>
+    <button class="reactivar-btn" id="btnReactivarUltra" onclick="reactivarCalientes('ultra')" style="background:linear-gradient(135deg, #FFD700, #DAA520);color:black;text-shadow:none;border:1px solid #B8860B;" title="Reactivar ofreciendo promos (100k desc en armas, tarifa afiliado munición, bot 6 meses gratis)">💎 Reactivar Ultra (Todo)</button>
     <button id="btnMigrar" onclick="migrarAssigned()" style="background:#1c2733;border:1px solid #30363d;color:#8b949e;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Migración única: mueve todos los clientes 'asignados' a Calientes">🔄 Migrar Asignados → Calientes</button>
     <button id="btnResolverLid" onclick="resolverLids()" style="background:#1c2733;border:1px solid #388bfd;color:#388bfd;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Resuelve LIDs de WhatsApp a números de teléfono reales">🔍 Resolver LIDs</button>
     <button class="refresh-btn" onclick="refreshAll()">🔄 Actualizar</button>
@@ -739,34 +747,41 @@ let allData = null;
 let currentFilter = 'all';
 let selectedPhone = null;
 
-async function reactivarCalientes() {
-  const btn = document.getElementById('btnReactivar');
+async function reactivarCalientes(mode = 'normal') {
+  const btn = mode === 'ultra' ? document.getElementById('btnReactivarUltra') : document.getElementById('btnReactivar');
+  const orgText = btn.textContent;
+  const orgBg = btn.style.background;
+  
   btn.disabled = true;
   btn.textContent = '⏳ Procesando...';
   try {
-    const res = await fetch('/api/reactivar-calientes', { method: 'POST' });
+    const res = await fetch('/api/reactivar-calientes', { 
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode })
+    });
     const data = await res.json();
     if (data.ok) {
       btn.textContent = '✅ ' + data.msg;
       btn.style.background = '#238636';
       setTimeout(() => {
-        btn.textContent = '🔥 Reactivar Calientes';
-        btn.style.background = '';
+        btn.textContent = orgText;
+        btn.style.background = orgBg;
         btn.disabled = false;
       }, 5000);
     } else {
       alert('⚠️ ' + (data.msg || data.error || 'Error desconocido'));
-      btn.textContent = '🔥 Reactivar Calientes';
+      btn.textContent = orgText;
       btn.disabled = false;
     }
   } catch (e) {
     alert('❌ Error conectando con el servidor');
-    btn.textContent = '🔥 Reactivar Calientes';
+    btn.textContent = orgText;
     btn.disabled = false;
   }
 }
 
-async function reactivarIndividual(phone, btnElement) {
+async function reactivarIndividual(phone, btnElement, mode = 'normal') {
   const oldText = btnElement.innerHTML;
   btnElement.innerHTML = '⏳ Reactivando...';
   btnElement.style.pointerEvents = 'none';
@@ -775,7 +790,7 @@ async function reactivarIndividual(phone, btnElement) {
     const res = await fetch('/api/reactivar-individual', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone })
+      body: JSON.stringify({ phone, mode })
     });
     const data = await res.json();
     if (data.ok) {
@@ -999,7 +1014,8 @@ async function selectClient(phone) {
           <div class="crm-chip" style="background:\${client.ignored == 1 ? '#7c1d1d' : '#1c2733'};border-color:\${client.ignored == 1 ? '#f85149' : '#30363d'};color:\${client.ignored == 1 ? '#f85149' : '#8b949e'};" onclick="toggleIgnored('\${client.phone}', \${client.ignored == 1 ? 0 : 1})">\${client.ignored == 1 ? '🔇 IGNORADO — click para reactivar' : '🔇 Silenciar — no es cliente'}</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#8b949e;" onclick="changeStatus('\${client.phone}', 'new')">↩️ Resetear a Nuevo</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#d29922;" onclick="changeStatus('\${client.phone}', 'completed')">✅ Marcar Completado</div>
-          <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this)">🔥 Reactivar Cliente con IA</div>
+          <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this, 'normal')">🔥 Reactivar Integración IA</div>
+          <div class="crm-chip" style="background:#332900;border-color:#d29922;color:#e3b341;" onclick="reactivarIndividual('\${client.phone}', this, 'ultra')">💎 Reactivar Ultra (Promos)</div>
           <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
         </div>
         <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -1376,6 +1392,9 @@ async function selectClientPv(phone) {
           <div class="crm-chip" onclick="addNote('\${client.phone}', '✅ Caso resuelto')">✅ Caso resuelto</div>
           <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'completed')">🏁 Marcar completado</div>
           <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'new')">↩️ Devolver a Comercial</div>
+          <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this, 'normal')">🔥 Reactivar Integración IA</div>
+          <div class="crm-chip" style="background:#332900;border-color:#d29922;color:#e3b341;" onclick="reactivarIndividual('\${client.phone}', this, 'ultra')">💎 Reactivar Ultra (Promos)</div>
+          <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
         </div>
       </div>
       <div style="margin-top:10px;">\${waLink(client.phone)}</div>

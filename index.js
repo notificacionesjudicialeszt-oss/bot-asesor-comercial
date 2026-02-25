@@ -2346,8 +2346,8 @@ function startGroupBroadcaster() {
 // El bot procesa la lista uno por uno con delay anti-ban
 // ============================================
 
-async function procesarClientesCalientes(clientes) {
-  console.log(`[REACTIVAR] 🔥 Iniciando reactivación de ${clientes.length} leads calientes...`);
+async function procesarClientesCalientes(clientes, mode = 'normal') {
+  console.log(`[REACTIVAR] 🔥 Iniciando reactivación de ${clientes.length} leads calientes en modo: ${mode.toUpperCase()}...`);
 
   for (let i = 0; i < clientes.length; i++) {
     const cliente = clientes[i];
@@ -2356,6 +2356,21 @@ async function procesarClientesCalientes(clientes) {
       const resumenHistorial = historial.map(h => `${h.role === 'user' ? 'Cliente' : 'Bot'}: ${h.message}`).join('\n');
 
       const reactivarModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+
+      let promoRules = '';
+      if (mode === 'ultra') {
+        promoRules = `
+IMPORTANTE - PROMOCIONES PERMITIDAS (MODO ULTRA):
+Puedes ofrecer las siguientes promociones exclusivas (y NINGUNA OTRA MÁS):
+1. En armas nuevas: 100.000 pesos de descuento.
+2. En munición (si el cliente no es afiliado): Ofrécele el precio especial de afiliado.
+3. En afiliación al club: Se le obsequia el chatbot de IA por 6 meses totalmente gratis.
+REGLA DE PROMOCIONES ESTRICTA: NO inventes ni ofrezcas NINGÚN otro descuento o paquete diferente a estos tres.`;
+      } else {
+        promoRules = `
+REGLA DE PROMOCIONES ESTRICTA: Está TOTALMENTE PROHIBIDO inventar ofertas, descuentos, regalos o promociones con tal de ser persuasivo. NUNCA ofrezcas nada que no esté explícitamente en el catálogo oficial de precios.`;
+      }
+
       const prompt = `Eres un asesor de ventas de Zona Traumática (tienda de armas traumáticas y Club ZT en Colombia).
 
 Tienes este cliente que mostró interés pero no ha cerrado la compra. Envíale UN mensaje corto y natural para retomar la conversación y cerrar la venta.
@@ -2370,11 +2385,11 @@ ${resumenHistorial || 'Sin historial previo'}
 REGLAS:
 1. Máximo 3-4 líneas — mensaje de WhatsApp real, no un email
 2. Personalizado según su interés específico (menciona lo que él preguntó)
-3. Urgencia sutil de la promoción por tiempo limitado — como dato, no como presión
-4. Cierra con una pregunta abierta
-5. Tono: cercano, humano, como amigo que avisa — NO vendedor desesperado
-6. Máximo 2 emojis
-7. NO menciones que es un mensaje automático
+3. Cierra con una pregunta abierta
+4. Tono: cercano, humano, como amigo que avisa — NO vendedor desesperado
+5. Máximo 2 emojis
+6. NO menciones que es un mensaje automático
+${promoRules}
 
 Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
 
@@ -2408,7 +2423,10 @@ function startReactivacionServer() {
       req.on('data', chunk => body += chunk);
       req.on('end', () => {
         try {
-          const { clientes } = JSON.parse(body);
+          const bodyData = JSON.parse(body);
+          const clientes = bodyData.clientes;
+          const mode = bodyData.mode || 'normal';
+
           if (!clientes || clientes.length === 0) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, msg: 'Sin clientes para procesar' }));
@@ -2418,7 +2436,7 @@ function startReactivacionServer() {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, total: clientes.length }));
           // Procesar en background sin bloquear
-          procesarClientesCalientes(clientes).catch(e => console.error('[REACTIVAR]', e.message));
+          procesarClientesCalientes(clientes, mode).catch(e => console.error('[REACTIVAR]', e.message));
         } catch (e) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: e.message }));
