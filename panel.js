@@ -9,6 +9,7 @@ const http = require('http');
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { exec } = require('child_process');
 
 const db = new Database(path.join(__dirname, 'crm.db'));
 const PORT = 3000;
@@ -407,6 +408,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Actualizar inventario usando IA (ejecuta el script update_inventory.js)
+  if (url.pathname === '/api/update-inventory' && req.method === 'POST') {
+    console.log('[PANEL] 📦 Recibida petición para actualizar inventario IA...');
+    exec('npm run update-inventory', { cwd: __dirname }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('[PANEL] ❌ Error actualizando inventario:', error.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Hubo un error al actualizar el inventario. Verifica la terminal externa.' }));
+        return;
+      }
+      console.log('[PANEL] ✅ Inventario actualizado con éxito');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, msg: 'Inventario actualizado correctamente usando Gemini IA' }));
+    });
+    return;
+  }
+
   // Count liviano de comprobantes (para el badge, sin cargar imágenes)
   if (url.pathname === '/api/comprobantes-count') {
     try {
@@ -585,6 +603,7 @@ function getHTML() {
   <h1>🔫 Panel <span>Zona Traumática</span></h1>
   <div>
     <span id="lastUpdate" style="color:#484f58;font-size:12px;margin-right:15px;"></span>
+    <button id="btnUpdateInventory" onclick="actualizarInventario()" style="background:linear-gradient(135deg, #8a2be2, #4b0082);color:white;border:none;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;margin-right:8px;text-transform:uppercase;letter-spacing:1px;" title="Actualiza el catálogo de productos leyendo la imagen con Inteligencia Artificial">🧠 Actualizar Inventario IA</button>
     <button class="reactivar-btn" id="btnReactivar" onclick="reactivarCalientes()">🔥 Reactivar Calientes</button>
     <button id="btnMigrar" onclick="migrarAssigned()" style="background:#1c2733;border:1px solid #30363d;color:#8b949e;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Migración única: mueve todos los clientes 'asignados' a Calientes">🔄 Migrar Asignados → Calientes</button>
     <button id="btnResolverLid" onclick="resolverLids()" style="background:#1c2733;border:1px solid #388bfd;color:#388bfd;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Resuelve LIDs de WhatsApp a números de teléfono reales">🔍 Resolver LIDs</button>
@@ -682,6 +701,37 @@ async function reactivarCalientes() {
   } catch (e) {
     alert('❌ Error conectando con el servidor');
     btn.textContent = '🔥 Reactivar Calientes';
+    btn.disabled = false;
+  }
+}
+
+async function actualizarInventario() {
+  const btn = document.getElementById('btnUpdateInventory');
+  const confirmacion = confirm("¿Estás seguro de querer actualizar el inventario con IA basándose en la imagen maestra? Esto podría tomar unos 30 segundos.");
+  if (!confirmacion) return;
+
+  btn.disabled = true;
+  btn.textContent = '🧠 Procesando IA... (Unos 30s)';
+  try {
+    const res = await fetch('/api/update-inventory', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      alert('✅ ' + data.msg);
+      btn.textContent = '✅ Completado';
+      btn.style.background = '#238636';
+      setTimeout(() => {
+        btn.textContent = '🧠 Actualizar Inventario IA';
+        btn.style.background = 'linear-gradient(135deg, #8a2be2, #4b0082)';
+        btn.disabled = false;
+      }, 5000);
+    } else {
+      alert('⚠️ ' + (data.error || 'Error desconocido'));
+      btn.textContent = '🧠 Actualizar Inventario IA';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor para actualizar inventario');
+    btn.textContent = '🧠 Actualizar Inventario IA';
     btn.disabled = false;
   }
 }
