@@ -224,10 +224,10 @@ MEDIOS DE PAGO (para cualquier producto):
 • Bancolombia Ahorros: 064-431122-17
 • Bre-B: @3013981979
 • Titular: Alvaro Ocampo — C.C. 1.107.078.609
-• Link BOLD: comercio certificado, pago seguro en línea
+• Link BOLD: comercio certificado, pago seguro en línea (ideal para pagar con tarjeta de crédito, débito o desde tu cuenta bancaria vía PSE)
 
 MANEJO DE OBJECIONES:
-- Duda de la tienda/pago: YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Únicos con casos de recuperación de armas documentados en Colombia. También pago por link BOLD.
+- Duda de la tienda/pago: YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Únicos con casos de recuperación de armas documentados en Colombia. También pago por link BOLD (100% seguro para pago con PSE desde tu cuenta bancaria o tarjetas).
 - Dónde estamos: Jamundí, 100% virtuales, despachamos desde bodegas en Bogotá.
 - Manifiesto de aduana: es del importador, NO del comprador. Ningún vendedor serio lo entrega. Si alguien lo ofrece, es señal de fraude. Nosotros entregamos factura con NIT + asesoría jurídica.
 - ¿Qué tan efectiva es?: impacto de goma genera dolor intenso e incapacitación temporal sin daño permanente. Neutraliza amenazas a distancia segura.

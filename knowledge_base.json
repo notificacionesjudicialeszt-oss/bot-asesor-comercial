@@ -18,7 +18,7 @@
       "titular": "Alvaro Ocampo",
       "cedula": "1107078609",
       "bre_b": "@3013981979",
-      "bold": "Link de pago seguro con BOLD — comercio certificado"
+      "bold": "Link de pago seguro con BOLD — comercio certificado (paga con tu cuenta bancaria vía PSE o tarjetas)"
     },
     "diferenciadores": [
       "Únicos en Colombia con apoyo jurídico incluido en la compra",
@@ -72,30 +72,142 @@
     }
   },
   "inventario": {
-    "marcas": ["RETAY", "EKOL", "BLOW"],
+    "marcas": [
+      "RETAY",
+      "EKOL",
+      "BLOW"
+    ],
     "planes_precio": {
       "plan_plus": "precio incluye membresía Plan Plus",
       "plan_pro": "precio incluye membresía Plan Pro"
     },
     "productos": [
-      { "marca": "RETAY", "modelo": "S2022", "color": "Negro", "plan_plus": 1150000, "plan_pro": 1250000 },
-      { "marca": "RETAY", "modelo": "G17", "color": "Negro", "plan_plus": 1150000, "plan_pro": 1250000 },
-      { "marca": "EKOL", "modelo": "Volga Mini", "color": "Negro y Fume", "plan_plus": 1200000, "plan_pro": 1300000 },
-      { "marca": "EKOL", "modelo": "Botan", "color": "Fume", "plan_plus": 1200000, "plan_pro": 1300000 },
-      { "marca": "BLOW", "modelo": "Mini 9", "color": "Fume y Negro", "plan_plus": 1150000, "plan_pro": 1250000 },
-      { "marca": "BLOW", "modelo": "F92", "color": "Negro Cromado / Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
-      { "marca": "BLOW", "modelo": "TR 92", "color": "Negro y Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
-      { "marca": "BLOW", "modelo": "TR 92D", "color": "Negro y Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
-      { "marca": "BLOW", "modelo": "TR 92K", "color": "Negro y Fume", "plan_plus": 1150000, "plan_pro": 1250000 },
-      { "marca": "EKOL", "modelo": "Dicle", "color": "Negra", "plan_plus": 1200000, "plan_pro": 1300000 },
-      { "marca": "EKOL", "modelo": "Firat Compact", "color": "Negro / Cromado", "plan_plus": 1200000, "plan_pro": 1300000 },
-      { "marca": "EKOL", "modelo": "Firat Magnum", "color": "Negro / Fume / Cromado", "plan_plus": 1200000, "plan_pro": 1300000 },
-      { "marca": "EKOL", "modelo": "NIG 211", "color": "Fume y Negra", "plan_plus": 1300000, "plan_pro": 1400000 },
-      { "marca": "EKOL", "modelo": "Jackal Dual Magnum", "color": "Negro y Fume", "plan_plus": 1400000, "plan_pro": 1500000 },
-      { "marca": "EKOL", "modelo": "Jackal Dual Compact", "color": "Negro", "plan_plus": 1300000, "plan_pro": 1400000 },
-      { "marca": "EKOL", "modelo": "P92 Auto", "color": "Fume y Negro", "plan_plus": 1400000, "plan_pro": 1500000 },
-      { "marca": "EKOL", "modelo": "Revolver 2.5", "color": "Negro", "plan_plus": 1200000, "plan_pro": 1300000 },
-      { "marca": "EKOL", "modelo": "Revolver 4.5", "color": "Negro / Fume / Cromado", "plan_plus": 1300000, "plan_pro": null }
+      {
+        "marca": "RETAY",
+        "modelo": "S2022",
+        "color": "Negro",
+        "plan_plus": 1150000,
+        "plan_pro": 1250000
+      },
+      {
+        "marca": "RETAY",
+        "modelo": "G17",
+        "color": "Negro",
+        "plan_plus": 1150000,
+        "plan_pro": 1250000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Volga Mini",
+        "color": "Negro y Fume",
+        "plan_plus": 1200000,
+        "plan_pro": 1300000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Botan",
+        "color": "Fume",
+        "plan_plus": 1200000,
+        "plan_pro": 1300000
+      },
+      {
+        "marca": "BLOW",
+        "modelo": "Mini 9",
+        "color": "Fume y Negro",
+        "plan_plus": 1150000,
+        "plan_pro": 1250000
+      },
+      {
+        "marca": "BLOW",
+        "modelo": "F92",
+        "color": "Negro Cromado / Fume",
+        "plan_plus": 1150000,
+        "plan_pro": 1250000
+      },
+      {
+        "marca": "BLOW",
+        "modelo": "TR 92",
+        "color": "Negro y Fume",
+        "plan_plus": 1150000,
+        "plan_pro": 1250000
+      },
+      {
+        "marca": "BLOW",
+        "modelo": "TR 92D",
+        "color": "Negro y Fume",
+        "plan_plus": 1150000,
+        "plan_pro": 1250000
+      },
+      {
+        "marca": "BLOW",
+        "modelo": "TR 92K",
+        "color": "Negro y Fume",
+        "plan_plus": 1150000,
+        "plan_pro": 1250000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Dicle",
+        "color": "Negra",
+        "plan_plus": 1200000,
+        "plan_pro": 1300000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Firat Compact",
+        "color": "Negro / Cromado",
+        "plan_plus": 1200000,
+        "plan_pro": 1300000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Firat Magnum",
+        "color": "Negro / Fume / Cromado",
+        "plan_plus": 1200000,
+        "plan_pro": 1300000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "NIG 211",
+        "color": "Fume y Negra",
+        "plan_plus": 1300000,
+        "plan_pro": 1400000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Jackal Dual Magnum",
+        "color": "Negro y Fume",
+        "plan_plus": 1400000,
+        "plan_pro": 1500000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Jackal Dual Compact",
+        "color": "Negro",
+        "plan_plus": 1300000,
+        "plan_pro": 1400000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "P92 Auto",
+        "color": "Fume y Negro",
+        "plan_plus": 1400000,
+        "plan_pro": 1500000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Revolver 2.5",
+        "color": "Negro",
+        "plan_plus": 1200000,
+        "plan_pro": 1300000
+      },
+      {
+        "marca": "EKOL",
+        "modelo": "Revolver 4.5",
+        "color": "Negro / Fume / Cromado",
+        "plan_plus": 1300000,
+        "plan_pro": null
+      }
     ]
   },
   "preguntas_frecuentes": {
@@ -106,8 +218,8 @@
     "efectividad": "Su impacto de goma genera dolor intenso e incapacitación temporal sin daño permanente, permitiéndote neutralizar amenazas a distancia segura.",
     "capacitacion": "Las sesiones son grupales virtuales, programadas cada ~2 semanas. Al comprar, te agendamos en la siguiente sesión disponible.",
     "renovacion_club": "Puedes renovar tu membresía: Plan Plus $150.000/año, Plan Pro $200.000/año.",
-    "confianza_tienda_virtual": "Entendemos que comprar en línea genera dudas. Puedes verificar nuestra trayectoria en nuestro canal de YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Somos los únicos con casos de recuperación de armas documentados en Colombia. También manejamos link de pago seguro con BOLD, comercio certificado.",
-    "pago_anticipado": "Manejamos pago anticipado con todas las garantías: comprobante digital inmediato, seguimiento del envío y respaldo jurídico de la transacción. Además puedes pagar por link seguro BOLD si prefieres mayor seguridad.",
+    "confianza_tienda_virtual": "Entendemos que comprar en línea genera dudas. Puedes verificar nuestra trayectoria en nuestro canal de YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Somos los únicos con casos de recuperación de armas documentados en Colombia. También manejamos link de pago seguro con BOLD, comercio certificado, para que pagues directo desde tu cuenta con PSE o tarjetas.",
+    "pago_anticipado": "Manejamos pago anticipado con todas las garantías: comprobante digital inmediato, seguimiento del envío y respaldo jurídico de la transacción. Además puedes pagar por link seguro BOLD vía PSE desde tu cuenta de banco si prefieres mayor seguridad.",
     "manifiesto_aduana": "El manifiesto de aduana es un documento del IMPORTADOR, no del comprador. Ningún vendedor serio lo entrega porque legalmente no le corresponde — solo la DIAN y la POLFA fiscalizan al importador (Decreto 1165/2019, Ley 2197/2022). Lo que SÍ recibes con tu compra es: factura con NIT, asesoría jurídica permanente y respaldo legal incluido. OJO: si alguien te ofrece 'manifiesto de aduana', es una señal de alarma — puede ser un documento falso. Otros indicadores de fraude: vender sin factura y precios sospechosamente bajos. Tu mejor protección es FACTURA + ASESORÍA LEGAL, que es exactamente lo que Zona Traumática te garantiza.",
     "marco_legal_general": "Las armas traumáticas en Colombia están reguladas principalmente por la Ley 2197/2022 (Ley de Seguridad Ciudadana), que las define como dispositivos menos letales con categoría jurídica autónoma — completamente distintas a las armas de fuego. El Artículo 223 de la Constitución habla de 'municiones de guerra', lo que NO aplica a los proyectiles de goma de las traumáticas. Adicionalmente, la Sentencia C-014/2023 y múltiples precedentes del Tribunal Superior de Bogotá han reconocido la atipicidad penal del porte de estas armas.",
     "preguntas_legales_profundas": "Para consultas legales detalladas — jurisprudencia específica, procedimientos de defensa ante incautación, análisis de la Sentencia C-014/2023, Resolución 01840/2025, comparativa técnica balística y más — contamos con la Biblioteca Legal de Zona Traumática: la biblia de la legalidad de las armas traumáticas en Colombia, construida íntegramente por nuestro equipo. Puedes consultarla en: https://www.zonatraumatica.club/portelegal/biblioteca — Es gratuita y cubre desde la Constitución hasta los casos reales ganados. Para asesoría jurídica personalizada y defensa ante incautaciones, te recomendamos afiliarte al Club Zona Traumática (Plan Pro)."
@@ -129,7 +241,7 @@
   },
   "politicas": {
     "compra": "Para comprar, un asesor te acompaña en todo el proceso: selección del modelo, método de pago y detalles del envío.",
-    "metodos_pago": "Nequi 3013981979 | Bancolombia Ahorros 064-431122-17 | Bre-B @3013981979 | Titular: Alvaro Ocampo C.C. 1107078609 | Link de pago BOLD (comercio certificado)",
+    "metodos_pago": "Nequi 3013981979 | Bancolombia Ahorros 064-431122-17 | Bre-B @3013981979 | Titular: Alvaro Ocampo C.C. 1107078609 | Link de pago BOLD (comercio certificado para PSE o tarjetas)",
     "envio": "Envíos a todo el país, costo aproximado $25.000, discretos y seguros desde bodegas en Bogotá."
   }
 }
