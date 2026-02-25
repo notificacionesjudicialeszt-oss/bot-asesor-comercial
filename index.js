@@ -2345,7 +2345,6 @@ function startGroupBroadcaster() {
 // El panel llama a http://localhost:3001/reactivar cuando se presiona el botón
 // El bot procesa la lista uno por uno con delay anti-ban
 // ============================================
-const http = require('http');
 
 async function procesarClientesCalientes(clientes) {
   console.log(`[REACTIVAR] 🔥 Iniciando reactivación de ${clientes.length} leads calientes...`);
