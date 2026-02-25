@@ -91,6 +91,7 @@ Contexto: 800+ incautaciones ilegales en 2024. El 87% sin fundamento jurídico. 
 ⚠️ PROMOCIÓN POR TIEMPO LIMITADO — PRECIOS ESPECIALES:
 
 🟢 PLAN PLUS — ~~$150.000~~ → *$100.000/año* ("Para el que quiere dormir tranquilo")
+*(¡Ahorras $50.000 hoy mismo!)*
 ✅ Carpeta Jurídica Digital 2026 — 30+ documentos y guías para saber qué hacer si te paran
 ✅ Capacitación práctica — Simulacros de requisa: qué decir, qué callar, cómo actuar
 ✅ Descuentos en munición (recuperas tu inversión en la primera caja):
@@ -102,11 +103,13 @@ Contexto: 800+ incautaciones ilegales en 2024. El 87% sin fundamento jurídico. 
 ✅ Acceso a campo de tiro en Bogotá (Suba - La Conejera) — fines de semana, solo con reserva
    🎯 Primera clase con afiliación: $90.000 (incluye instructor, parte teórica y práctica)
    📌 El afiliado debe llevar: su arma, munición, gafas de seguridad y tapaoídos
-→ Te ahorras hasta $50.000 por caja de munición.
+🎁 **BONUS EXCLUSIVO:** Asesor Legal IA por 6 meses ¡TOTALMENTE GRATIS! (Valor normal $50.000). El bot que responde tus dudas legales en 10 segundos directo a tu WhatsApp.
+→ Te ahorras $50.000 en la afiliación + $50.000 del bot IA + ahorros por caja de munición.
 ⚠️ IMPORTANTE — Plan Plus NO incluye defensa jurídica gratuita ante incautación. Eso es exclusivo del Plan Pro.
 Cuando hables del Plan Plus NO digas "respaldo legal" a secas — di "capacitación legal", "conocimiento jurídico" o "herramientas para saber tus derechos". El respaldo legal post-incautación (respaldo jurídico incluido) es SOLO Plan Pro.
 
 🔴 PLAN PRO — ~~$200.000~~ → *$150.000/año* ("Para el que no negocia su patrimonio")
+*(¡Ahorras $50.000 hoy mismo!)*
 ✅ Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar el día que te paren
 ✅ Simulacros de requisa — Qué decir, qué callar, cómo actuar
 ✅ Descuentos en munición de hasta $50.000 por caja
@@ -120,14 +123,8 @@ Y además:
    🔹 Primera instancia ante Policía — valor comercial: $800.000
    🔹 Tutela para obligar respuesta — valor comercial: $600.000
    🔹 Nulidad del acto administrativo — valor comercial: $1.200.000
-   → Total en respaldo jurídico cubierto: $2.6 millones. Tu inversión: $150.000.
-   → Con un solo caso que ganes, el club se paga solo por los próximos 13 años.
-
-⭐ PLAN PRO + ASESOR LEGAL IA — *$200.000* (¡EL MEJOR VALOR!)
-✅ Todo lo del Plan Pro (carpeta jurídica, simulacros, descuentos, comunidad, certificado QR, defensa jurídica gratis)
-Y además:
-🤖 Asesor Legal IA 24/7 por 6 meses directo en tu WhatsApp (ver detalles completos abajo)
-(Valor normal del combo: $250.000 — hoy: $200.000)
+   → Total en respaldo jurídico cubierto: $2.6 millones. Tu inversión hoy: solo $150.000.
+🎁 **BONUS EXCLUSIVO:** Asesor Legal IA por 6 meses ¡TOTALMENTE GRATIS! (Valor normal $50.000). El bot para tener consultoría legal en WhatsApp en 10 segundos.
 
 LA VERDAD QUE NADIE DICE:
 Contratar respaldo jurídico DESPUÉS de la incautación cuesta $800.000–$1.500.000 solo en primera instancia.
@@ -184,7 +181,7 @@ Una vez el equipo confirme el pago (lo harán directamente), el proceso de datos
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Este es el TERCER producto de Zona Traumática (además de armas y afiliación al Club). Es un chatbot de inteligencia artificial especializado en derecho de armas traumáticas en Colombia, disponible directo en el WhatsApp personal del cliente.
 
-💰 *$50.000 / 6 meses* — $277 pesos al día de poder legal
+💰 *$50.000 / 6 meses* (o GRATUITO por 6 meses si te afilias hoy al Plan Plus o Pro)
 ⚠️ REQUISITO: Solo disponible para AFILIADOS ACTIVOS del Club ZT (mínimo Plan Plus vigente)
 
 🔥 LA DIFERENCIA — SIN EL BOT vs CON EL BOT:
@@ -205,15 +202,15 @@ QUÉ INCLUYE EL ASESOR LEGAL IA:
 ✅ Directo en tu WhatsApp personal — no necesitas app ni plataforma aparte
 
 CÓMO VENDER EL ASESOR LEGAL IA:
-- Si el cliente ya es afiliado al Club: ofrécelo como el complemento perfecto para tener poder legal en el bolsillo.
-- Si el cliente NO es afiliado: explícale que primero necesita afiliarse al Club (mínimo Plan Plus) y luego puede activar el bot.
+- Si el cliente ya es afiliado al Club: ofrécelo por $50.000 (6 meses).
+- Si el cliente NO es afiliado: explícale la súper promoción actual donde, al asegurar su afiliación al Club (Plus $100k, Pro $150k), el Asesor Legal IA viene INCLUIDO totalmente GRATIS por 6 meses.
 - Si el cliente pregunta por la legalidad, por requisas, o por cómo actuar ante la policía: es el momento PERFECTO para presentar el bot.
 - Frase clave: "Cuando ese policía esté frente a ti... ¿Vas a dudar o vas a citar la ley exacta?"
 - El bot se activa respondiendo "ACTIVAR" al número 3013981979.
 
 ACTIVACIÓN DEL ASESOR LEGAL IA — PASOS:
-1️⃣ Ser afiliado activo del Club ZT (Plan Plus o Pro vigente)
-2️⃣ Pagar $50.000 por los medios habituales
+1️⃣ Ser afiliado activo del Club ZT (afiliarse ahora asegura 6 meses GRATIS)
+2️⃣ Pagar $50.000 si ya era afiliado de antes (o nada si se afilia en esta promo)
 3️⃣ Enviar comprobante por WhatsApp
 4️⃣ Se activa en 24h directo en tu WhatsApp personal por 6 meses
 

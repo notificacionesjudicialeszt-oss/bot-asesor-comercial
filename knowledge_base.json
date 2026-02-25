@@ -47,22 +47,24 @@
     "descripcion": "El único club en Colombia con casos ganados documentados. Dos planes para proteger tu arma y tu patrimonio.",
     "plan_plus": {
       "nombre": "Plan Plus",
-      "precio": "$150.000/año",
+      "precio": "$100.000/año (OFERTA - normal $150.000)",
       "incluye": [
         "Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar",
         "Simulacros de requisa — qué decir, qué callar, cómo actuar",
-        "Descuentos en munición: Oskurzan Nacional $120.000 (público $150.000), Oskurzan Importada $130.000 (público $180.000), Rubber Ball Importada $180.000 (público $220.000)",
+        "Descuentos en munición: Oskurzan Nacional $120.000, Oskurzan Importada $130.000, Rubber Ball Importada $180.000",
         "Comunidad de 500+ portadores — red nacional",
         "Certificado digital con QR — validación profesional por 1 año",
         "Acceso al canal YouTube con 50+ videos educativos",
-        "Grupos de WhatsApp activos 24/7"
+        "Grupos de WhatsApp activos 24/7",
+        "BONUS: Asesor Legal IA (Chatbot) por 6 meses totalmente GRATIS"
       ]
     },
     "plan_pro": {
       "nombre": "Plan Pro",
-      "precio": "$200.000/año",
+      "precio": "$150.000/año (OFERTA - normal $200.000)",
       "incluye": [
         "Todo lo del Plan Plus",
+        "BONUS: Asesor Legal IA (Chatbot) por 6 meses totalmente GRATIS",
         "Defensa jurídica 100% GRATIS si te incautan ilegalmente",
         "Primera instancia ante Policía (valor comercial $800.000)",
         "Tutela para obligar respuesta (valor comercial $600.000)",
@@ -217,7 +219,7 @@
     "envios": "Sí, enviamos a toda Colombia. El costo de envío es aproximadamente $25.000 y los envíos son seguros y discretos.",
     "efectividad": "Su impacto de goma genera dolor intenso e incapacitación temporal sin daño permanente, permitiéndote neutralizar amenazas a distancia segura.",
     "capacitacion": "Las sesiones son grupales virtuales, programadas cada ~2 semanas. Al comprar, te agendamos en la siguiente sesión disponible.",
-    "renovacion_club": "Puedes renovar tu membresía: Plan Plus $150.000/año, Plan Pro $200.000/año.",
+    "renovacion_club": "Puedes renovar tu membresía al valor normal finalizada la promoción: Plan Plus $150.000/año, Plan Pro $200.000/año.",
     "confianza_tienda_virtual": "Entendemos que comprar en línea genera dudas. Puedes verificar nuestra trayectoria en nuestro canal de YouTube @zonatraumatica (50+ videos) y TikTok @zonatraumaticacolombia. Somos los únicos con casos de recuperación de armas documentados en Colombia. También manejamos link de pago seguro con BOLD, comercio certificado, para que pagues directo desde tu cuenta con PSE o tarjetas.",
     "pago_anticipado": "Manejamos pago anticipado con todas las garantías: comprobante digital inmediato, seguimiento del envío y respaldo jurídico de la transacción. Además puedes pagar por link seguro BOLD vía PSE desde tu cuenta de banco si prefieres mayor seguridad.",
     "manifiesto_aduana": "El manifiesto de aduana es un documento del IMPORTADOR, no del comprador. Ningún vendedor serio lo entrega porque legalmente no le corresponde — solo la DIAN y la POLFA fiscalizan al importador (Decreto 1165/2019, Ley 2197/2022). Lo que SÍ recibes con tu compra es: factura con NIT, asesoría jurídica permanente y respaldo legal incluido. OJO: si alguien te ofrece 'manifiesto de aduana', es una señal de alarma — puede ser un documento falso. Otros indicadores de fraude: vender sin factura y precios sospechosamente bajos. Tu mejor protección es FACTURA + ASESORÍA LEGAL, que es exactamente lo que Zona Traumática te garantiza.",
