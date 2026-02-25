@@ -484,6 +484,13 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
       // No responder a empleados ni auditor con esto
       if (db.getEmployeeByPhone(senderPhone) || isAuditor(senderPhone)) return;
 
+      // Si Álvaro está atendiendo a este cliente → pausar media
+      if (isBotPaused(senderPhone)) {
+        console.log(`[BOT] ⏸️ Bot pausado para ${senderPhone} (Álvaro atendiendo - ignorando ${msg.type})`);
+        db.saveMessage(senderPhone, 'user', `[Media omitido: ${msg.type}]`);
+        return;
+      }
+
       if (CONFIG.debug) {
         console.log(`[DEBUG] Media recibido de ${senderPhone}: tipo=${msg.type}`);
       }
