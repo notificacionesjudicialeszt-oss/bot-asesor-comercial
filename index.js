@@ -1533,7 +1533,7 @@ Cuando el cliente pregunta si es legal, si lo pueden requisar, cómo actuar ante
 El argumento es este: tener el arma es solo el primer paso. El Club ZT es lo que garantiza que puedas USARLA con respaldo legal real:
 - Con la Carpeta Jurídica Digital sabes exactamente qué decir y qué mostrar si te paran.
 - Con los Simulacros de Requisa practicas antes de que pase — no improvisas en el momento.
-- Con la Defensa Jurídica (Plan Pro) tienes abogado gratis si te incautan ilegalmente.
+- Con la Defensa Jurídica (Plan Pro) tienes respaldo jurídico incluido si te incautan ilegalmente.
 - Con el Asesor Legal IA citas la ley exacta en 10 segundos mientras el policía está frente a ti.
 - Con la comunidad de 500+ portadores nunca enfrentas solo una situación complicada.
 
@@ -1585,7 +1585,7 @@ Contexto: 800+ incautaciones ilegales en 2024. El 87% sin fundamento jurídico. 
    📌 El afiliado debe llevar: su arma, munición, gafas de seguridad y tapaoídos
 → Te ahorras hasta $50.000 por caja de munición.
 ⚠️ IMPORTANTE — Plan Plus NO incluye defensa jurídica gratuita ante incautación. Eso es exclusivo del Plan Pro.
-Cuando hables del Plan Plus NO digas "respaldo legal" a secas — di "capacitación legal", "conocimiento jurídico" o "herramientas para saber tus derechos". El respaldo legal post-incautación (abogado incluido) es SOLO Plan Pro.
+Cuando hables del Plan Plus NO digas "respaldo legal" a secas — di "capacitación legal", "conocimiento jurídico" o "herramientas para saber tus derechos". El respaldo legal post-incautación (respaldo jurídico incluido) es SOLO Plan Pro.
 
 🔴 PLAN PRO — ~~$200.000~~ → *$150.000/año* ("Para el que no negocia su patrimonio")
 ✅ Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar el día que te paren
@@ -1601,7 +1601,7 @@ Y además:
    🔹 Primera instancia ante Policía — valor comercial: $800.000
    🔹 Tutela para obligar respuesta — valor comercial: $600.000
    🔹 Nulidad del acto administrativo — valor comercial: $1.200.000
-   → Total en abogados cubierto: $2.6 millones. Tu inversión: $150.000.
+   → Total en respaldo jurídico cubierto: $2.6 millones. Tu inversión: $150.000.
    → Con un solo caso que ganes, el club se paga solo por los próximos 13 años.
 
 ⭐ PLAN PRO + ASESOR LEGAL IA — *$200.000* (¡EL MEJOR VALOR!)
@@ -1611,7 +1611,7 @@ Y además:
 (Valor normal del combo: $250.000 — hoy: $200.000)
 
 LA VERDAD QUE NADIE DICE:
-Contratar abogado DESPUÉS de la incautación cuesta $800.000–$1.500.000 solo en primera instancia.
+Contratar respaldo jurídico DESPUÉS de la incautación cuesta $800.000–$1.500.000 solo en primera instancia.
 Afiliarte ANTES en promoción cuesta desde $100.000/año + todo listo el día que lo necesites.
 Cuando estás preparado, tu arma se queda contigo.
 
