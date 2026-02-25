@@ -256,6 +256,67 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Reactivar cliente INDIVIDUAL — llama directo al bot por HTTP (puerto 3001)
+  if (url.pathname === '/api/reactivar-individual' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const { phone } = JSON.parse(body);
+        if (!phone) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: 'Teléfono requerido' }));
+          return;
+        }
+
+        const clienteDb = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
+        if (!clienteDb) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: 'Cliente no encontrado en CRM' }));
+          return;
+        }
+
+        const clientes = [{
+          phone: clienteDb.phone,
+          name: clienteDb.name || 'Cliente',
+          memory: clienteDb.memory || '',
+          status: clienteDb.status
+        }];
+
+        // Llamar directamente al bot por HTTP
+        const payload = JSON.stringify({ clientes });
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/reactivar',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 🔥 Reactivación individual iniciada para: ${clienteDb.phone}`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, msg: 'Mensaje de reactivación enviado al bot' }));
+          });
+        });
+
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        console.error('[PANEL] Error reactivar-individual:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Confirmar o rechazar comprobante — relay al bot en puerto 3001
   if (url.pathname === '/api/confirmar-comprobante' && req.method === 'POST') {
     let body = '';
@@ -705,6 +766,35 @@ async function reactivarCalientes() {
   }
 }
 
+async function reactivarIndividual(phone, btnElement) {
+  const oldText = btnElement.innerHTML;
+  btnElement.innerHTML = '⏳ Reactivando...';
+  btnElement.style.pointerEvents = 'none';
+  
+  try {
+    const res = await fetch('/api/reactivar-individual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btnElement.innerHTML = '✅ Reactivado IA';
+      btnElement.style.background = '#2ea043';
+      btnElement.style.borderColor = '#3fb950';
+      btnElement.style.color = '#fff';
+    } else {
+      alert('⚠️ ' + (data.msg || data.error || 'Error'));
+      btnElement.innerHTML = oldText;
+      btnElement.style.pointerEvents = 'auto';
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+    btnElement.innerHTML = oldText;
+    btnElement.style.pointerEvents = 'auto';
+  }
+}
+
 async function actualizarInventario() {
   const btn = document.getElementById('btnUpdateInventory');
   const confirmacion = confirm("¿Estás seguro de querer actualizar el inventario con IA basándose en la imagen maestra? Esto podría tomar unos 30 segundos.");
@@ -909,6 +999,7 @@ async function selectClient(phone) {
           <div class="crm-chip" style="background:\${client.ignored == 1 ? '#7c1d1d' : '#1c2733'};border-color:\${client.ignored == 1 ? '#f85149' : '#30363d'};color:\${client.ignored == 1 ? '#f85149' : '#8b949e'};" onclick="toggleIgnored('\${client.phone}', \${client.ignored == 1 ? 0 : 1})">\${client.ignored == 1 ? '🔇 IGNORADO — click para reactivar' : '🔇 Silenciar — no es cliente'}</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#8b949e;" onclick="changeStatus('\${client.phone}', 'new')">↩️ Resetear a Nuevo</div>
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#d29922;" onclick="changeStatus('\${client.phone}', 'completed')">✅ Marcar Completado</div>
+          <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this)">🔥 Reactivar Cliente con IA</div>
           <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
         </div>
         <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
