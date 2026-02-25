@@ -2179,9 +2179,7 @@ console.log('[BOT] Conectando a WhatsApp...\n');
 // Envía imágenes rotativas a todos los grupos cada 4 horas
 // con texto generado por Claude (diferente cada vez)
 
-let broadcasterImageIndex = 0; // índice rotativo de imágenes
-
-async function getGroupBroadcastText(imageName) {
+async function getGroupBroadcastText(imageRelativePath) {
   const contextos = [
     'Es de mañana, los grupos están empezando el día',
     'Es mediodía, buen momento para recordar la oferta',
@@ -2192,9 +2190,9 @@ async function getGroupBroadcastText(imageName) {
   try {
     const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
     const prompt = `Eres el community manager de Zona Traumática Colombia.
-Escribe un mensaje corto y poderoso para acompañar esta imagen promocional del Club ZT en un grupo de WhatsApp de portadores de armas traumáticas.
-Contexto: ${contextoAleatorio}.
-Imagen: ${imageName}.
+Escribe un mensaje corto y poderoso para acompañar esta imagen promocional en un grupo de WhatsApp de portadores de armas traumáticas.
+Contexto de tiempo: ${contextoAleatorio}.
+Dato de la imagen: ${imageRelativePath.replace(/\\/g, '/')} (Usa esta información de categoría/marca/color para darle sentido al mensaje si aplica).
 El mensaje debe:
 - Ser máximo 4 líneas
 - Tener gancho emocional (miedo a perder el arma, orgullo del portador preparado)
@@ -2214,33 +2212,34 @@ Solo escribe el mensaje, sin explicaciones.`;
 async function sendGroupBroadcast() {
   console.log('[BROADCASTER] 📢 Iniciando envío a grupos...');
 
-  // Obtener todas las imágenes disponibles en /imagenes
+  // Función para obtener todos los archivos de imagen recursivamente
+  function obtenerImagenesRecursivo(dir, fileList = []) {
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      if (fs.statSync(filePath).isDirectory()) {
+        obtenerImagenesRecursivo(filePath, fileList);
+      } else if (file.match(/\.(png|jpg|jpeg|webp)$/i)) {
+        fileList.push(filePath);
+      }
+    }
+    return fileList;
+  }
+
+  // Obtener todas las imágenes disponibles en /imagenes (incluyendo subcarpetas)
   const imagenesDir = path.join(__dirname, 'imagenes');
-  let imagenes = [];
+  let imagenesPathList = [];
   try {
-    imagenes = fs.readdirSync(imagenesDir).filter(f =>
-      f.match(/\.(png|jpg|jpeg|webp)$/i)
-    );
+    imagenesPathList = obtenerImagenesRecursivo(imagenesDir);
   } catch (e) {
     console.error('[BROADCASTER] No se pudo leer carpeta imagenes:', e.message);
     return;
   }
 
-  if (imagenes.length === 0) {
-    console.log('[BROADCASTER] No hay imágenes en /imagenes — cancelando');
+  if (imagenesPathList.length === 0) {
+    console.log('[BROADCASTER] No hay imágenes en /imagenes ni en sus subcarpetas — cancelando');
     return;
   }
-
-  // Seleccionar imagen rotativa
-  const imagenActual = imagenes[broadcasterImageIndex % imagenes.length];
-  broadcasterImageIndex++;
-  const imagenPath = path.join(imagenesDir, imagenActual);
-
-  console.log(`[BROADCASTER] 🖼️ Imagen: ${imagenActual} (${broadcasterImageIndex}/${imagenes.length})`);
-
-  // Generar texto con Claude
-  const texto = await getGroupBroadcastText(imagenActual);
-  console.log(`[BROADCASTER] 📝 Texto: ${texto.substring(0, 80)}...`);
 
   // Obtener todos los grupos
   let chats;
@@ -2259,19 +2258,22 @@ async function sendGroupBroadcast() {
     return;
   }
 
-  // Cargar imagen
-  let media;
-  try {
-    media = MessageMedia.fromFilePath(imagenPath);
-  } catch (e) {
-    console.error('[BROADCASTER] Error cargando imagen:', e.message);
-    return;
-  }
-
-  // Enviar a cada grupo con delay entre envíos para no saturar
+  // Enviar a cada grupo con imagen y texto diferentes
   let enviados = 0;
   for (const grupo of grupos) {
     try {
+      // 1. Elegir una imagen aleatoria para este grupo
+      const imagenFullPath = imagenesPathList[Math.floor(Math.random() * imagenesPathList.length)];
+      const imageRelativePath = path.relative(imagenesDir, imagenFullPath); // Ej: pistolas/zoraki/foto.jpg
+
+      // 2. Generar el texto que acompañará la imagen
+      const texto = await getGroupBroadcastText(imageRelativePath);
+
+      // 3. Cargar la imagen seleccionada
+      const media = MessageMedia.fromFilePath(imagenFullPath);
+
+      // 4. Enviar
+      console.log(`[BROADCASTER] ➡️ Enviando a ${grupo.name} (Img: ${imageRelativePath})...`);
       await client.sendMessage(grupo.id._serialized, media, { caption: texto });
       enviados++;
       console.log(`[BROADCASTER] ✅ Enviado a: ${grupo.name}`);
