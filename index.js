@@ -173,6 +173,8 @@ client.on('qr', (qr) => {
   qrcode.generate(qr, { small: true });
 });
 
+let serverStarted = false;
+
 // Bot conectado
 client.on('ready', async () => {
   console.log('\n============================================');
@@ -190,7 +192,10 @@ client.on('ready', async () => {
   setTimeout(() => startGroupBroadcaster(), 30000);
 
   // Iniciar servidor interno para recibir comandos del panel
-  startReactivacionServer();
+  if (!serverStarted) {
+    serverStarted = true;
+    startReactivacionServer();
+  }
 });
 
 // Error de autenticación — limpiar sesión corrupta y reiniciar
