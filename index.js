@@ -14,6 +14,8 @@ const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const { fork } = require('child_process');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const jsQR = require('jsqr');
 const Jimp = require('jimp');
@@ -2637,6 +2639,18 @@ function startReactivacionServer() {
 
   botApiServer.listen(3001, () => {
     console.log('[BOT API] 🚀 API interna escuchando en puerto 3001');
+
+    // Iniciar automáticamente el Panel Web
+    console.log('[SISTEMA] 🌐 Iniciando Panel de Administración Web en background...');
+    const panelProcess = fork(path.join(__dirname, 'panel.js'));
+
+    panelProcess.on('error', (err) => {
+      console.error('[SISTEMA] ❌ Error al iniciar panel.js:', err.message);
+    });
+
+    panelProcess.on('exit', (code) => {
+      console.log(`[SISTEMA] ⚠️ Panel Web se cerró con código ${code}`);
+    });
   });
 }
 
