@@ -224,18 +224,6 @@ client.on('disconnected', async (reason) => {
 // CONVIVENCIA HUMANO-BOT
 // ============================================
 const adminPauseMap = new Map(); // phone → timestamp hasta cuándo pausado
-const botSentMessages = new Set(); // IDs de mensajes enviados por el bot (para filtrar en message_create)
-
-// Monkey-patch client.sendMessage para registrar TODO lo que envíe el API de whatsapp-web.js
-// Esto previene que el bot capture sus propias respuestas automáticas como si fueran de Álvaro.
-const originalSendMessage = client.sendMessage.bind(client);
-client.sendMessage = async function (chatId, content, options = {}) {
-  const sentMsg = await originalSendMessage(chatId, content, options);
-  if (sentMsg && sentMsg.id) {
-    botSentMessages.add(sentMsg.id._serialized || sentMsg.id.toString());
-  }
-  return sentMsg;
-};
 
 function isBotPaused(phone) {
   const pauseUntil = adminPauseMap.get(phone);
@@ -277,8 +265,7 @@ Solo escribe el mensaje, sin explicaciones.`;
     const transMsg = result.response.text().trim();
 
     // Enviar directo al chatId original (evita problemas con LID)
-    const sentMsg = await client.sendMessage(chatId, transMsg);
-    if (sentMsg && sentMsg.id) botSentMessages.add(sentMsg.id._serialized || sentMsg.id.toString());
+    await client.sendMessage(chatId, transMsg);
     db.saveMessage(clientPhone, 'assistant', transMsg);
     console.log(`[ADMIN] ✅ Transición enviada a ${clientPhone}`);
 
@@ -823,52 +810,6 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
     console.error('[BOT] Error procesando mensaje:', err.message, err.stack);
   }
 }
-
-// ============================================
-// CAPTURA DE MENSAJES DE ÁLVARO (message_create)
-// El evento 'message' NO se dispara para fromMe.
-// 'message_create' se dispara para TODOS los mensajes (entrantes y salientes).
-// ============================================
-client.on('message_create', async (msg) => {
-  try {
-    if (!msg.fromMe) return; // solo nos interesan los mensajes de Álvaro
-    if (msg.to === 'status@broadcast') return;
-    if (msg.to.includes('@g.us')) return; // ignorar grupos
-    if (msg.to.includes('@newsletter')) return;
-    if (msg.to.includes('@broadcast')) return;
-
-    // Filtrar mensajes que el BOT envió (transiciones, notificaciones, etc.)
-    const msgId = msg.id?._serialized || msg.id?.toString();
-    if (msgId && botSentMessages.has(msgId)) {
-      botSentMessages.delete(msgId); // limpiar
-      return;
-    }
-
-    const clientPhone = msg.to.replace('@c.us', '').replace('@lid', '');
-    const body = msg.body || '';
-    if (!body.trim()) return; // ignorar mensajes vacíos / media sin caption
-
-    // No capturar comandos admin (!stats, !client, etc.)
-    if (body.startsWith('!')) return;
-
-    // Si ya está pausado = este mensaje es del BOT (la transición), no de Álvaro
-    if (isBotPaused(clientPhone)) return;
-
-    // Guardar mensaje de Álvaro en historial
-    db.saveMessage(clientPhone, 'admin', body);
-    console.log(`[ADMIN] 📝 Álvaro respondió a ${clientPhone}: "${body.substring(0, 60)}"`);
-
-    // Pausar el bot para este cliente (30 minutos)
-    adminPauseMap.set(clientPhone, Date.now() + 30 * 60 * 1000);
-
-    // Enviar mensaje de transición (pasar msg.to como chatId directo)
-    enviarTransicionAdmin(clientPhone, msg.to, body).catch(e =>
-      console.error('[ADMIN] Error en transición:', e.message)
-    );
-  } catch (err) {
-    console.error('[ADMIN] Error en message_create:', err.message);
-  }
-});
 
 // ============================================
 // SAFE SEND — envía por WhatsApp con auto-sanación de chat_id
