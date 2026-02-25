@@ -191,6 +191,9 @@ client.on('ready', async () => {
   // Iniciar broadcaster de imágenes a grupos (esperar 30s para que todo esté listo)
   setTimeout(() => startGroupBroadcaster(), 30000);
 
+  // Iniciar publicación automática de Estados (esperar 45s)
+  setTimeout(() => startStatusBroadcaster(), 45000);
+
   // Iniciar servidor interno para recibir comandos del panel
   if (!serverStarted) {
     serverStarted = true;
@@ -2346,6 +2349,116 @@ function startGroupBroadcaster() {
 }
 
 // ============================================
+// AUTOMATIZACIÓN DE ESTADOS (STATUS) DE WHATSAPP
+// Sube una imagen aleatoria al Estado principal cada hora
+// ============================================
+
+async function getStatusBroadcastText(imageRelativePath) {
+  const horasActivas = [
+    'Mañana: invita a empezar el día protegido.',
+    'Mediodía: mensaje rápido y contundente para el break del almuerzo.',
+    'Tarde/Noche: cierre del día, apela a la tranquilidad y seguridad de la familia.',
+  ];
+  const contextoAleatorio = horasActivas[Math.floor(Math.random() * horasActivas.length)];
+
+  try {
+    const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    const prompt = `Eres el community manager de Zona Traumática Colombia.
+Escribe un texto persuasivo para acompañar esta imagen en una HISTORIA/ESTADO de WhatsApp.
+Dado que la imagen proviene de la ruta: "${imageRelativePath.replace(/\\/g, '/')}", adapta tu mensaje a la categoría:
+- Si es de /oferta: Enfatiza la promoción, el descuento de 50k o el bot IA gratis.
+- Si es de /didactico: Da un tip legal rápido de 1 frase (ej. Ley 2197/2022).
+- Si es de /pistolas: Habla de equipo táctico, seguridad y respaldo.
+
+Contexto de la hora: ${contextoAleatorio}
+
+El mensaje debe:
+- Ser MUY CORTO (máximo 3 líneas) para lectura rápida en un estado.
+- Tener un gancho visual con 1 o 2 emojis.
+- Invitar a responder la historia (ej: "Escríbeme", "Responde a esta historia para info", "👇").
+- Sonar orgánico y persuasivo, no un copy-paste aburrido.
+Solo escribe el texto de la historia, sin comillas ni explicaciones extra.`;
+
+    const result = await broadcastModel.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (err) {
+    console.error('[STATUS] Error generando texto:', err.message);
+    return '🛡️ ¿Preparado para cualquier situación? Responde a esta historia y te asesoro hoy mismo. 👊';
+  }
+}
+
+async function sendStatusBroadcast() {
+  console.log('[STATUS] 📲 Iniciando publicación en Estado de WhatsApp...');
+
+  function obtenerImagenesRecursivo(dir, fileList = []) {
+    if (!fs.existsSync(dir)) return fileList;
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      if (fs.statSync(filePath).isDirectory()) {
+        obtenerImagenesRecursivo(filePath, fileList);
+      } else if (file.match(/\.(png|jpg|jpeg|webp)$/i)) {
+        fileList.push(filePath);
+      }
+    }
+    return fileList;
+  }
+
+  const imagenesDir = path.join(__dirname, 'imagenes');
+  let imagenesPathList = obtenerImagenesRecursivo(imagenesDir);
+
+  if (imagenesPathList.length === 0) {
+    console.log('[STATUS] No hay imágenes en /imagenes — cancelando estado');
+    return;
+  }
+
+  try {
+    // 1. Elegir imagen aleatoria
+    const imagenFullPath = imagenesPathList[Math.floor(Math.random() * imagenesPathList.length)];
+    const imageRelativePath = path.relative(imagenesDir, imagenFullPath);
+
+    // 2. Generar texto de la historia
+    const texto = await getStatusBroadcastText(imageRelativePath);
+
+    // 3. Cargar la imagen
+    const media = MessageMedia.fromFilePath(imagenFullPath);
+
+    // 4. Enviar a status@broadcast
+    console.log(`[STATUS] ➡️ Subiendo historia (Img: ${imageRelativePath})...`);
+    await client.sendMessage('status@broadcast', media, { caption: texto });
+    console.log(`[STATUS] ✅ Historia publicada exitosamente.`);
+
+  } catch (err) {
+    console.error(`[STATUS] ❌ Error subiendo estado:`, err.message);
+  }
+}
+
+function startStatusBroadcaster() {
+  // Configuro para publicar cada 2 horas (podemos ajustarlo a 1 hora después)
+  // Para evitar spam excesivo, lo haremos cada hora en el minuto 00 (o lo más cerca posible)
+
+  function getMsHastaSiguienteHora() {
+    const ahora = new Date();
+    const minutosRestantes = 60 - ahora.getMinutes();
+    return minutosRestantes * 60 * 1000 - (ahora.getSeconds() * 1000) - ahora.getMilliseconds();
+  }
+
+  function programarSiguienteEstado() {
+    const msEspera = getMsHastaSiguienteHora();
+    const minutosEspera = Math.round(msEspera / 60000);
+    console.log(`[STATUS] ⏰ Próxima historia programada en ${minutosEspera} minutos.`);
+
+    setTimeout(async () => {
+      await sendStatusBroadcast();
+      programarSiguienteEstado(); // Bucle infinito
+    }, msEspera);
+  }
+
+  console.log(`[STATUS] 🚀 Automatización de Historias iniciada (1 publicación cada hora).`);
+  programarSiguienteEstado();
+}
+
+// ============================================
 // REACTIVACIÓN DE LEADS CALIENTES
 // El panel llama a http://localhost:3001/reactivar cuando se presiona el botón
 // El bot procesa la lista uno por uno con delay anti-ban
@@ -2673,6 +2786,25 @@ function startReactivacionServer() {
     panelProcess.on('exit', (code) => {
       console.log(`[SISTEMA] ⚠️ Panel Web se cerró con código ${code}`);
     });
+
+    // ====== LIMPIEZA AL CERRAR (Graceful Shutdown) ======
+    const cleanup = () => {
+      console.log('\n[SISTEMA] 🛑 Apagando el bot y liberando puertos...');
+      try {
+        if (panelProcess && !panelProcess.killed) {
+          panelProcess.kill('SIGINT');
+        }
+        botApiServer.close(() => {
+          console.log('[SISTEMA] ✅ Puerto 3001 liberado correctamente.');
+          process.exit(0);
+        });
+      } catch (e) {
+        process.exit(1);
+      }
+    };
+
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
   });
 }
 
