@@ -69,7 +69,9 @@ ${lineasPersonales.length ? lineasPersonales.join('\n') + '\n' : ''}${lineasZT.j
 - Su carnet VENCIÓ el ${clientProfile.club_vigente_hasta}. OFRECE renovación con urgencia.
 - Ejemplo: "Veo que tu membresía venció, ¿renovamos pa que no pierdas los beneficios?" `;
       } else {
-         restricciones = '';
+         restricciones = `
+⚠️ DIRECTIVAS CRÍTICAS PARA ESTE CLIENTE:
+- NO es afiliado al Club ZT. Tu objetivo es interesarlo en la afiliación (Plan Plus o Pro) explicándole los beneficios de respaldo legal.`;
       }
    }
 

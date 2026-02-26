@@ -89,15 +89,40 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
       try {
-        const { phone, note, append, status } = JSON.parse(body);
-        console.log(`[PANEL] 📝 Actualizando cliente ${phone}${status ? ' → status: ' + status : ''}${note ? ' → nota: "' + note.substring(0, 40) + '"' : ''}`);
+        const { phone, note, append, status, profileData } = JSON.parse(body);
+        console.log(`[PANEL] 📝 Actualizando cliente ${phone}${status ? ' → status: ' + status : ''}${profileData ? ' → (ficha CRM)' : ''}${note ? ' → nota: "' + note.substring(0, 40) + '"' : ''}`);
         const client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
         if (!client) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Cliente no encontrado' }));
           return;
         }
-        // Actualizar status si se envió
+
+        // 1. Actualizar datos estructurados de perfil (Ficha CRM)
+        if (profileData) {
+          const fields = [];
+          const values = [];
+          const validKeys = [
+            'name', 'cedula', 'ciudad', 'direccion',
+            'profesion', 'club_plan', 'club_vigente_hasta',
+            'modelo_arma', 'serial_arma'
+          ];
+
+          for (const key of validKeys) {
+            if (profileData[key] !== undefined) {
+              fields.push(`${key} = ?`);
+              values.push(profileData[key] || '');
+            }
+          }
+
+          if (fields.length > 0) {
+            fields.push('updated_at = CURRENT_TIMESTAMP');
+            values.push(phone);
+            db.prepare(`UPDATE clients SET ${fields.join(', ')} WHERE phone = ?`).run(...values);
+          }
+        }
+
+        // 2. Actualizar status si se envió
         if (status) {
           db.prepare('UPDATE clients SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(status, phone);
         }
@@ -1262,6 +1287,54 @@ async function saveNote(phone) {
   await addNote(phone, input.value.trim());
   input.value = '';
 }
+
+async function saveProfile(phone) {
+  const btn = document.querySelector(\`button[onclick="saveProfile('\${phone}')"]\`);
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
+  
+  const profileData = {
+    name: document.getElementById('prof_name_' + phone)?.value.trim() || '',
+    cedula: document.getElementById('prof_cedula_' + phone)?.value.trim() || '',
+    ciudad: document.getElementById('prof_ciudad_' + phone)?.value.trim() || '',
+    direccion: document.getElementById('prof_direccion_' + phone)?.value.trim() || '',
+    profesion: document.getElementById('prof_profesion_' + phone)?.value.trim() || '',
+    club_plan: document.getElementById('prof_club_plan_' + phone)?.value || '',
+    club_vigente_hasta: document.getElementById('prof_club_vigente_hasta_' + phone)?.value || '',
+    modelo_arma: document.getElementById('prof_modelo_arma_' + phone)?.value.trim() || '',
+    serial_arma: document.getElementById('prof_serial_arma_' + phone)?.value.trim() || ''
+  };
+
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, profileData })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const fb = document.getElementById('prof_feedback_' + phone);
+      if (fb) {
+        fb.style.display = 'block';
+        setTimeout(() => { if(fb) fb.style.display = 'none'; }, 4000);
+      }
+      await loadData();
+      selectedPhone = phone;
+      // No llamamos selectClient(phone) para no borrar lo que el usuario estaba escribiendo, 
+      // o bien lo llamamos si queremos actualizar los nombres arriba. Arriba se actualizan solos al tipear? No.
+      // Mejor lo llamamos suave.
+      document.getElementById('chatTitle').textContent = '💬 ' + (profileData.name || phone);
+    } else {
+      alert('❌ Error guardando ficha: ' + data.error);
+    }
+  } catch(e) { 
+    console.error(e);
+    alert('❌ Error conectando con el panel');
+  } finally {
+    btn.innerHTML = originalText;
+  }
+}
+
 
 async function toggleFlag(phone, flag, currentValue) {
   const newValue = currentValue === 1 ? false : true; // boolean
