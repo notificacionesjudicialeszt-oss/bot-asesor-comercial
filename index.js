@@ -457,8 +457,8 @@ client.on('message', async (msg) => {
       return;
     }
 
-    // Log de todo mensaje entrante (para monitoreo)
-    console.log(`[MSG] 📩 ${chat.name || senderPhone}: "${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}"`);
+    // Log de todo mensaje entrante (para monitoreo — incluye tipo para diagnóstico)
+    console.log(`[MSG] 📩 ${chat.name || senderPhone}: "${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}" [type=${msg.type}, hasMedia=${!!msg.hasMedia}, from=${senderPhone}]`);
 
     // ============================================
     // DEBOUNCE — acumular mensajes, procesar al vencer el timer
@@ -484,7 +484,14 @@ client.on('message', async (msg) => {
       const mensajes = mensajesAcumulados.get(senderPhone) || [];
       mensajesAcumulados.delete(senderPhone);
 
-      if (mensajes.length === 0) return;
+      if (mensajes.length === 0) {
+        console.warn(`[DEBOUNCE] ⚠️ ${senderPhone} — timer venció pero 0 mensajes acumulados (raro)`);
+        return;
+      }
+
+      // Log diagnóstico de tipos recibidos
+      const tiposSummary = mensajes.map(m => `${m.type}${m.hasMedia ? '+media' : ''}:"${(m.body || '').substring(0, 20)}"`).join(', ');
+      console.log(`[DEBOUNCE] 📋 ${senderPhone} — ${mensajes.length} msg(s): [${tiposSummary}]`);
 
       // Usar el último msg como referencia (para reply, type, etc.)
       const msgRef = mensajes[mensajes.length - 1];
@@ -495,7 +502,7 @@ client.on('message', async (msg) => {
       const conMedia = mensajes.filter(m => m.hasMedia || m.type !== 'chat');
 
       if (mensajes.length > 1) {
-        console.log(`[DEBOUNCE] 🔀 ${senderPhone} — procesando ${mensajes.length} mensajes juntos`);
+        console.log(`[DEBOUNCE] 🔀 ${senderPhone} — procesando ${mensajes.length} mensajes juntos (${soloTextos.length} texto, ${conMedia.length} media/otro)`);
       }
 
       // Procesar media individualmente (imágenes, audios, PDFs)
@@ -511,7 +518,11 @@ client.on('message', async (msg) => {
           // rawMsg = msgRef (mensaje real) para que .reply() y .getContact() funcionen
           const msgVirtual = { ...msgRef, body: textoConcatenado };
           await procesarMensaje(msgVirtual, chat, senderPhone, msgRef);
+        } else {
+          console.warn(`[DEBOUNCE] ⚠️ ${senderPhone} — ${soloTextos.length} mensaje(s) tipo chat pero TODOS con body vacío. Tipos originales: [${mensajes.map(m => m.type).join(', ')}]. Posible: botón interactivo, reacción, o contacto compartido.`);
         }
+      } else if (conMedia.length === 0) {
+        console.warn(`[DEBOUNCE] ⚠️ ${senderPhone} — ni textos ni media detectados. Tipos: [${mensajes.map(m => m.type).join(', ')}]`);
       }
     }, DEBOUNCE_MS);
 
@@ -932,7 +943,10 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
       }
     }
 
-    if (!messageBody) return;
+    if (!messageBody) {
+      console.warn(`[BOT] ⚠️ Mensaje vacío de ${senderPhone} (tipo: ${msg.type}, hasMedia: ${msg.hasMedia}). No se procesa. Posible: botón, reacción, location, o contacto compartido.`);
+      return;
+    }
 
     if (CONFIG.debug) {
       console.log(`[DEBUG] Mensaje de ${senderPhone}: ${messageBody}`);
@@ -1590,7 +1604,11 @@ async function getClaudeResponse(clientPhone, message, history) {
         const chat = model.startChat({ history: geminiHistory });
         const result = await chat.sendMessage(message);
         console.log(`[GEMINI] ✅ Respuesta OK para ${clientPhone}`);
-        return result.response.text();
+        const responseText = result.response.text();
+        if (!responseText || !responseText.trim()) {
+          console.error(`[GEMINI] ⚠️ RESPUESTA VACÍA de Gemini para ${clientPhone}. Mensaje enviado: "${message.substring(0, 60)}". Esto causa que el bot envíe un mensaje sin texto.`);
+        }
+        return responseText;
       } catch (retryError) {
         lastError = retryError;
         const errorMsg = retryError.message || 'Error desconocido';
