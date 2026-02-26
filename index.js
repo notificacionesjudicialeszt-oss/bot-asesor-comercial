@@ -2756,67 +2756,68 @@ function startReactivacionServer() {
           let msgRechazado = null;
 
           if (accion === 'confirmar') {
+            // tipo viene como "club,bot_asesor,producto" (multi-select del panel)
+            const tipos = tipo.split(',').map(t => t.trim()).filter(Boolean);
+            const tieneClub = tipos.includes('club');
+            const tieneBot = tipos.includes('bot_asesor');
+            const tieneProducto = tipos.includes('producto');
+
+            let partes = [];
             let nuevoStatus;
-            if (tipo === 'club') {
-              msgDatos = `✅ ¡Confirmamos tu pago! Bienvenido al Club ZT 🛡️\n\nPara generar tu carnet digital necesito estos datos:\n\n` +
-                `📋 *Datos para tu Carnet Digital Club ZT:*\n` +
+            let memoriaTags = [];
+
+            if (tieneClub) {
+              partes.push(
+                `🛡️ *Afiliación Club ZT:* ¡Bienvenido!\n\n` +
+                `Para generar tu *Carnet Digital* necesito:\n` +
                 `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
                 `4. Marca del arma\n5. Modelo del arma\n6. Número de serial del arma\n` +
-                `7. 📸 Foto de frente (selfie clara, sin gafas de sol, buena iluminación)\n\n` +
-                `En cuanto me envíes todo, tu carnet estará listo en menos de 24 horas 💪`;
+                `7. 📸 Foto de frente (selfie clara, sin gafas, buena luz)`
+              );
               nuevoStatus = 'carnet_pendiente';
-            } else if (tipo === 'bot_asesor') {
-              msgDatos = `✅ ¡Confirmamos tu pago! Ya tienes acceso al *Bot Asesor Legal ZT* 🤖⚖️\n\n` +
-                `Tu número quedará activado en las próximas horas. A partir de ese momento podrás consultarle directamente al bot sobre:\n\n` +
-                `• Normativa vigente de armas traumáticas\n` +
-                `• Derechos y deberes como portador\n` +
-                `• Procedimientos legales en caso de uso\n` +
-                `• Y mucho más 💪\n\n` +
-                `Te avisamos cuando esté activo. ¡Gracias por tu confianza! 🙏`;
-              nuevoStatus = 'bot_asesor_pendiente';
-            } else if (tipo === 'club_y_bot') {
-              msgDatos = `✅ ¡Confirmamos tu pago! Bienvenido al Club ZT + Bot Asesor Legal 🛡️🤖\n\n` +
-                `🤖 Tu *Bot Asesor Legal* quedará activado en las próximas horas.\n\n` +
-                `Para generar tu *Carnet Digital Club ZT*, necesito estos datos:\n\n` +
-                `📋 *Datos para tu Carnet:*\n` +
-                `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
-                `4. Marca del arma\n5. Modelo del arma\n6. Número de serial del arma\n` +
-                `7. 📸 Foto de frente (selfie clara, sin gafas de sol, buena iluminación)\n\n` +
-                `En cuanto me envíes todo, tu carnet estará listo en menos de 24 horas 💪`;
-              nuevoStatus = 'carnet_pendiente';
-            } else if (tipo === 'desconocido') {
-              msgDatos = `✅ ¡Confirmamos tu pago! Gracias por tu confianza 🙏\n\n` +
-                `Para procesar tu compra correctamente, ¿me puedes confirmar qué adquiriste?\n\n` +
-                `1️⃣ Afiliación al Club ZT (Plan Plus o Pro)\n` +
-                `2️⃣ Bot Asesor Legal IA\n` +
-                `3️⃣ Producto / arma / munición\n\n` +
-                `Con eso te pido los datos que necesitemos y arrancamos de una 🚀`;
-              nuevoStatus = 'hot';
-            } else {
-              // tipo === 'producto' o cualquier otro
-              msgDatos = `✅ ¡Confirmamos tu pago! Ya estamos procesando tu pedido 📦\n\nPara el envío necesito estos datos:\n\n` +
-                `📦 *Datos de envío:*\n` +
-                `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
-                `4. Dirección completa (calle, número, barrio, apartamento si aplica)\n` +
-                `5. Ciudad\n6. Departamento\n\n` +
-                `El envío se procesa en 1-2 días hábiles, es discreto y seguro 🔒`;
-              nuevoStatus = 'despacho_pendiente';
+              memoriaTags.push('✅ YA AFILIADO AL CLUB ZT — comprobante confirmado. NO ofrecer más afiliación.');
             }
 
-            // Actualizar estado y memoria — operaciones BD, siempre deben ocurrir
+            if (tieneBot) {
+              partes.push(
+                `🤖 *Bot Asesor Legal ZT:* ¡Activado!\n\n` +
+                `Tu número quedará habilitado en las próximas horas. Podrás consultar sobre normativa, derechos del portador y procedimientos legales.`
+              );
+              if (!nuevoStatus) nuevoStatus = 'bot_asesor_pendiente';
+              memoriaTags.push('✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer más suscripciones.');
+            }
+
+            if (tieneProducto) {
+              partes.push(
+                `📦 *Producto / Arma:* ¡En proceso!\n\n` +
+                `Para el envío necesito:\n` +
+                `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
+                `4. Dirección completa (calle, número, barrio, apto si aplica)\n` +
+                `5. Ciudad\n6. Departamento\n\n` +
+                `El envío se procesa en 1-2 días hábiles, discreto y seguro 🔒`
+              );
+              if (!nuevoStatus) nuevoStatus = 'despacho_pendiente';
+              memoriaTags.push('✅ YA COMPRÓ PRODUCTO — comprobante confirmado. Está en proceso de envío.');
+            }
+
+            if (partes.length === 0) {
+              msgDatos = `✅ ¡Confirmamos tu pago! Gracias por tu confianza 🙏\n\n` +
+                `¿Me confirmas qué adquiriste? Así te pido los datos correctos 🚀`;
+              nuevoStatus = 'hot';
+              memoriaTags.push('✅ PAGO CONFIRMADO — pendiente definir tipo de compra.');
+            } else {
+              const header = `✅ ¡Confirmamos tu pago! Gracias por tu confianza 🙏\n\n`;
+              const footer = `\n\nEn cuanto me envíes los datos, arrancamos de una 💪`;
+              msgDatos = header + partes.join('\n\n━━━━━━━━━━━━━━━━━━━━\n\n') + footer;
+            }
+
+            // Actualizar estado y memoria
             db.upsertClient(phoneClean, { status: nuevoStatus });
             const memoriaActual = db.getClientMemory(phoneClean) || '';
-            const tagsPago = {
-              'club': '✅ YA AFILIADO AL CLUB ZT — comprobante confirmado. NO ofrecer más productos de club.',
-              'bot_asesor': '✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer más suscripciones.',
-              'club_y_bot': '✅ YA AFILIADO AL CLUB ZT + BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer afiliación ni bot.',
-              'producto': '✅ YA COMPRÓ PRODUCTO — comprobante confirmado. NO ofrecer más ventas, está en proceso de envío.',
-              'desconocido': '✅ PAGO CONFIRMADO — pendiente definir tipo de compra con el cliente.'
-            };
-            const tagPago = tagsPago[tipo] || tagsPago['desconocido'];
+            const tagPago = memoriaTags.join('\n');
             const nuevaMemoria = memoriaActual ? memoriaActual + '\n' + tagPago : tagPago;
             db.updateClientMemory(phoneClean, nuevaMemoria);
-            console.log(`[COMPROBANTE] ✅ BD actualizada ID #${id} para ${phone} (tipo: ${tipo})`);
+            console.log(`[COMPROBANTE] ✅ BD actualizada ID #${id} para ${phone} (tipos: ${tipos.join(', ')})`);
 
           } else {
             msgRechazado = `⚠️ Revisamos tu comprobante y el monto no coincide con el valor del plan seleccionado.\n\n` +

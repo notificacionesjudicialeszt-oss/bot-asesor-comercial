@@ -1704,17 +1704,21 @@ async function loadComprobantes() {
           </div>
           <div class="comprobante-actions">
             <div style="margin-bottom:8px;">
-              <span style="color:#8b949e;font-size:11px;">📋 Tipo de compra:</span>
-              <select id="tipoSelect_\${c.id}" style="background:#111820;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:12px;cursor:pointer;margin-left:4px;">
-                <option value="club" \${c.tipo === 'club' ? 'selected' : ''}>🏆 Afiliación Club ZT</option>
-                <option value="bot_asesor" \${c.tipo === 'bot_asesor' ? 'selected' : ''}>🤖 Bot Asesor Legal</option>
-                <option value="producto" \${c.tipo === 'producto' ? 'selected' : ''}>📦 Producto / Arma / Munición</option>
-                <option value="club_y_bot" \${c.tipo === 'club_y_bot' ? 'selected' : ''}>🏆+🤖 Club + Bot (combo)</option>
-                <option value="desconocido" \${c.tipo === 'desconocido' ? 'selected' : ''}>❓ Sin determinar</option>
-              </select>
+              <span style="color:#8b949e;font-size:11px;">📋 Tipo(s) de compra:</span>
+              <div id="tipoChecks_\${c.id}" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">
+                <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">
+                  <input type="checkbox" value="club" \${c.tipo === 'club' || c.tipo === 'club_y_bot' ? 'checked' : ''} style="accent-color:#3fb950;"> 🏆 Club ZT
+                </label>
+                <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">
+                  <input type="checkbox" value="bot_asesor" \${c.tipo === 'bot_asesor' || c.tipo === 'club_y_bot' ? 'checked' : ''} style="accent-color:#1f6feb;"> 🤖 Bot Asesor
+                </label>
+                <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">
+                  <input type="checkbox" value="producto" \${c.tipo === 'producto' ? 'checked' : ''} style="accent-color:#d29922;"> 📦 Producto/Arma
+                </label>
+              </div>
             </div>
-            <button class="btn-confirmar" id="btn_confirm_\${c.id}" onclick="accionComprobante(\${c.id}, 'confirmar', '\${c.client_phone}', document.getElementById('tipoSelect_\${c.id}').value)">✅ Confirmar pago</button>
-            <button class="btn-rechazar" id="btn_reject_\${c.id}" onclick="accionComprobante(\${c.id}, 'rechazar', '\${c.client_phone}', document.getElementById('tipoSelect_\${c.id}').value)">❌ Rechazar</button>
+            <button class="btn-confirmar" id="btn_confirm_\${c.id}" onclick="confirmarComprobante(\${c.id}, 'confirmar', '\${c.client_phone}')">✅ Confirmar pago</button>
+            <button class="btn-rechazar" id="btn_reject_\${c.id}" onclick="confirmarComprobante(\${c.id}, 'rechazar', '\${c.client_phone}')">❌ Rechazar</button>
           </div>
         </div>
       \`;
@@ -1722,6 +1726,20 @@ async function loadComprobantes() {
   } catch(e) {
     console.error('Error cargando comprobantes:', e);
   }
+}
+
+function confirmarComprobante(id, accion, phone) {
+  const container = document.getElementById('tipoChecks_' + id);
+  const checked = container ? Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value) : [];
+  
+  if (accion === 'confirmar' && checked.length === 0) {
+    alert('⚠️ Selecciona al menos un tipo de compra antes de confirmar.');
+    return;
+  }
+  
+  // Enviar como string separado por comas: "club,bot_asesor" o "producto" etc.
+  const tipo = checked.join(',');
+  accionComprobante(id, accion, phone, tipo);
 }
 
 async function accionComprobante(id, accion, phone, tipo) {
