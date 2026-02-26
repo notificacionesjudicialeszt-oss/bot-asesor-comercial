@@ -1078,9 +1078,11 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
       response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
 
       // ---------------------------------------------------------
-      // DETECTAR ETIQUETAS [ENVIAR_IMAGEN: ...]
+      // DETECTAR ETIQUETAS [ENVIAR_IMAGEN: ...] Y LINKS AL CATALOGO
       // ---------------------------------------------------------
       const imagesToSend = [];
+
+      // 1. Detección por etiqueta explícita
       const imageRegex = /\[ENVIAR_IMAGEN:\s*([^\]]+)\]/ig;
       let match;
       while ((match = imageRegex.exec(response)) !== null) {
@@ -1088,10 +1090,27 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
         const foundPath = findBestImage(productQuery);
         if (foundPath && !imagesToSend.includes(foundPath)) {
           imagesToSend.push(foundPath);
+        } else if (!foundPath) {
+          console.warn(`[BOT] ⚠️ FOTO FALTANTE: Se solicitó "${productQuery}" con etiqueta pero no se halló en imagenes/pistolas`);
         }
       }
+
       // Limpiar todas las etiquetas del mensaje final
       response = response.replace(imageRegex, '').trim();
+
+      // 2. Detección automática por URL de producto
+      // Extrae el "slug" de tienda.zonatraumatica.com/producto/slug y busca la imagen
+      const urlRegex = /tienda\.zonatraumatica\.com\/producto\/([a-zA-Z0-9\-]+)/ig;
+      let urlMatch;
+      while ((urlMatch = urlRegex.exec(response)) !== null) {
+        const productSlug = urlMatch[1].replace(/-/g, ' ').trim();
+        const foundPath = findBestImage(productSlug);
+        if (foundPath && !imagesToSend.includes(foundPath)) {
+          imagesToSend.push(foundPath);
+        } else if (!foundPath) {
+          console.warn(`[BOT] ⚠️ FOTO FALTANTE: Se mencionó el producto "${productSlug}" en un link pero no se halló foto local`);
+        }
+      }
 
       // Guardar respuesta del bot
       db.saveMessage(senderPhone, 'assistant', response);
