@@ -2348,6 +2348,7 @@ El mensaje debe:
 - Usar emojis con moderación (máximo 3)
 - Sonar humano, NO robótico ni corporativo
 - NO repetir exactamente lo que dice la imagen
+- REGLA LEGAL ESTRICTA: Las armas traumáticas NO son armas de fuego. Según la Ley 2197 de 2022, son dispositivos MENOS LETALES. JAMÁS digas que son armas de fuego.
 Solo escribe el mensaje, sin explicaciones.`;
     const result = await broadcastModel.generateContent(prompt);
     return result.response.text().trim();
@@ -2494,7 +2495,7 @@ async function getStatusBroadcastText(imageRelativePath) {
 Escribe un texto persuasivo para acompañar esta imagen en una HISTORIA/ESTADO de WhatsApp.
 Dado que la imagen proviene de la ruta: "${imageRelativePath.replace(/\\/g, '/')}", adapta tu mensaje a la categoría:
 - Si es de /oferta: Enfatiza la promoción, el descuento de 50k o el bot IA gratis.
-- Si es de /didactico: Da un tip legal rápido de 1 frase (ej. Ley 2197/2022).
+- Si es de /didactico: Da un tip legal rápido de 1 frase (Ejemplo correcto: "Ley 2197/2022: Las traumáticas son dispositivos menos letales, NO armas de fuego").
 - Si es de /pistolas: Habla de equipo táctico, seguridad y respaldo.
 
 Contexto de la hora: ${contextoAleatorio}
@@ -2504,6 +2505,7 @@ El mensaje debe:
 - Tener un gancho visual con 1 o 2 emojis.
 - Invitar a responder la historia (ej: "Escríbeme", "Responde a esta historia para info", "👇").
 - Sonar orgánico y persuasivo, no un copy-paste aburrido.
+- REGLA LEGAL ESTRICTA: Las armas traumáticas NO son armas de fuego. Si las mencionas, son dispositivos o armas MENOS LETALES.
 Solo escribe el texto de la historia, sin comillas ni explicaciones extra.`;
 
     const result = await broadcastModel.generateContent(prompt);
