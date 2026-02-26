@@ -1703,8 +1703,18 @@ async function loadComprobantes() {
             <div style="margin-top:8px;"><a href="https://wa.me/\${c.client_phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir en WhatsApp</a></div>
           </div>
           <div class="comprobante-actions">
-            <button class="btn-confirmar" id="btn_confirm_\${c.id}" onclick="accionComprobante(\${c.id}, 'confirmar', '\${c.client_phone}', '\${c.tipo}')">✅ Confirmar pago</button>
-            <button class="btn-rechazar" id="btn_reject_\${c.id}" onclick="accionComprobante(\${c.id}, 'rechazar', '\${c.client_phone}', '\${c.tipo}')">❌ Rechazar</button>
+            <div style="margin-bottom:8px;">
+              <span style="color:#8b949e;font-size:11px;">📋 Tipo de compra:</span>
+              <select id="tipoSelect_\${c.id}" style="background:#111820;border:1px solid #30363d;color:#e6edf3;padding:4px 8px;border-radius:4px;font-size:12px;cursor:pointer;margin-left:4px;">
+                <option value="club" \${c.tipo === 'club' ? 'selected' : ''}>🏆 Afiliación Club ZT</option>
+                <option value="bot_asesor" \${c.tipo === 'bot_asesor' ? 'selected' : ''}>🤖 Bot Asesor Legal</option>
+                <option value="producto" \${c.tipo === 'producto' ? 'selected' : ''}>📦 Producto / Arma / Munición</option>
+                <option value="club_y_bot" \${c.tipo === 'club_y_bot' ? 'selected' : ''}>🏆+🤖 Club + Bot (combo)</option>
+                <option value="desconocido" \${c.tipo === 'desconocido' ? 'selected' : ''}>❓ Sin determinar</option>
+              </select>
+            </div>
+            <button class="btn-confirmar" id="btn_confirm_\${c.id}" onclick="accionComprobante(\${c.id}, 'confirmar', '\${c.client_phone}', document.getElementById('tipoSelect_\${c.id}').value)">✅ Confirmar pago</button>
+            <button class="btn-rechazar" id="btn_reject_\${c.id}" onclick="accionComprobante(\${c.id}, 'rechazar', '\${c.client_phone}', document.getElementById('tipoSelect_\${c.id}').value)">❌ Rechazar</button>
           </div>
         </div>
       \`;

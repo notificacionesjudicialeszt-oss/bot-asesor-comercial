@@ -735,26 +735,40 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               const memoriaLow = (clientInfo?.memory || '').toLowerCase();
               const mensajeLow = messageBody.toLowerCase();
 
-              // Detectar tipo de comprobante:
-              // 1. Bot asesor: cliente menciona "bot", "asesor legal", "ia", "inteligencia" o su status ya es afiliado
-              // 2. Club ZT: primera afiliación al club
-              // 3. Producto: dispositivo, munición, etc.
+              // Detectar tipo de comprobante usando TODA la conversación reciente:
+              // Escanear las últimas 10 mensajes + memoria + mensaje actual
+              const recentHistory = db.getConversationHistory(senderPhone, 10);
+              const conversacionTexto = recentHistory.map(h => (h.message || h.content || '').toLowerCase()).join(' ');
+              const contextoCompleto = `${mensajeLow} ${memoriaLow} ${conversacionTexto}`;
+
+              // Conteo de señales por tipo para elegir el más probable
+              const senalesBot = [
+                'bot asesor', 'bot asesor legal', 'chatbot', 'inteligencia artificial',
+                'asesor legal ia', ' ia ', 'bot legal', 'acceso bot', 'suscripcion bot', 'suscripción bot'
+              ].filter(k => contextoCompleto.includes(k)).length;
+
+              const senalesClub = [
+                'club zt', 'club zona', 'afiliaci', 'afiliacion', 'afiliación', 'plan plus',
+                'plan pro', 'carnet', 'membresía', 'membresia', 'respaldo legal', 'respaldo jurídico'
+              ].filter(k => contextoCompleto.includes(k)).length;
+
+              const senalesProducto = [
+                'pistola', 'traumática', 'traumatica', 'arma', 'munición', 'municion',
+                'despacho', 'envío', 'envio', 'caja de', 'dispositivo', 'calibre'
+              ].filter(k => contextoCompleto.includes(k)).length;
+
               let tipoComprobante;
-              if (
-                mensajeLow.includes('bot') || mensajeLow.includes('asesor legal') ||
-                mensajeLow.includes('inteligencia') || mensajeLow.includes(' ia ') ||
-                memoriaLow.includes('bot asesor') || memoriaLow.includes('acceso bot') ||
-                memoriaLow.includes('suscripcion bot') || memoriaLow.includes('suscripción bot')
-              ) {
+              if (senalesBot > senalesClub && senalesBot > senalesProducto) {
                 tipoComprobante = 'bot_asesor';
-              } else if (
-                memoriaLow.includes('club') || memoriaLow.includes('afiliaci') ||
-                mensajeLow.includes('club') || mensajeLow.includes('afiliaci') || mensajeLow.includes('carnet')
-              ) {
+              } else if (senalesClub > senalesProducto) {
                 tipoComprobante = 'club';
-              } else {
+              } else if (senalesProducto > 0) {
                 tipoComprobante = 'producto';
+              } else {
+                // Sin pistas claras — dejar como desconocido para que el panel lo resuelva
+                tipoComprobante = 'desconocido';
               }
+              console.log(`[COMPROBANTE] 🏷️ Tipo auto-detectado: ${tipoComprobante} (señales: bot=${senalesBot}, club=${senalesClub}, producto=${senalesProducto})`);
 
               // Guardar en BD de comprobantes pendientes
               const comprobanteResult = db.saveComprobante(senderPhone, clientName, infoComprobante, media.data, mediaType, tipoComprobante);
@@ -2760,7 +2774,26 @@ function startReactivacionServer() {
                 `• Y mucho más 💪\n\n` +
                 `Te avisamos cuando esté activo. ¡Gracias por tu confianza! 🙏`;
               nuevoStatus = 'bot_asesor_pendiente';
+            } else if (tipo === 'club_y_bot') {
+              msgDatos = `✅ ¡Confirmamos tu pago! Bienvenido al Club ZT + Bot Asesor Legal 🛡️🤖\n\n` +
+                `🤖 Tu *Bot Asesor Legal* quedará activado en las próximas horas.\n\n` +
+                `Para generar tu *Carnet Digital Club ZT*, necesito estos datos:\n\n` +
+                `📋 *Datos para tu Carnet:*\n` +
+                `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
+                `4. Marca del arma\n5. Modelo del arma\n6. Número de serial del arma\n` +
+                `7. 📸 Foto de frente (selfie clara, sin gafas de sol, buena iluminación)\n\n` +
+                `En cuanto me envíes todo, tu carnet estará listo en menos de 24 horas 💪`;
+              nuevoStatus = 'carnet_pendiente';
+            } else if (tipo === 'desconocido') {
+              msgDatos = `✅ ¡Confirmamos tu pago! Gracias por tu confianza 🙏\n\n` +
+                `Para procesar tu compra correctamente, ¿me puedes confirmar qué adquiriste?\n\n` +
+                `1️⃣ Afiliación al Club ZT (Plan Plus o Pro)\n` +
+                `2️⃣ Bot Asesor Legal IA\n` +
+                `3️⃣ Producto / arma / munición\n\n` +
+                `Con eso te pido los datos que necesitemos y arrancamos de una 🚀`;
+              nuevoStatus = 'hot';
             } else {
+              // tipo === 'producto' o cualquier otro
               msgDatos = `✅ ¡Confirmamos tu pago! Ya estamos procesando tu pedido 📦\n\nPara el envío necesito estos datos:\n\n` +
                 `📦 *Datos de envío:*\n` +
                 `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
@@ -2773,14 +2806,17 @@ function startReactivacionServer() {
             // Actualizar estado y memoria — operaciones BD, siempre deben ocurrir
             db.upsertClient(phoneClean, { status: nuevoStatus });
             const memoriaActual = db.getClientMemory(phoneClean) || '';
-            const tagPago = tipo === 'club'
-              ? '✅ YA AFILIADO AL CLUB ZT — comprobante confirmado. NO ofrecer más productos de club.'
-              : tipo === 'bot_asesor'
-                ? '✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer más suscripciones.'
-                : '✅ YA COMPRÓ PRODUCTO — comprobante confirmado. NO ofrecer más ventas, está en proceso de envío.';
+            const tagsPago = {
+              'club': '✅ YA AFILIADO AL CLUB ZT — comprobante confirmado. NO ofrecer más productos de club.',
+              'bot_asesor': '✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer más suscripciones.',
+              'club_y_bot': '✅ YA AFILIADO AL CLUB ZT + BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer afiliación ni bot.',
+              'producto': '✅ YA COMPRÓ PRODUCTO — comprobante confirmado. NO ofrecer más ventas, está en proceso de envío.',
+              'desconocido': '✅ PAGO CONFIRMADO — pendiente definir tipo de compra con el cliente.'
+            };
+            const tagPago = tagsPago[tipo] || tagsPago['desconocido'];
             const nuevaMemoria = memoriaActual ? memoriaActual + '\n' + tagPago : tagPago;
             db.updateClientMemory(phoneClean, nuevaMemoria);
-            console.log(`[COMPROBANTE] ✅ BD actualizada ID #${id} para ${phone}`);
+            console.log(`[COMPROBANTE] ✅ BD actualizada ID #${id} para ${phone} (tipo: ${tipo})`);
 
           } else {
             msgRechazado = `⚠️ Revisamos tu comprobante y el monto no coincide con el valor del plan seleccionado.\n\n` +
