@@ -59,10 +59,58 @@ function parseEmployees() {
 let knowledgeBase = {};
 try {
   const kbPath = path.join(__dirname, 'knowledge_base.json');
-  knowledgeBase = JSON.parse(fs.readFileSync(kbPath, 'utf8'));
-  console.log('[BOT] Base de conocimiento cargada');
+  if (fs.existsSync(kbPath)) {
+    knowledgeBase = JSON.parse(fs.readFileSync(kbPath, 'utf8'));
+    console.log('[BOT] Base de conocimiento cargada');
+  } else {
+    console.log('[BOT] No se encontró knowledge_base.json, se usará memoria vacía o catálogo.');
+  }
 } catch (error) {
   console.error('[BOT] Error cargando knowledge_base.json:', error.message);
+}
+
+// ============================================
+// HELPER: BUSCAR IMAGEN DE PRODUCTO
+// ============================================
+function findBestImage(query) {
+  const baseDir = path.join(__dirname, 'imagenes', 'pistolas');
+  if (!fs.existsSync(baseDir)) return null;
+
+  const tokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(t => t.length > 2);
+  if (tokens.length === 0) return null;
+
+  let bestMatch = null;
+  let bestScore = 0;
+
+  try {
+    const brands = fs.readdirSync(baseDir);
+    for (const brand of brands) {
+      const brandDir = path.join(baseDir, brand);
+      if (!fs.statSync(brandDir).isDirectory()) continue;
+
+      const files = fs.readdirSync(brandDir);
+      for (const file of files) {
+        if (!file.endsWith('.png') && !file.endsWith('.jpg') && !file.endsWith('.jpeg')) continue;
+
+        const targetString = `${brand} ${file.replace(/\.[^/.]+$/, "")}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+        let score = 0;
+        for (const token of tokens) {
+          // Si el token es muy común (ej. "retay"), sumar 1. Modelos suman 2.
+          if (targetString.includes(token)) score += (token === brand.toLowerCase() ? 1 : 2);
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = path.join(brandDir, file);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[BOT] Error buscando imagen:', e.message);
+  }
+
+  // Requiere mínimo 2 puntos (ej. acertar un modelo o marca+algo más)
+  return bestScore >= 2 ? bestMatch : null;
 }
 
 // ============================================
@@ -1044,11 +1092,38 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
       // Esto evita que WhatsApp rompa los links si Gemini ignora la instrucción
       response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
 
+      // ---------------------------------------------------------
+      // DETECTAR ETIQUETAS [ENVIAR_IMAGEN: ...]
+      // ---------------------------------------------------------
+      const imagesToSend = [];
+      const imageRegex = /\[ENVIAR_IMAGEN:\s*([^\]]+)\]/ig;
+      let match;
+      while ((match = imageRegex.exec(response)) !== null) {
+        const productQuery = match[1].trim();
+        const foundPath = findBestImage(productQuery);
+        if (foundPath && !imagesToSend.includes(foundPath)) {
+          imagesToSend.push(foundPath);
+        }
+      }
+      // Limpiar todas las etiquetas del mensaje final
+      response = response.replace(imageRegex, '').trim();
+
       // Guardar respuesta del bot
       db.saveMessage(senderPhone, 'assistant', response);
 
-      // Enviar respuesta
+      // Enviar respuesta (el texto principal)
       await rawMsg.reply(response);
+
+      // Enviar las imágenes de los productos encontrados
+      for (const imgPath of imagesToSend) {
+        try {
+          const media = MessageMedia.fromFilePath(imgPath);
+          await rawMsg.reply(media);
+          console.log(`[BOT] 🖼️ Imagen de producto enviada a ${senderPhone}: ${path.basename(imgPath)}`);
+        } catch (imgErr) {
+          console.error(`[BOT] Error enviando imagen ${imgPath}:`, imgErr.message);
+        }
+      }
 
       // Enviar imagen promo del Club ZT SOLO cuando el bot está ofreciendo la afiliación
       // (no en cada mención — solo cuando presenta los planes activamente)
