@@ -750,9 +750,9 @@ function getHTML() {
   .main-tab:hover { color: #e6edf3; }
   .main-tab .badge { background: #f85149; color: #fff; border-radius: 10px; font-size: 10px; padding: 1px 6px; margin-left: 6px; font-weight: 700; }
   /* Vista comprobantes */
-  #viewClientes, #viewComprobantes, #viewPostventa { display: none; }
+  #viewClientes, #viewComprobantes, #viewCarnets, #viewPostventa { display: none; }
   #viewClientes.active, #viewPostventa.active { display: flex; }
-  #viewComprobantes.active { display: flex; flex-direction: column; padding: 20px 25px; gap: 15px; overflow-y: auto; height: calc(100vh - 265px); }
+  #viewComprobantes.active, #viewCarnets.active { display: flex; flex-direction: column; padding: 20px 25px; gap: 15px; overflow-y: auto; height: calc(100vh - 265px); }
   .comprobante-card { background: #111820; border: 1px solid #1c2733; border-left: 4px solid #d29922; border-radius: 6px; padding: 18px; display: flex; gap: 18px; align-items: flex-start; }
   .comprobante-img { width: 120px; height: 120px; object-fit: cover; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; flex-shrink: 0; background: #0a0e13; }
   .comprobante-img-placeholder { width: 120px; height: 120px; border-radius: 4px; border: 1px solid #30363d; background: #0a0e13; display: flex; align-items: center; justify-content: center; color: #3d4f5f; font-size: 12px; flex-shrink: 0; text-align: center; }
@@ -836,7 +836,7 @@ function getHTML() {
 </div>
 
 <!-- Vista: Carnets por verificar -->
-<div id="viewCarnets" style="display:none;">
+<div id="viewCarnets">
   <div id="carnetsList"></div>
 </div>
 
