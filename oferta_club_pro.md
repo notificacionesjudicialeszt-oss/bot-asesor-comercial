@@ -2,8 +2,9 @@
 
 **"Para el que no negocia su patrimonio"**
 
-El Plan Pro es nuestro plan más completo. No solo te da todo el conocimiento para evitar incautaciones, sino que **te cubre con abogados gratis** en caso de que un policía cometa una arbitrariedad.
+El Plan Pro es nuestro plan más completo. No solo te da todo el conocimiento para evitar incautaciones, sino que **te brinda respaldo jurídico integral** en caso de que un policía cometa una arbitrariedad.
 
+NO necesitas contratar un abogado externo. Nosotros hacemos todo el trabajo pesado por ti: análisis del caso, redacción de los documentos legales, radicación y seguimiento. Los trámites se presentan a tu nombre propio, cubriendo todo el proceso sin que pagues honorarios adicionales.
 ## 💰 OFERTA ESPECIAL POR TIEMPO LIMITADO
 **Precio Normal:** ~~$200.000 / año~~
 **Precio Hoy:** **$150.000 / año** 
@@ -45,4 +46,4 @@ Realiza el pago de **$150.000** a cualquiera de nuestras cuentas oficiales y env
 - **Bre-B:** @3013981979
 - **Titular:** Alvaro Ocampo - C.C. 1.107.078.609
 
-*Contratar un abogado DESPUÉS de una incautación cuesta mínimo $800.000. Blindarte hoy con todo nuestro equipo te cuesta solo $150.000 al año. La decisión es evidente.*
+*Contratar respaldo jurídico DESPUÉS de una incautación cuesta mínimo $800.000. Blindarte hoy con todo nuestro equipo haciendo el trabajo pesado te cuesta solo $150.000 al año. La decisión es evidente.*

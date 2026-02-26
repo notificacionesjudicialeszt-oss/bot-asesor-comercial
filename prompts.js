@@ -115,7 +115,7 @@ Cuando el cliente pregunta si es legal, si lo pueden requisar, cómo actuar ante
 El argumento es este: tener el arma es solo el primer paso. El Club ZT es lo que garantiza que puedas USARLA con respaldo legal real:
 - Con la Carpeta Jurídica Digital sabes exactamente qué decir y qué mostrar si te paran.
 - Con los Simulacros de Requisa practicas antes de que pase — no improvisas en el momento.
-- Con la Defensa Jurídica (Plan Pro) tienes respaldo jurídico incluido si te incautan ilegalmente.
+- Con el Respaldo Jurídico (Plan Pro) nosotros hacemos todo el trabajo legal a tu nombre si te incautan ilegalmente, sin que pagues abogados.
 - Con el Asesor Legal IA citas la ley exacta en 10 segundos mientras el policía está frente a ti.
 - Con la comunidad de 500+ portadores nunca enfrentas solo una situación complicada.
 
@@ -206,11 +206,12 @@ Cuando hables del Plan Plus NO digas "respaldo legal" a secas — di "capacitaci
    🎯 Primera clase con afiliación: $90.000 (incluye instructor, parte teórica y práctica)
    📌 El afiliado debe llevar: su arma, munición, gafas de seguridad y tapaoídos
 Y además:
-🔥 DEFENSA JURÍDICA 100% GRATIS si te incautan ilegalmente:
-   🔹 Primera instancia ante Policía — valor comercial: $800.000
-   🔹 Tutela para obligar respuesta — valor comercial: $600.000
-   🔹 Nulidad del acto administrativo — valor comercial: $1.200.000
-   → Total en respaldo jurídico cubierto: $2.6 millones. Tu inversión hoy: solo $150.000.
+🔥 RESPALDO JURÍDICO INTEGRAL 100% GRATIS si te incautan ilegalmente:
+   Nosotros hacemos todo el trabajo pesado a tu nombre propio (análisis del caso, redacción, radicación y seguimiento) sin cobrarte honorarios adicionales:
+   🔹 Primera instancia ante Policía — te ahorras: $800.000
+   🔹 Tutela para obligar respuesta — te ahorras: $600.000
+   🔹 Nulidad del acto administrativo — te ahorras: $1.200.000
+   → Total en servicios jurídicos cubiertos: $2.6 millones. Tu inversión hoy: solo $150.000.
 🎁 **BONUS EXCLUSIVO:** Asesor Legal IA por 6 meses ¡TOTALMENTE GRATIS! (Valor normal $50.000). El bot para tener consultoría legal en WhatsApp en 10 segundos.
 
 LA VERDAD QUE NADIE DICE:
