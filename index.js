@@ -1087,7 +1087,9 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
       let match;
       while ((match = imageRegex.exec(response)) !== null) {
         const productQuery = match[1].trim();
+        console.log(`[BOT-DEBUG] Etiqueta ENVIAR_IMAGEN dectectada: "${productQuery}"`);
         const foundPath = findBestImage(productQuery);
+        console.log(`[BOT-DEBUG] Resultado findBestImage para etiqueta:`, foundPath);
         if (foundPath && !imagesToSend.includes(foundPath)) {
           imagesToSend.push(foundPath);
         } else if (!foundPath) {
@@ -1099,12 +1101,14 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
       response = response.replace(imageRegex, '').trim();
 
       // 2. Detección automática por URL de producto
-      // Extrae el "slug" de tienda.zonatraumatica.com/producto/slug y busca la imagen
-      const urlRegex = /tienda\.zonatraumatica\.com\/producto\/([a-zA-Z0-9\-]+)/ig;
+      // Extrae el "slug" de zonatraumatica.club/producto/slug y busca la imagen
+      const urlRegex = /zonatraumatica\.(com|club)\/producto\/([a-zA-Z0-9\-]+)/ig;
       let urlMatch;
       while ((urlMatch = urlRegex.exec(response)) !== null) {
-        const productSlug = urlMatch[1].replace(/-/g, ' ').trim();
+        const productSlug = urlMatch[2].replace(/-/g, ' ').trim();
+        console.log(`[BOT-DEBUG] URL de producto detectada: slug="${urlMatch[2]}", query="${productSlug}"`);
         const foundPath = findBestImage(productSlug);
+        console.log(`[BOT-DEBUG] Resultado findBestImage para URL:`, foundPath);
         if (foundPath && !imagesToSend.includes(foundPath)) {
           imagesToSend.push(foundPath);
         } else if (!foundPath) {
