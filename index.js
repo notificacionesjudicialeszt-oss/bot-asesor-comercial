@@ -2418,7 +2418,7 @@ async function sendGroupBroadcast() {
 
 function startGroupBroadcaster() {
   // Horas fijas del día en que se envía (hora Colombia UTC-5)
-  const HORAS_ENVIO = [8, 12, 16, 20]; // 8am, 12pm, 4pm, 8pm
+  const HORAS_ENVIO = [0, 6, 8, 12, 16, 20, 22]; // 12am, 6am, 8am, 12pm, 4pm, 8pm, 10pm
 
   function getMsHastaProximoEnvio() {
     const ahora = new Date();
