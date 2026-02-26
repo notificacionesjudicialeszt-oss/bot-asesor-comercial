@@ -3022,8 +3022,103 @@ function startReactivacionServer() {
           adminPauseMap.delete(phone);
 
           console.log(`[PANEL] 🤖 Cliente ${phone} devuelto al bot (estaba pausado: ${wasPaused})`);
+
+          // Responder inmediatamente al panel
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, wasPaused }));
+
+          // === SMART RESUME: Revisar lo que pasó durante la pausa ===
+          if (wasPaused) {
+            try {
+              // Leer los últimos 20 mensajes para tener contexto de la pausa
+              const history = db.getConversationHistory(phone, 20);
+
+              // Separar los mensajes de Álvaro (admin) y del cliente durante la pausa
+              const msgsDurantePausa = [];
+              let encontroPausa = false;
+              for (let i = history.length - 1; i >= 0; i--) {
+                const m = history[i];
+                if (m.role === 'admin' || encontroPausa) {
+                  encontroPausa = true;
+                  msgsDurantePausa.unshift(m);
+                }
+                // Parar cuando encontremos un mensaje del bot (antes de la pausa)
+                if (encontroPausa && m.role === 'assistant' && !m.message.includes('buenas manos')) break;
+              }
+
+              if (msgsDurantePausa.length === 0) {
+                console.log(`[RESUME] ℹ️ No hay mensajes durante la pausa para ${phone}`);
+                return;
+              }
+
+              // Detectar si hay comprobante sin procesar (enviado durante la pausa)
+              const tieneComprobantePendiente = msgsDurantePausa.some(m =>
+                m.role === 'user' && (
+                  (m.message || '').includes('[Media omitido: image]') ||
+                  (m.message || '').includes('[Comprobante') ||
+                  (m.message || '').toLowerCase().includes('comprobante') ||
+                  (m.message || '').toLowerCase().includes('consign') ||
+                  (m.message || '').toLowerCase().includes('transferencia') ||
+                  (m.message || '').toLowerCase().includes('pago')
+                )
+              );
+
+              // Resumen de lo que pasó durante la pausa
+              const pauseContext = msgsDurantePausa.map(m => {
+                const roleName = m.role === 'admin' ? 'Álvaro' : m.role === 'user' ? 'Cliente' : 'Bot';
+                return `${roleName}: ${m.message}`;
+              }).join('\n');
+
+              console.log(`[RESUME] 📋 ${phone} — ${msgsDurantePausa.length} msgs durante pausa. Comprobante pendiente: ${tieneComprobantePendiente}`);
+
+              // Generar mensaje de re-engagement con Gemini
+              const resumeModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+              const clientMemory = db.getClientMemory(phone) || '';
+
+              let instruccionExtra = '';
+              if (tieneComprobantePendiente) {
+                instruccionExtra = `\nIMPORTANTE: El cliente posiblemente envió un COMPROBANTE DE PAGO o mencionó un pago durante la pausa. ` +
+                  `Si ves indicios de esto, pídele amablemente que vuelva a enviar la foto del comprobante ` +
+                  `porque el sistema necesita recibirla estando activo para procesarla. ` +
+                  `Ejemplo: "Vi que nos compartiste un comprobante mientras Álvaro te atendía. ¿Me lo puedes reenviar para procesarlo? 🙏"`;
+              }
+
+              const resumePrompt = `El director Álvaro terminó de atender personalmente a un cliente de Zona Traumática y ahora el bot retoma la conversación.
+
+CONVERSACIÓN DURANTE LA ATENCIÓN DE ÁLVARO:
+${pauseContext}
+
+MEMORIA DEL CLIENTE: ${clientMemory}
+
+Genera un mensaje CORTO (máximo 3 líneas) para retomar la conversación. Reglas:
+1. Tono natural, como si el bot siempre hubiera estado ahí
+2. Demuestra que SABES lo que se habló (menciona algo concreto)
+3. Si quedó algo pendiente (datos, comprobante, decisión), pregunta por eso
+4. NO digas "Álvaro me pidió que te atienda" ni nada similar
+5. Máximo 2 emojis
+${instruccionExtra}
+
+Solo escribe el mensaje, sin explicaciones.`;
+
+              const resumeResult = await resumeModel.generateContent(resumePrompt);
+              const resumeMsg = resumeResult.response.text().trim();
+
+              if (resumeMsg) {
+                const chatId = db.getClientChatId(phone);
+                await client.sendMessage(chatId, resumeMsg);
+                db.saveMessage(phone, 'assistant', resumeMsg);
+                console.log(`[RESUME] ✅ Mensaje de re-engagement enviado a ${phone}: "${resumeMsg.substring(0, 60)}"`);
+              }
+
+              // Actualizar memoria con resumen de la interacción de Álvaro
+              updateClientMemory(phone, `[Álvaro atendió directamente]`, pauseContext,
+                db.getConversationHistory(phone, 10)
+              ).catch(e => console.error('[RESUME] Error actualizando memoria:', e.message));
+
+            } catch (resumeErr) {
+              console.error(`[RESUME] Error en smart resume para ${phone}:`, resumeErr.message);
+            }
+          }
         } catch (e) {
           console.error('[PANEL] Error devolver-bot:', e.message);
           res.writeHead(400, { 'Content-Type': 'application/json' });
