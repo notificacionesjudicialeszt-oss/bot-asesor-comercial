@@ -2572,7 +2572,16 @@ function startReactivacionServer() {
           db.updateComprobanteEstado(id, accion === 'confirmar' ? 'confirmado' : 'rechazado');
 
           // 2. Intentar notificar al cliente por WhatsApp (puede fallar sin romper nada)
-          const phoneClean = phone.replace(/@.*/g, '').replace(/\D/g, '');
+          let phoneClean = phone.replace(/@.*/g, '').replace(/\D/g, '');
+
+          if (phoneClean.length >= 13) {
+            const row = db.db.prepare('SELECT phone FROM clients WHERE chat_id LIKE ? AND phone != ?').get('%' + phoneClean + '%', phoneClean);
+            if (row) {
+              console.log(`[COMPROBANTE] 🔄 LID resuelto para pago: ${phoneClean} -> ${row.phone}`);
+              phoneClean = row.phone;
+            }
+          }
+
           const chatId = db.getClientChatId(phoneClean);
           let waSent = true;
           let waError = null;
