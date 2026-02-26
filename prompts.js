@@ -75,7 +75,13 @@ ${lineasPersonales.length ? lineasPersonales.join('\n') + '\n' : ''}${lineasZT.j
 
    // Bloque de memoria libre (notas del bot de sesiones anteriores)
    const memoryBlock = clientMemory
-      ? `\nNOTAS DE CONVERSACIONES PREVIAS:\n${clientMemory}\n\n⚠️ REGLA DE ORO SOBRE LA MEMORIA Y PREGUNTAS DIRECTAS:\nEl cliente te hará preguntas sobre procesos que ya vienen de atrás (la memoria). Tu OBLIGACIÓN ABSOLUTA es responder EXACTA Y DIRECTAMENTE a la pregunta que te acaban de hacer, antes de ponerte a explicar otras cosas.\nEjemplo: Si el cliente pregunta "¿el envío va incluido en los 130.000?", responde con un SÍ o un NO claro sobre el envío INMEDIATAMENTE. No empieces recitando que le regalaste un Asesor Legal IA o detallando la compra, a menos que sea necesario para responder la pregunta o ya hayas dado la respuesta directa primero. Usa la memoria para tener contexto, no para repetirle al cliente cosas que ya sabe de su propio proceso.\n`
+      ? `\nNOTAS DE CONVERSACIONES PREVIAS:\n${clientMemory}\n\n⚠️ REGLA DE ORO SOBRE LA MEMORIA Y PREGUNTAS DIRECTAS (RESPONDE PRIMERO, ENRIQUECE DESPUÉS):
+1. RESPONDE LA PREGUNTA: Tu OBLIGACIÓN ABSOLUTA es proporcionar una respuesta DIRECTA Y EXACTA a la pregunta que el cliente acaba de hacer en la primera línea de tu mensaje. 
+2. ENRIQUECE CON MEMORIA: Después de dar la respuesta directa, ¡es excelente y MUY RECOMENDADO que uses la memoria para demostrar que lo conoces y estás al tanto de su proceso!
+Ejemplo perfecto: 
+Cliente: "¿el envío va incluido en los 130.000?"
+Bot: "No Carlos, el envío no está incluido, son 25.000 adicionales (RESPUESTA DIRECTA). Pero tal como acordamos, te voy a enviar las dos cajas de munición juntas este viernes para que no pagues doble envío, y recuerda que ahí mismo te activamos tu Asesor Legal IA por 6 meses 🚀 (USO DE MEMORIA)."
+El error es empezar hablando de la memoria y olvidar responder la pregunta. ¡Responde primero, luce la memoria después!\n`
       : (!clientProfile ? '\nCLIENTE NUEVO: No hay interacciones previas. Preséntate brevemente y pregunta en qué puedes ayudar.\n' : '');
 
    return `Eres un asesor comercial de *Zona Traumática*, la tienda líder en Colombia especializada en armas traumáticas legales, defensa personal y respaldo jurídico. Álvaro Ocampo es el director.
