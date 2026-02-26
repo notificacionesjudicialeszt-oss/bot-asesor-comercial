@@ -26,7 +26,7 @@ const search = require('./search');
 
 // Inicializar Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const geminiPro = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+const geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
 
 
 // ============================================
@@ -799,7 +799,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
             } else if (qrTexto) {
               // QR detectado — responder SOLO sobre el contenido del QR
-              const qrModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+              const qrModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
               const qrPrompt = `Eres un asesor de Zona Traumática (tienda de armas traumáticas y Club ZT en Colombia).
 Un cliente te envió una imagen con un código QR. El contenido escaneado del QR es:
 
@@ -819,7 +819,7 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
               // Imagen normal — flujo con system prompt completo e historial
               const textPart = msg.body || 'El cliente envió esta imagen.';
               const visionModel = genAI.getGenerativeModel({
-                model: 'gemini-2.5-pro',
+                model: 'gemini-3.1-pro-preview',
                 systemInstruction: systemPrompt,
                 generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
               });
@@ -872,7 +872,7 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
           const textPart = 'El cliente envió este mensaje de voz. Transcríbelo, entiéndelo y responde como si fuera texto normal. No menciones que fue un audio.';
 
           const audioModel = genAI.getGenerativeModel({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-3.1-pro-preview',
             systemInstruction: systemPrompt,
             generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
@@ -930,7 +930,7 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
             : `El cliente envió este PDF llamado "${media.filename || 'documento.pdf'}". Analízalo y responde de forma útil según el contexto de la conversación.`;
 
           const pdfModel = genAI.getGenerativeModel({
-            model: 'gemini-2.5-pro',
+            model: 'gemini-3.1-pro-preview',
             systemInstruction: systemPrompt,
             generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
@@ -1610,7 +1610,7 @@ async function getClaudeResponse(clientPhone, message, history) {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         const model = genAI.getGenerativeModel({
-          model: 'gemini-2.5-pro',
+          model: 'gemini-3.1-pro-preview',
           systemInstruction: systemPrompt,
           generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
         });
@@ -2372,7 +2372,7 @@ async function getGroupBroadcastText(imageRelativePath) {
   const contextoAleatorio = contextos[Math.floor(Math.random() * contextos.length)];
 
   try {
-    const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
     const prompt = `Eres el community manager de Zona Traumática Colombia.
 Escribe un mensaje corto y poderoso para acompañar esta imagen promocional en un grupo de WhatsApp de portadores de armas traumáticas.
 Contexto de tiempo: ${contextoAleatorio}.
@@ -2526,7 +2526,7 @@ async function getStatusBroadcastText(imageRelativePath) {
   const contextoAleatorio = horasActivas[Math.floor(Math.random() * horasActivas.length)];
 
   try {
-    const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
     const prompt = `Eres el community manager de Zona Traumática Colombia.
 Escribe un texto persuasivo para acompañar esta imagen en una HISTORIA/ESTADO de WhatsApp.
 Dado que la imagen proviene de la ruta: "${imageRelativePath.replace(/\\/g, '/')}", adapta tu mensaje a la categoría:
@@ -2638,7 +2638,7 @@ async function procesarClientesCalientes(clientes, mode = 'normal') {
       const historial = db.getConversationHistory(cliente.phone, 10);
       const resumenHistorial = historial.map(h => `${h.role === 'user' ? 'Cliente' : 'Bot'}: ${h.message}`).join('\n');
 
-      const reactivarModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+      const reactivarModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
 
       let promoRules = '';
       if (mode === 'ultra') {
