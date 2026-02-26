@@ -1013,6 +1013,15 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
         await msg.reply('🎥 No proceso videos. ¿En qué te puedo ayudar?');
         return;
       }
+
+      // Stickers: tratarlos como saludo informal y responder con IA
+      if (msg.type === 'sticker') {
+        console.log(`[BOT] 🎭 Sticker recibido de ${senderPhone} — procesando como saludo`);
+        // Convertir a texto para que la IA responda naturalmente
+        msg.body = '[El cliente envió un sticker/emoji animado como saludo]';
+        messageBody = msg.body;
+        // No return — dejar que fluya al procesamiento normal de texto
+      }
     }
 
     if (!messageBody) {
