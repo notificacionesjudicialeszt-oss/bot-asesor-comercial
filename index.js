@@ -534,6 +534,60 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
   try {
     const messageBody = msg.body ? msg.body.trim() : '';
 
+    // 1. Obtener nombre del perfil y teléfono real de WhatsApp (RESOLVER LID GLOBALMENTE)
+    let profileName = '';
+    try {
+      const contact = await rawMsg.getContact();
+      // Prioridad: pushname → contact.name → shortName → chat.name
+      profileName = contact.pushname || contact.name || contact.shortName || chat.name || '';
+
+      // contact.number resuelve el teléfono real incluso cuando el mensaje llegó con LID
+      const realNumber = (contact.number || '').replace(/\D/g, '');
+      if (realNumber && realNumber !== senderPhone) {
+        if (CONFIG.debug) console.log(`[BOT] 📱 LID resuelto global: ${senderPhone} → ${realNumber}`);
+        // Si existe registro viejo bajo el LID, migrarlo al número real
+        if (db.getClient(senderPhone) && !db.getClient(realNumber)) {
+          db.migrateClientPhone(senderPhone, realNumber);
+        }
+        senderPhone = realNumber;
+      }
+    } catch (err) {
+      profileName = chat.name || '';
+      console.error('[BOT] Error obteniendo contacto:', err.message);
+    }
+
+    // 2. Registrar/actualizar cliente en CRM
+    const existingClient = db.getClient(senderPhone);
+    const isNewClient = !existingClient;
+    const chatIdFromMsg = rawMsg.from || (senderPhone + '@c.us');
+
+    if (isNewClient) {
+      db.upsertClient(senderPhone, { name: profileName, chat_id: chatIdFromMsg });
+      console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone}) [${chatIdFromMsg}]`);
+      saveContactToVCF(senderPhone, profileName);
+    } else {
+      const updateData = { chat_id: chatIdFromMsg };
+      const bestName = profileName || chat.name || '';
+      if (bestName && !existingClient.name) {
+        updateData.name = bestName;
+        saveContactToVCF(senderPhone, bestName);
+      }
+      db.upsertClient(senderPhone, updateData);
+    }
+
+    // ⛔ Contacto ignorado desde el panel — silencio total
+    if (db.isIgnored(senderPhone)) {
+      if (CONFIG.debug) console.log(`[BOT] 🔇 Ignorado (panel): ${senderPhone} (${profileName})`);
+      return;
+    }
+
+    // Si Álvaro está atendiendo a este cliente → pausar bot para todo (texto/media)
+    if (isBotPaused(senderPhone)) {
+      if (CONFIG.debug) console.log(`[BOT] ⏸️ Bot pausado para ${senderPhone} (Álvaro atendiendo)`);
+      db.saveMessage(senderPhone, 'user', messageBody ? messageBody : `[Media omitido: ${msg.type}]`);
+      return;
+    }
+
     // --- MANEJO DE AUDIOS Y MEDIA ---
     if (msg.hasMedia || msg.type === 'ptt' || msg.type === 'audio' ||
       msg.type === 'image' || msg.type === 'video' || msg.type === 'document' ||
@@ -541,13 +595,6 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
       // No responder a empleados ni auditor con esto
       if (db.getEmployeeByPhone(senderPhone) || isAuditor(senderPhone)) return;
-
-      // Si Álvaro está atendiendo a este cliente → pausar media
-      if (isBotPaused(senderPhone)) {
-        console.log(`[BOT] ⏸️ Bot pausado para ${senderPhone} (Álvaro atendiendo - ignorando ${msg.type})`);
-        db.saveMessage(senderPhone, 'user', `[Media omitido: ${msg.type}]`);
-        return;
-      }
 
       if (CONFIG.debug) {
         console.log(`[DEBUG] Media recibido de ${senderPhone}: tipo=${msg.type}`);
@@ -955,70 +1002,8 @@ async function safeSend(phone, message) {
 // FLUJO DE CLIENTE
 // ============================================
 async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) {
-  // Si Álvaro está atendiendo a este cliente → no responder
-  if (isBotPaused(senderPhone)) {
-    console.log(`[BOT] ⏸️ Bot pausado para ${senderPhone} (Álvaro atendiendo)`);
-    db.saveMessage(senderPhone, 'user', messageBody);
-    return;
-  }
-
-  // 1. Obtener nombre del perfil y teléfono real de WhatsApp
-  let profileName = '';
-  try {
-    const contact = await rawMsg.getContact();
-    // Prioridad: pushname → contact.name → shortName → chat.name (nombre guardado en celular)
-    profileName = contact.pushname || contact.name || contact.shortName || chat.name || '';
-
-    // contact.number resuelve el teléfono real incluso cuando el mensaje llegó con LID
-    const realNumber = (contact.number || '').replace(/\D/g, '');
-    if (realNumber && realNumber !== senderPhone) {
-      console.log(`[BOT] 📱 LID resuelto: ${senderPhone} → ${realNumber}`);
-      // Si existe registro viejo bajo el LID, migrarlo al número real
-      if (db.getClient(senderPhone) && !db.getClient(realNumber)) {
-        db.migrateClientPhone(senderPhone, realNumber);
-      }
-      senderPhone = realNumber;
-    }
-
-    if (CONFIG.debug) {
-      console.log(`[DEBUG] Perfil WhatsApp: "${profileName}" (${senderPhone})`);
-    }
-  } catch (err) {
-    // Si getContact() falla, usar chat.name como respaldo
-    profileName = chat.name || '';
-    console.error('[BOT] Error obteniendo contacto:', err.message);
-  }
-
-  // 2. Registrar/actualizar cliente en CRM (con nombre de perfil)
-  const existingClient = db.getClient(senderPhone);
-  const isNewClient = !existingClient;
-
-  // chat_id = msg.from completo (puede ser @c.us o @lid) — guardarlo siempre
-  const chatIdFromMsg = rawMsg.from || (senderPhone + '@c.us');
-
-  if (isNewClient) {
-    // Cliente nuevo → crear con nombre de perfil y chat_id real
-    db.upsertClient(senderPhone, { name: profileName, chat_id: chatIdFromMsg });
-    console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone}) [${chatIdFromMsg}]`);
-    saveContactToVCF(senderPhone, profileName);
-
-  } else {
-    // Cliente existente → actualizar chat_id siempre (puede cambiar de @c.us a @lid)
-    const updateData = { chat_id: chatIdFromMsg };
-    // Actualizar nombre si no tiene — prioridad: profileName, luego chat.name
-    const bestName = profileName || chat.name || '';
-    if (bestName && !existingClient.name) {
-      updateData.name = bestName;
-      saveContactToVCF(senderPhone, bestName);
-    }
-    db.upsertClient(senderPhone, updateData);
-  }
-
-  // ⛔ Contacto ignorado desde el panel — silencio total
-  if (db.isIgnored(senderPhone)) {
-    console.log(`[BOT] 🔇 Ignorado (panel): ${senderPhone} (${profileName})`);
-    return;
-  }
+  // NOTA: El procesamiento de LID, actualización de CRM e isBotPaused 
+  // ya ocurrieron a nivel global en procesarMensaje(). Aquí senderPhone es canónico.
 
   // 3. Guardar mensaje del cliente
   db.saveMessage(senderPhone, 'user', messageBody);
