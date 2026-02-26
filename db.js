@@ -60,6 +60,62 @@ function initDatabase() {
   } catch (e) { /* ya existe */ }
   // last_interaction ya no se usa — usamos updated_at
 
+  // Nuevas banderas booleanas de estado de cliente
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN has_bought_gun INTEGER DEFAULT 0`);
+    console.log('[DB] Columna has_bought_gun agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN is_club_plus INTEGER DEFAULT 0`);
+    console.log('[DB] Columna is_club_plus agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN is_club_pro INTEGER DEFAULT 0`);
+    console.log('[DB] Columna is_club_pro agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN has_ai_bot INTEGER DEFAULT 0`);
+    console.log('[DB] Columna has_ai_bot agregada');
+  } catch (e) { /* ya existe */ }
+
+  // === Columnas de Ficha Completa del Cliente ===
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN cedula TEXT DEFAULT ''`);
+    console.log('[DB] Columna cedula agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN ciudad TEXT DEFAULT ''`);
+    console.log('[DB] Columna ciudad agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN direccion TEXT DEFAULT ''`);
+    console.log('[DB] Columna direccion agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN profesion TEXT DEFAULT ''`);
+    console.log('[DB] Columna profesion agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN club_plan TEXT DEFAULT ''`);
+    console.log('[DB] Columna club_plan agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN club_vigente_hasta TEXT DEFAULT ''`);
+    console.log('[DB] Columna club_vigente_hasta agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN serial_arma TEXT DEFAULT ''`);
+    console.log('[DB] Columna serial_arma agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN modelo_arma TEXT DEFAULT ''`);
+    console.log('[DB] Columna modelo_arma agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN carnet_qr_url TEXT DEFAULT ''`);
+    console.log('[DB] Columna carnet_qr_url agregada');
+  } catch (e) { /* ya existe */ }
+
   // Tabla de empleados
   db.exec(`
     CREATE TABLE IF NOT EXISTS employees (
@@ -112,6 +168,28 @@ function initDatabase() {
     )
   `);
 
+  // Tabla de carnets de Club ZT para verificación
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS carnets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_phone TEXT NOT NULL,
+      client_name TEXT DEFAULT '',
+      imagen_base64 TEXT,
+      imagen_mime TEXT DEFAULT 'image/jpeg',
+      qr_contenido TEXT DEFAULT '',
+      nombre TEXT DEFAULT '',
+      cedula TEXT DEFAULT '',
+      vigente_hasta TEXT DEFAULT '',
+      marca_arma TEXT DEFAULT '',
+      modelo_arma TEXT DEFAULT '',
+      serial TEXT DEFAULT '',
+      estado TEXT DEFAULT 'pendiente',
+      verificado_por TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      verified_at DATETIME
+    )
+  `);
+
   console.log('[DB] Base de datos inicializada correctamente');
 }
 
@@ -144,6 +222,20 @@ function upsertClient(phone, data = {}) {
     if (data.memory) { fields.push('memory = ?'); values.push(data.memory); }
     if (data.status) { fields.push('status = ?'); values.push(data.status); }
     if (data.chat_id) { fields.push('chat_id = ?'); values.push(data.chat_id); }
+    if (data.has_bought_gun !== undefined) { fields.push('has_bought_gun = ?'); values.push(data.has_bought_gun ? 1 : 0); }
+    if (data.is_club_plus !== undefined) { fields.push('is_club_plus = ?'); values.push(data.is_club_plus ? 1 : 0); }
+    if (data.is_club_pro !== undefined) { fields.push('is_club_pro = ?'); values.push(data.is_club_pro ? 1 : 0); }
+    if (data.has_ai_bot !== undefined) { fields.push('has_ai_bot = ?'); values.push(data.has_ai_bot ? 1 : 0); }
+    // Nuevos campos de ficha completa
+    if (data.cedula !== undefined) { fields.push('cedula = ?'); values.push(data.cedula); }
+    if (data.ciudad !== undefined) { fields.push('ciudad = ?'); values.push(data.ciudad); }
+    if (data.direccion !== undefined) { fields.push('direccion = ?'); values.push(data.direccion); }
+    if (data.profesion !== undefined) { fields.push('profesion = ?'); values.push(data.profesion); }
+    if (data.club_plan !== undefined) { fields.push('club_plan = ?'); values.push(data.club_plan); }
+    if (data.club_vigente_hasta !== undefined) { fields.push('club_vigente_hasta = ?'); values.push(data.club_vigente_hasta); }
+    if (data.serial_arma !== undefined) { fields.push('serial_arma = ?'); values.push(data.serial_arma); }
+    if (data.modelo_arma !== undefined) { fields.push('modelo_arma = ?'); values.push(data.modelo_arma); }
+    if (data.carnet_qr_url !== undefined) { fields.push('carnet_qr_url = ?'); values.push(data.carnet_qr_url); }
 
     // Siempre incrementar interacciones y actualizar fecha
     fields.push('interaction_count = interaction_count + 1');
@@ -155,8 +247,8 @@ function upsertClient(phone, data = {}) {
   } else {
     // Crear nuevo cliente
     db.prepare(`
-      INSERT INTO clients (phone, chat_id, name, email, notes, memory, status, interaction_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO clients (phone, chat_id, name, email, notes, memory, status, interaction_count, has_bought_gun, is_club_plus, is_club_pro, has_ai_bot)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
     `).run(
       phone,
       data.chat_id || '',
@@ -164,7 +256,11 @@ function upsertClient(phone, data = {}) {
       data.email || '',
       data.notes || '',
       data.memory || '',
-      data.status || 'new'
+      data.status || 'new',
+      data.has_bought_gun ? 1 : 0,
+      data.is_club_plus ? 1 : 0,
+      data.is_club_pro ? 1 : 0,
+      data.has_ai_bot ? 1 : 0
     );
 
     console.log(`[DB] Nuevo cliente registrado: ${phone}`);
@@ -275,6 +371,40 @@ function getConversationHistory(clientPhone, limit = 10) {
 // Limpiar historial de un cliente
 function clearConversation(clientPhone) {
   db.prepare('DELETE FROM conversations WHERE client_phone = ?').run(clientPhone);
+}
+
+// ============================================
+// OPERACIONES DE CARNETS
+// ============================================
+
+// Guardar un carnet recibido para verificación
+function saveCarnet(clientPhone, clientName, imagenBase64, imagenMime, datos = {}) {
+  return db.prepare(`
+    INSERT INTO carnets (client_phone, client_name, imagen_base64, imagen_mime, qr_contenido, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    clientPhone,
+    clientName || '',
+    imagenBase64 || '',
+    imagenMime || 'image/jpeg',
+    datos.qr_contenido || '',
+    datos.nombre || '',
+    datos.cedula || '',
+    datos.vigente_hasta || '',
+    datos.marca_arma || '',
+    datos.modelo_arma || '',
+    datos.serial || ''
+  );
+}
+
+// Obtener carnets pendientes de verificar
+function getCarnetsPendientes() {
+  return db.prepare(`SELECT * FROM carnets WHERE estado = 'pendiente' ORDER BY created_at DESC`).all();
+}
+
+// Cambiar estado de un carnet (verificado / rechazado)
+function updateCarnetEstado(id, estado, verificadoPor = '') {
+  db.prepare(`UPDATE carnets SET estado = ?, verificado_por = ?, verified_at = CURRENT_TIMESTAMP WHERE id = ?`).run(estado, verificadoPor, id);
 }
 
 // ============================================
@@ -420,7 +550,7 @@ function updateClientNotes(phone, notes) {
 function resetClient(phone) {
   db.prepare('DELETE FROM conversations WHERE client_phone = ?').run(phone);
   db.prepare("UPDATE assignments SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE client_phone = ? AND status = 'active'").run(phone);
-  db.prepare("UPDATE clients SET status = 'new', memory = '', interaction_count = 0, updated_at = CURRENT_TIMESTAMP WHERE phone = ?").run(phone);
+  db.prepare("UPDATE clients SET status = 'new', memory = '', interaction_count = 0, has_bought_gun = 0, is_club_plus = 0, is_club_pro = 0, has_ai_bot = 0, updated_at = CURRENT_TIMESTAMP WHERE phone = ?").run(phone);
 }
 
 // Cerrar asignación de un cliente
@@ -573,6 +703,10 @@ module.exports = {
   saveComprobante,
   getComprobantesPendientes,
   updateComprobanteEstado,
+  // Carnets
+  saveCarnet,
+  getCarnetsPendientes,
+  updateCarnetEstado,
 };
 
 // ============================================

@@ -520,7 +520,8 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             // Obtener historial y memoria del cliente (contexto completo)
             const history = db.getConversationHistory(senderPhone, 10);
             const clientMemory = db.getClientMemory(senderPhone);
-            const systemPrompt = buildSystemPrompt('El cliente envió una imagen. Continúa la conversación con el contexto previo que ya tienes.', clientMemory);
+            const clientProfile = db.getClient(senderPhone);
+            const systemPrompt = buildSystemPrompt('El cliente envió una imagen. Continúa la conversación con el contexto previo que ya tienes.', clientMemory, clientProfile);
 
             // Construir historial previo para que Gemini tenga contexto de la conversación
             const geminiHistory = history
@@ -545,8 +546,54 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               console.log(`[QR] No se detectó QR en la imagen`);
             }
 
-            // Detectar si la imagen es un comprobante de pago usando Gemini
+            // Detectar si es CARNET de Club ZT (antes de verificar si es comprobante)
             const imagePart = { inlineData: { data: media.data, mimeType: mediaType } };
+            let esCarnet = false;
+            let datosCarnet = {};
+            try {
+              const carnetCheckModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+              const carnetCheckResult = await carnetCheckModel.generateContent([
+                imagePart,
+                '¿Esta imagen es un CARNET del Club Zona Traumática / Carné de Tiro AML? Busca: texto "Carné de Tiro AML", logo "ZT", texto "ZONA TRAUMATICA", o referencia a "LEY 2197". Si es un carnet, extrae los campos visibles. Responde SOLO con JSON: {"esCarnet": true/false, "nombre": "", "cedula": "", "vigente_hasta": "", "marca_arma": "", "modelo_arma": "", "serial": ""}'
+              ]);
+              const carnetText = carnetCheckResult.response.text().trim().replace(/```json|```/g, '').trim();
+              const carnetData = JSON.parse(carnetText);
+              esCarnet = carnetData.esCarnet === true;
+              if (esCarnet) {
+                datosCarnet = carnetData;
+                console.log(`[CARNET] 🪪 Detectado de ${senderPhone}: ${datosCarnet.nombre || 'sin nombre'} (${datosCarnet.cedula || 'sin cedula'})`);
+              }
+            } catch (e) {
+              console.log(`[CARNET] No pudo detectar si es carnet: ${e.message}`);
+            }
+
+            if (esCarnet) {
+              // Es un carnet — guardarlo para verificación en panel
+              const clientInfo = db.getClient(senderPhone);
+              const clientNameForCarnet = clientInfo?.name || senderPhone;
+              const carnetResult = db.saveCarnet(senderPhone, clientNameForCarnet, media.data, mediaType, datosCarnet);
+              const carnetId = carnetResult.lastInsertRowid;
+
+              const replyCarnet = '¡Recibí tu carnet! Nuestro equipo lo va a verificar. Si hay algo que necesites, me avisas 🙌';
+              await msg.reply(replyCarnet);
+
+              // Notificar a Álvaro
+              const notifCarnet = `🪪 *CARNET RECIBIDO PARA VERIFICACIÓN*\n` +
+                `━━━━━━━━━━━━━━━━━━━━\n` +
+                `👤 *Nombre en carnet:* ${datosCarnet.nombre || 'no legible'}\n` +
+                `🪪 *Cédula:* ${datosCarnet.cedula || 'no legible'}\n` +
+                `📱 *WhatsApp:* wa.me/${senderPhone}\n` +
+                `🏷️ *Arma:* ${datosCarnet.marca_arma || ''} ${datosCarnet.modelo_arma || ''} (${datosCarnet.serial || ''})\n` +
+                `📅 *Vigente hasta:* ${datosCarnet.vigente_hasta || 'no legible'}\n\n` +
+                `Panel → pestaña 🪪 Carnets → ID #${carnetId}`;
+              try { await client.sendMessage(CONFIG.businessPhone + '@c.us', notifCarnet); } catch (_) { }
+
+              db.saveMessage(senderPhone, 'user', '[Carnet Club ZT enviado para verificación]');
+              db.saveMessage(senderPhone, 'assistant', replyCarnet);
+              return;
+            }
+
+            // Detectar si la imagen es un comprobante de pago usando Gemini
             let esComprobante = false;
             let infoComprobante = '';
             try {
@@ -1415,11 +1462,12 @@ async function getClaudeResponse(clientPhone, message, history) {
       if (CONFIG.debug) console.log(`[DEBUG] 💬 Conversación general, sin búsqueda de productos`);
     }
 
-    // 2. Obtener memoria del cliente
+    // 2. Obtener memoria y perfil del cliente
     const clientMemory = db.getClientMemory(clientPhone);
+    const clientProfile = db.getClient(clientPhone);
 
-    // 3. Construir system prompt
-    const systemPrompt = buildSystemPrompt(productContext, clientMemory);
+    // 3. Construir system prompt con ficha estructurada
+    const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile);
 
     // 4. Convertir historial al formato Gemini
     // Gemini usa 'user' y 'model' (no 'assistant')

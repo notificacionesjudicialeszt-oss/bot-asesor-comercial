@@ -6,14 +6,77 @@
 
 const search = require('./search');
 
-function buildSystemPrompt(productContext, clientMemory = '') {
+function buildSystemPrompt(productContext, clientMemory = '', clientProfile = null) {
    // Resumen general del catálogo (siempre va, es corto)
    const catalogSummary = search.getCatalogSummary();
 
-   // Bloque de memoria del cliente (solo si tiene)
+   // ──────────────────────────────────────────────────
+   // FICHA ESTRUCTURADA DEL CLIENTE (nueva lógica CRM)
+   // ──────────────────────────────────────────────────
+   let fichaBloque = '';
+   let restricciones = '';
+
+   if (clientProfile) {
+      const hoy = new Date();
+      const vigente = clientProfile.club_vigente_hasta
+         ? new Date(clientProfile.club_vigente_hasta.split('/').reverse().join('-'))
+         : null;
+      const carnetVigente = vigente && vigente >= hoy;
+      const carnetVencido = vigente && vigente < hoy;
+
+      const planLabel = clientProfile.club_plan === 'pro' ? 'PRO'
+         : clientProfile.club_plan === 'plus' ? 'PLUS'
+            : null;
+
+      // — Datos personales
+      const lineasPersonales = [];
+      if (clientProfile.cedula) lineasPersonales.push(`Cédula: ${clientProfile.cedula}`);
+      if (clientProfile.ciudad) lineasPersonales.push(`Ciudad: ${clientProfile.ciudad}`);
+      if (clientProfile.direccion) lineasPersonales.push(`Dirección: ${clientProfile.direccion}`);
+      if (clientProfile.profesion) lineasPersonales.push(`Profesión: ${clientProfile.profesion}`);
+
+      // — Relación con ZT
+      const lineasZT = [];
+      if (clientProfile.has_bought_gun) lineasZT.push('✅ Ha comprado arma con Zona Traumática');
+      if (clientProfile.modelo_arma) lineasZT.push(`Arma registrada: ${clientProfile.modelo_arma}${clientProfile.serial_arma ? ' (serial: ' + clientProfile.serial_arma + ')' : ''}`);
+
+      if (planLabel && carnetVigente) {
+         lineasZT.push(`🛡️ Afiliado ACTIVO — Plan ${planLabel} (vigente hasta: ${clientProfile.club_vigente_hasta})`);
+         if (clientProfile.has_ai_bot) lineasZT.push('🤖 Bot Asesor Legal IA: ACTIVO');
+      } else if (planLabel && carnetVencido) {
+         lineasZT.push(`⚠️ Afiliación VENCIDA — Plan ${planLabel} (venció: ${clientProfile.club_vigente_hasta})`);
+      } else {
+         lineasZT.push('❌ No es afiliado al Club ZT');
+      }
+
+      fichaBloque = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 FICHA DEL CLIENTE (CRM — datos verificados por el equipo):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${lineasPersonales.length ? lineasPersonales.join('\n') + '\n' : ''}${lineasZT.join('\n')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+      // ── Restricciones y directivas según perfil ──
+      if (planLabel && carnetVigente) {
+         restricciones = `
+⚠️ DIRECTIVAS CRÍTICAS PARA ESTE CLIENTE:
+- Es afiliado ACTIVO Plan ${planLabel}. NO le ofrezcas el Club — ya lo tiene.
+- Si pregunta por el Bot Asesor Legal IA: ${clientProfile.has_ai_bot ? 'ya lo tiene activo — cuéntale cómo usarlo.' : 'no lo tiene todavía — puédelo ofrecer como upgrade.'}
+- Si pregunta por renovación, oriéntalo a renovar el plan al vencer.`;
+      } else if (planLabel && carnetVencido) {
+         restricciones = `
+⚠️ DIRECTIVAS CRÍTICAS PARA ESTE CLIENTE:
+- Su carnet VENCIÓ el ${clientProfile.club_vigente_hasta}. OFRECE renovación con urgencia.
+- Ejemplo: "Veo que tu membresía venció, ¿renovamos pa que no pierdas los beneficios?" `;
+      } else {
+         restricciones = '';
+      }
+   }
+
+   // Bloque de memoria libre (notas del bot de sesiones anteriores)
    const memoryBlock = clientMemory
-      ? `\nFICHA DEL CLIENTE (memoria de interacciones previas):\n${clientMemory}\nUsa esta información para personalizar tu respuesta. Si ya sabes qué busca, sé más directo.\n`
-      : '\nCLIENTE NUEVO: No hay interacciones previas. Preséntate brevemente y pregunta en qué puedes ayudar.\n';
+      ? `\nNOTAS DE CONVERSACIONES PREVIAS:\n${clientMemory}\nUsa estas notas para personalizar tu respuesta.\n`
+      : (!clientProfile ? '\nCLIENTE NUEVO: No hay interacciones previas. Preséntate brevemente y pregunta en qué puedes ayudar.\n' : '');
 
    return `Eres un asesor comercial de *Zona Traumática*, la tienda líder en Colombia especializada en armas traumáticas legales, defensa personal y respaldo jurídico. Álvaro Ocampo es el director.
 
@@ -279,7 +342,10 @@ Cuando veas mensajes marcados como [ÁLVARO respondió directamente] en el histo
 - NO contradigas lo que Álvaro prometió (precios, tiempos, condiciones)
 - Si Álvaro negoció un precio especial, respeta ese precio exacto
 - Si no entiendes qué acordó Álvaro, dile al cliente: "Déjame confirmar con mi equipo"
-- Sigue el tono y dirección que Álvaro estableció`;
+- Sigue el tono y dirección que Álvaro estableció
+${fichaBloque}
+${restricciones}
+${memoryBlock}`;
 }
 
 module.exports = { buildSystemPrompt };
