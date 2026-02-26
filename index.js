@@ -2771,6 +2771,75 @@ function startReactivacionServer() {
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
       });
+    } else if (req.url === '/confirmar-carnet' && req.method === 'POST') {
+      // Panel confirma o rechaza un carnet subido
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { id, accion, phone, carnetData } = JSON.parse(body);
+
+          // 1. Actualizar estado del carnet en BD
+          db.updateCarnetEstado(id, accion === 'confirmar' ? 'confirmado' : 'rechazado');
+
+          // 2. Resolver LID a número real (por si acaso)
+          let phoneClean = phone.replace(/@.*/g, '').replace(/\D/g, '');
+          if (phoneClean.length >= 13) {
+            const row = db.db.prepare('SELECT phone FROM clients WHERE chat_id LIKE ? AND phone != ?').get('%' + phoneClean + '%', phoneClean);
+            if (row) {
+              phoneClean = row.phone;
+            }
+          }
+
+          let waSent = true;
+          let waError = null;
+          let msgToClient = null;
+
+          if (accion === 'confirmar') {
+            // Actualizar la ficha del cliente con los datos extraídos
+            const clientUpdate = {
+              status: 'afiliado',
+              name: carnetData.nombres || undefined,
+              cedula: carnetData.cedula || undefined,
+              ciudad: carnetData.ciudad || undefined,
+              club_plan: 'Plan Plus', // Por defecto asignamos Plus si es un carnet estándar
+              serial_arma: carnetData.serial || undefined,
+              modelo_arma: carnetData.arma || undefined
+            };
+            db.upsertClient(phoneClean, clientUpdate);
+
+            // Actualizar memoria para que el bot lo trate como afiliado
+            const memoriaActual = db.getClientMemory(phoneClean) || '';
+            const tagAfiliado = '✅ AFILIADO ACTIVO AL CLUB ZT (Carnet verificado). NO ofrecer venta de membresía. SIEMPRE ofrecer beneficios del club y soporte.';
+            if (!memoriaActual.includes(tagAfiliado)) {
+              db.updateClientMemory(phoneClean, memoriaActual ? memoriaActual + '\n' + tagAfiliado : tagAfiliado);
+            }
+
+            msgToClient = `✅ *¡Carnet verificado con éxito!*\n\nTu perfil en la base de datos de Zona Traumática ha sido actualizado y tu afiliación al Club ZT está **activa**. 🛡️\n\nA partir de este momento cuentas con:\n- Asistencia legal 24/7\n- Acceso a la comunidad de portadores\n- Descuentos en munición y accesorios\n\n¿Tienes alguna dudad legal o te gustaría consultar nuestro catálogo de munición?`;
+            console.log(`[CARNET] ✅ BD actualizada ID #${id} para ${phoneClean}`);
+          } else {
+            msgToClient = `⚠️ *Revisión de Carnet*\n\nHola, hemos revisado la imagen de tu carnet pero los datos no son completamente legibles o hay alguna inconsistencia.\n\n👉 Por favor, envíanos una foto **más clara**, bien iluminada y donde se pueda leer todo el texto sin reflejos. ¡Quedo atento! 🙏`;
+          }
+
+          // 3. Notificar al cliente
+          try {
+            await safeSend(phoneClean, msgToClient);
+            db.saveMessage(phoneClean, 'assistant', msgToClient);
+            console.log(`[CARNET] 📱 Notificación enviada a ${phoneClean}`);
+          } catch (waErr) {
+            waSent = false;
+            waError = waErr.message;
+            console.error(`[CARNET] ⚠️ No se pudo notificar a ${phoneClean}: ${waErr.message}`);
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, waSent, waWarning: waError }));
+        } catch (e) {
+          console.error('[CARNET] Error confirmar:', e.message);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
     } else if (req.url === '/resolver-lids' && req.method === 'POST') {
       // Resolver phones LID: clientes cuyo phone >= 13 dígitos NO son un número real
       // Solo responsabilidad: dejar el número real como phone. El chat_id se auto-sana al enviar.

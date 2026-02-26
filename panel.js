@@ -387,6 +387,42 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Proxy para confirmar/rechazar carnet
+  if (url.pathname === '/api/confirmar-carnet' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = body;
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/confirmar-carnet',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 🪪 Carnet procesado:`, data);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Resolver LIDs a números reales — relay al bot
   if (url.pathname === '/api/resolver-lids' && req.method === 'POST') {
     const lidCount = db.prepare("SELECT COUNT(*) as c FROM clients WHERE length(phone) >= 13 OR chat_id LIKE '%@c.us'").get().c;
@@ -503,6 +539,20 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Carnets pendientes
+  if (url.pathname === '/api/carnets') {
+    try {
+      const carnets = db.prepare(`SELECT id, client_phone, datos_extraidos_json, imagen_base64, imagen_mime, estado, created_at FROM carnets WHERE estado = 'pendiente' ORDER BY created_at DESC`).all();
+      console.log(`[PANEL] 🪪 Carnets cargados: ${carnets.length} pendientes`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(carnets));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // Actualizar inventario usando IA (ejecuta el script update_inventory.js)
   if (url.pathname === '/api/update-inventory' && req.method === 'POST') {
     console.log('[PANEL] 📦 Recibida petición para actualizar inventario IA...');
@@ -524,6 +574,19 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/comprobantes-count') {
     try {
       const count = db.prepare(`SELECT COUNT(*) as c FROM comprobantes WHERE estado = 'pendiente'`).get().c;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ count }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Count liviano de carnets pendientes (para el badge)
+  if (url.pathname === '/api/carnets-count') {
+    try {
+      const count = db.prepare(`SELECT COUNT(*) as c FROM carnets WHERE estado = 'pendiente'`).get().c;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ count }));
     } catch (e) {
@@ -717,6 +780,7 @@ function getHTML() {
 <div class="main-tabs">
   <div class="main-tab active" id="mainTabComercial" onclick="switchMainTab('comercial')">💼 Comercial</div>
   <div class="main-tab" id="mainTabComprobantes" onclick="switchMainTab('comprobantes')">💰 Por Verificar <span class="badge" id="comprobanteBadge" style="display:none">0</span></div>
+  <div class="main-tab" id="mainTabCarnets" onclick="switchMainTab('carnets')">🪪 Carnets <span class="badge" id="carnetsBadge" style="display:none">0</span></div>
   <div class="main-tab" id="mainTabPostventa" onclick="switchMainTab('postventa')">🛠️ Post-venta <span class="badge" id="postventaBadge" style="display:none">0</span></div>
 </div>
 
@@ -744,6 +808,11 @@ function getHTML() {
 <!-- Vista: Comprobantes por verificar -->
 <div id="viewComprobantes">
   <div id="comprobantesList"></div>
+</div>
+
+<!-- Vista: Carnets por verificar -->
+<div id="viewCarnets" style="display:none;">
+  <div id="carnetsList"></div>
 </div>
 
 <!-- Vista: Post-venta -->
@@ -1323,9 +1392,22 @@ async function loadComprobanteBadge() {
   } catch(e) {}
 }
 
+async function loadCarnetsBadge() {
+  try {
+    const res = await fetch('/api/carnets-count');
+    const { count } = await res.json();
+    const badge = document.getElementById('carnetsBadge');
+    if (badge) {
+      if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+      else badge.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
 async function refreshAll() {
   await loadData();
   await loadComprobanteBadge();
+  await loadCarnetsBadge();
   // Badge post-venta (todos los status del grupo PV)
   if (allData) {
     const pvStatuses = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
@@ -1348,11 +1430,14 @@ function switchMainTab(tab) {
   currentMainTab = tab;
   document.getElementById('mainTabComercial').classList.toggle('active', tab === 'comercial');
   document.getElementById('mainTabComprobantes').classList.toggle('active', tab === 'comprobantes');
+  document.getElementById('mainTabCarnets').classList.toggle('active', tab === 'carnets');
   document.getElementById('mainTabPostventa').classList.toggle('active', tab === 'postventa');
   document.getElementById('viewClientes').classList.toggle('active', tab === 'comercial');
   document.getElementById('viewComprobantes').classList.toggle('active', tab === 'comprobantes');
+  document.getElementById('viewCarnets').classList.toggle('active', tab === 'carnets');
   document.getElementById('viewPostventa').classList.toggle('active', tab === 'postventa');
   if (tab === 'comprobantes') loadComprobantes();
+  if (tab === 'carnets') loadCarnets();
   if (tab === 'postventa') renderPostventa();
 }
 
@@ -1600,6 +1685,117 @@ async function accionComprobante(id, accion, phone, tipo) {
     alert('❌ Error de red. ¿Está corriendo el panel?');
     if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Confirmar pago'; }
     if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar'; }
+  }
+}
+
+// ====== CARNETS ======
+async function loadCarnets() {
+  try {
+    const res = await fetch('/api/carnets');
+    const carnets = await res.json();
+
+    const badge = document.getElementById('carnetsBadge');
+    if (carnets.length > 0) {
+      badge.textContent = carnets.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const container = document.getElementById('carnetsList');
+    if (!carnets.length) {
+      container.innerHTML = '<div class="comprobante-empty">✅ No hay carnets pendientes de verificar</div>';
+      return;
+    }
+
+    container.innerHTML = carnets.map(c => {
+      let extraData = {};
+      try { extraData = JSON.parse(c.datos_extraidos_json); } catch(e){}
+      
+      const fecha = new Date(c.created_at).toLocaleString('es-CO');
+      const imgHtml = c.imagen_base64
+        ? \`<img class="comprobante-img" src="data:\${c.imagen_mime};base64,\${c.imagen_base64}" alt="carnet" onclick="openLightbox(this.src)" title="Click para ver completo">\`
+        : \`<div class="comprobante-img-placeholder">📄 Sin carnet</div>\`;
+
+      const safeDataText = encodeURIComponent(c.datos_extraidos_json);
+
+      return \`
+        <div class="comprobante-card" id="carn_\${c.id}">
+          \${imgHtml}
+          <div class="comprobante-info">
+            <div class="comprobante-name">\${extraData.nombres || extraData.nombre || 'Nombre no detectado'}</div>
+            <div class="comprobante-phone">📱 \${c.client_phone}</div>
+            <div class="comprobante-detail" style="margin-top: 5px;">
+              <strong>Cédula:</strong> \${extraData.cedula || 'N/A'}<br>
+              <strong>Club:</strong> \${extraData.club || 'N/A'} <br>
+              <strong>Arma:</strong> \${extraData.arma || 'N/A'}<br>
+              <strong>Serial:</strong> \${extraData.serial || 'N/A'}
+            </div>
+            <div><span class="comprobante-tipo tipo-club">🪪 Carnet ZT</span></div>
+            <div class="comprobante-time">📅 \${fecha}</div>
+            <div style="margin-top:8px;"><a href="https://wa.me/\${c.client_phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir en WhatsApp</a></div>
+          </div>
+          <div class="comprobante-actions">
+            <!-- Pasamos los datos extraídos para que el backend pueda guardarlos -->
+            <button class="btn-confirmar" id="btn_carn_confirm_\${c.id}" onclick="accionCarnet(\${c.id}, 'confirmar', '\${c.client_phone}', '\${safeDataText}')">✅ Aprobar y Actualizar Ficha</button>
+            <button class="btn-rechazar" id="btn_carn_reject_\${c.id}" onclick="accionCarnet(\${c.id}, 'rechazar', '\${c.client_phone}', '')">❌ Rechazar (Ilegible/Falso)</button>
+          </div>
+        </div>
+      \`;
+    }).join('');
+  } catch(e) {
+    console.error('Error cargando carnets:', e);
+  }
+}
+
+async function accionCarnet(id, accion, phone, carnetDataEncoded) {
+  const btnConfirm = document.getElementById('btn_carn_confirm_' + id);
+  const btnReject = document.getElementById('btn_carn_reject_' + id);
+  if (btnConfirm) btnConfirm.disabled = true;
+  if (btnReject) btnReject.disabled = true;
+  
+  if (accion === 'confirmar' && btnConfirm) btnConfirm.textContent = '⏳ Aprobando...';
+  if (accion === 'rechazar' && btnReject) btnReject.textContent = '⏳ Rechazando...';
+
+  let carnetData = {};
+  try {
+    if (carnetDataEncoded) {
+      carnetData = JSON.parse(decodeURIComponent(carnetDataEncoded));
+    }
+  } catch(e) {}
+
+  try {
+    const res = await fetch('/api/confirmar-carnet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, accion, phone, carnetData })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const card = document.getElementById('carn_' + id);
+      if (card) {
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+        let status;
+        if (!data.waSent) {
+          status = '<div style="color:#d29922;font-size:13px;font-weight:700;margin-top:8px;">⚠️ BD actualizada pero falló WhatsApp.</div>';
+        } else {
+          status = accion === 'confirmar'
+            ? '<div style="color:#3fb950;font-size:13px;font-weight:700;margin-top:8px;">✅ Carnet Aprobado y Perfil Actualizado</div>'
+            : '<div style="color:#f85149;font-size:13px;font-weight:700;margin-top:8px;">❌ Rechazado — bot notificó al cliente</div>';
+        }
+        card.querySelector('.comprobante-actions').innerHTML = status;
+      }
+      if (currentMainTab === 'carnets') setTimeout(loadCarnets, 2000);
+    } else {
+      alert('❌ Error: ' + (data.error || 'No se pudo conectar con el bot'));
+      if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Aprobar y Actualizar Ficha'; }
+      if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar (Ilegible/Falso)'; }
+    }
+  } catch(e) {
+    alert('❌ Error de red. ¿Está corriendo el panel?');
+    if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Aprobar y Actualizar Ficha'; }
+    if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar (Ilegible/Falso)'; }
   }
 }
 
