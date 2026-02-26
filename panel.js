@@ -144,6 +144,33 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Toggles de la Bóveda de Servicios (Botones DB boolean)
+  if (url.pathname === '/api/toggle-client-flag' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { phone, flag, value } = JSON.parse(body);
+        const val = value ? 1 : 0;
+        const validFlags = ['has_bought_gun', 'is_club_plus', 'is_club_pro', 'has_ai_bot'];
+
+        if (!validFlags.includes(flag)) {
+          throw new Error('Flag de servicio inválido');
+        }
+
+        db.prepare(`UPDATE clients SET ${flag} = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?`).run(val, phone);
+        console.log(`[PANEL] 🔒 Bóveda de Servicios: ${phone} → ${flag} = ${val}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, flag, val }));
+      } catch (e) {
+        console.error('[PANEL] toggle-client-flag error:', e.message);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Marcar / desmarcar spam flag
   if (url.pathname === '/api/set-spam-flag' && req.method === 'POST') {
     let body = '';
@@ -664,6 +691,10 @@ function getHTML() {
   #imgLightbox { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#000000cc; z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
   #imgLightbox.open { display:flex; }
   #imgLightbox img { max-width: 90%; max-height: 90%; border-radius: 6px; border: 2px solid #30363d; }
+  /* Botones Toggle Bóveda Servicios */
+  .btn-toggle { background: #1c2733; color: #8b949e; border: 1px solid #30363d; border-radius: 4px; padding: 6px 12px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-family: 'Chakra Petch', sans-serif; transition: all 0.2s; white-space: nowrap; }
+  .btn-toggle:hover { background: #222e3c; }
+  .btn-toggle.on { background: #23863622; color: #3fb950; border-color: #238636; }
 </style>
 </head>
 <body>
@@ -994,12 +1025,23 @@ async function selectClient(phone) {
     <div class="client-detail">
       <h3>\${client.name || 'Sin nombre'} <span class="client-status status-\${client.status}">\${client.status}</span></h3>
       <div class="detail-grid">
-        <div class="detail-item"><span class="dl">\${isLid(client.phone) ? '🔒 ID WA:' : '📱 Teléfono:'}</span> <span class="dv">\${isLid(client.phone) ? '<span style=\\"color:#8b949e;font-size:11px;\\">' + client.phone + ' (privado)</span>' : client.phone}</span></div>
+        <div class="detail-item"><span class="dl">\${isLid(client.phone) ? '🔒 ID WA:' : '📱 Teléfono:'}</span> <span class="dv">\${isLid(client.phone) ? '<span style="color:#8b949e;font-size:11px;">' + client.phone + ' (privado)</span>' : client.phone}</span></div>
         <div class="detail-item"><span class="dl">💬 Mensajes:</span> <span class="dv">\${client.interaction_count || 0}</span></div>
         <div class="detail-item"><span class="dl">📅 Registro:</span> <span class="dv">\${new Date(client.created_at).toLocaleDateString()}</span></div>
         <div class="detail-item"><span class="dl">👔 Asignado:</span> <span class="dv">\${assignment ? assignment.employee_name : 'No'}</span></div>
+        
+        <div class="detail-item" style="grid-column: 1 / -1; margin-top: 10px; background: #0d1117; padding: 10px; border-radius: 6px; border: 1px dashed #30363d;">
+          <span class="dl" style="color:#3fb950; font-size:13px;"><i class="fas fa-lock"></i> 🔒 Bóveda de Servicios Adquiridos (Memoria para la IA):</span>
+          <div style="display:flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+            <button class="btn-toggle \${client.has_bought_gun ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})">🔫 Compró Arma</button>
+            <button class="btn-toggle \${client.is_club_plus ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'is_club_plus', \${client.is_club_plus || 0})">🟡 Club Plus</button>
+            <button class="btn-toggle \${client.is_club_pro ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'is_club_pro', \${client.is_club_pro || 0})">🔴 Club Pro</button>
+            <button class="btn-toggle \${client.has_ai_bot ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'has_ai_bot', \${client.has_ai_bot || 0})">🤖 Chatbot IA</button>
+          </div>
+        </div>
       </div>
-      \${client.memory ? '<div class="memory-box">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : ''}
+      
+      \${client.memory ? '<div class="memory-box" style="margin-top:15px;display:flex;gap:10px;align-items:flex-start;">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : ''}
 
       <div class="crm-actions">
         <div class="crm-actions-title">⚡ Acciones rápidas — el bot sabrá esto al responder</div>
@@ -1148,9 +1190,28 @@ async function addNote(phone, note) {
 async function saveNote(phone) {
   const input = document.getElementById('noteInput_' + phone);
   if (!input || !input.value.trim()) return;
-  const note = input.value.trim();
-  await addNote(phone, note);
+  await addNote(phone, input.value.trim());
   input.value = '';
+}
+
+async function toggleFlag(phone, flag, currentValue) {
+  const newValue = currentValue === 1 ? false : true; // boolean
+  try {
+    const res = await fetch('/api/toggle-client-flag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, flag, value: newValue })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      selectClient(phone);
+    } else {
+      alert('❌ Error actualizando flag: ' + data.error);
+    }
+  } catch (e) {
+    alert('❌ Error conectando con servidor local');
+  }
 }
 
 async function toggleIgnored(phone, ignored) {
@@ -1409,8 +1470,36 @@ async function selectClientPv(phone) {
     </div>
   \`).join('');
   const chatArea = document.getElementById('chatAreaPv');
-  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>';
+  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:10px;padding:10px;background:#161b22;border-radius:8px;border:1px solid #30363d;">' +
+      '<textarea id="adminReplyInputPv" placeholder="Escribir como Álvaro..." style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:8px;resize:none;height:40px;font-family:inherit;font-size:13px;"></textarea>' +
+      '<button onclick="enviarMensajeAdminPv()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
+    '</div>';
   requestAnimationFrame(() => requestAnimationFrame(() => { chatArea.scrollTop = chatArea.scrollHeight; }));
+}
+
+async function enviarMensajeAdminPv() {
+  const input = document.getElementById('adminReplyInputPv');
+  const message = (input.value || '').trim();
+  if (!message || !selectedPhonePv) return;
+  input.disabled = true;
+  try {
+    const res = await fetch('/api/enviar-mensaje', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: selectedPhonePv, message })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      input.value = '';
+      selectClientPv(selectedPhonePv); // refrescar chat
+    } else {
+      alert('❌ ' + (data.error || 'Error enviando'));
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el bot');
+  }
+  input.disabled = false;
 }
 
 // ====== COMPROBANTES ======
