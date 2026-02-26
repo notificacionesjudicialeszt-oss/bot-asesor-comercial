@@ -76,7 +76,7 @@ function findBestImage(query) {
   const baseDir = path.join(__dirname, 'imagenes', 'pistolas');
   if (!fs.existsSync(baseDir)) return null;
 
-  const tokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(t => t.length > 2);
+  const tokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(t => t.length >= 2);
   if (tokens.length === 0) return null;
 
   let bestMatch = null;
@@ -111,6 +111,64 @@ function findBestImage(query) {
 
   // Requiere mínimo 2 puntos (ej. acertar un modelo o marca+algo más)
   return bestScore >= 2 ? bestMatch : null;
+}
+
+// ============================================
+// HELPER: DETECTAR Y ENVIAR IMÁGENES DE PRODUCTOS EN UNA RESPUESTA
+// Escanea la respuesta del bot buscando etiquetas [ENVIAR_IMAGEN: ...] y URLs
+// del catálogo, busca las fotos locales, y las envía al chat.
+// Devuelve la respuesta limpia (sin etiquetas) y la cantidad de imágenes enviadas.
+// ============================================
+async function detectAndSendProductImages(response, rawMsg, senderPhone) {
+  const imagesToSend = [];
+
+  // 1. Detección por etiqueta explícita [ENVIAR_IMAGEN: Marca Modelo]
+  const imageRegex = /\[ENVIAR_IMAGEN:\s*([^\]]+)\]/ig;
+  let match;
+  while ((match = imageRegex.exec(response)) !== null) {
+    const productQuery = match[1].trim();
+    console.log(`[IMG] 🔍 Etiqueta ENVIAR_IMAGEN: "${productQuery}"`);
+    const foundPath = findBestImage(productQuery);
+    console.log(`[IMG] ${foundPath ? '✅' : '❌'} findBestImage("${productQuery}") → ${foundPath || 'NO ENCONTRADA'}`);
+    if (foundPath && !imagesToSend.includes(foundPath)) {
+      imagesToSend.push(foundPath);
+    }
+  }
+
+  // Limpiar todas las etiquetas del mensaje final
+  response = response.replace(imageRegex, '').trim();
+
+  // 2. Detección automática por URL de producto
+  const urlRegex = /zonatraumatica\.(com|club)\/producto\/([a-zA-Z0-9\-]+)/ig;
+  let urlMatch;
+  while ((urlMatch = urlRegex.exec(response)) !== null) {
+    const productSlug = urlMatch[2].replace(/-/g, ' ').trim();
+    console.log(`[IMG] 🔍 URL producto: slug="${urlMatch[2]}", query="${productSlug}"`);
+    const foundPath = findBestImage(productSlug);
+    console.log(`[IMG] ${foundPath ? '✅' : '❌'} findBestImage("${productSlug}") → ${foundPath || 'NO ENCONTRADA'}`);
+    if (foundPath && !imagesToSend.includes(foundPath)) {
+      imagesToSend.push(foundPath);
+    }
+  }
+
+  // 3. Enviar las imágenes encontradas
+  let sent = 0;
+  for (const imgPath of imagesToSend) {
+    try {
+      const media = MessageMedia.fromFilePath(imgPath);
+      await rawMsg.reply(media);
+      console.log(`[IMG] 🖼️ Imagen enviada a ${senderPhone}: ${path.basename(imgPath)}`);
+      sent++;
+    } catch (imgErr) {
+      console.error(`[IMG] ❌ Error enviando imagen ${imgPath}:`, imgErr.message);
+    }
+  }
+
+  if (imagesToSend.length === 0) {
+    console.log(`[IMG] ℹ️ Sin imágenes detectadas en respuesta para ${senderPhone}`);
+  }
+
+  return { cleanResponse: response, imagesSent: sent };
 }
 
 // ============================================
@@ -1088,7 +1146,23 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
     // Ya confirmó — escalar a post-venta
     await handleHandoff(rawMsg, senderPhone, messageBody, history, 'postventa');
   } else if (wantsHuman && hasEnoughHistory || wantsHumanExplicit) {
-    // --- LEAD CALIENTE: marcar en panel silenciosamente y seguir con IA ---
+    // --- LEAD CALIENTE: responder CON IA (incluye imágenes) y escalar silenciosamente ---
+    let response;
+    if (CONFIG.mode === 'direct') {
+      response = await getClaudeResponse(senderPhone, messageBody, history);
+    } else {
+      response = await getN8nResponse(senderPhone, messageBody, history);
+    }
+
+    if (response) {
+      response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
+      const { cleanResponse } = await detectAndSendProductImages(response, rawMsg, senderPhone);
+      response = cleanResponse;
+      db.saveMessage(senderPhone, 'assistant', response);
+      await rawMsg.reply(response);
+    }
+
+    // Escalar silenciosamente a Álvaro (el cliente NO ve el mensaje de handoff)
     await handleHandoff(rawMsg, senderPhone, messageBody, history, 'venta');
   } else {
     // --- RESPONDER CON IA ---
@@ -1105,61 +1179,15 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
       // Esto evita que WhatsApp rompa los links si Gemini ignora la instrucción
       response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
 
-      // ---------------------------------------------------------
-      // DETECTAR ETIQUETAS [ENVIAR_IMAGEN: ...] Y LINKS AL CATALOGO
-      // ---------------------------------------------------------
-      const imagesToSend = [];
-
-      // 1. Detección por etiqueta explícita
-      const imageRegex = /\[ENVIAR_IMAGEN:\s*([^\]]+)\]/ig;
-      let match;
-      while ((match = imageRegex.exec(response)) !== null) {
-        const productQuery = match[1].trim();
-        console.log(`[BOT-DEBUG] Etiqueta ENVIAR_IMAGEN dectectada: "${productQuery}"`);
-        const foundPath = findBestImage(productQuery);
-        console.log(`[BOT-DEBUG] Resultado findBestImage para etiqueta:`, foundPath);
-        if (foundPath && !imagesToSend.includes(foundPath)) {
-          imagesToSend.push(foundPath);
-        } else if (!foundPath) {
-          console.warn(`[BOT] ⚠️ FOTO FALTANTE: Se solicitó "${productQuery}" con etiqueta pero no se halló en imagenes/pistolas`);
-        }
-      }
-
-      // Limpiar todas las etiquetas del mensaje final
-      response = response.replace(imageRegex, '').trim();
-
-      // 2. Detección automática por URL de producto
-      // Extrae el "slug" de zonatraumatica.club/producto/slug y busca la imagen
-      const urlRegex = /zonatraumatica\.(com|club)\/producto\/([a-zA-Z0-9\-]+)/ig;
-      let urlMatch;
-      while ((urlMatch = urlRegex.exec(response)) !== null) {
-        const productSlug = urlMatch[2].replace(/-/g, ' ').trim();
-        console.log(`[BOT-DEBUG] URL de producto detectada: slug="${urlMatch[2]}", query="${productSlug}"`);
-        const foundPath = findBestImage(productSlug);
-        console.log(`[BOT-DEBUG] Resultado findBestImage para URL:`, foundPath);
-        if (foundPath && !imagesToSend.includes(foundPath)) {
-          imagesToSend.push(foundPath);
-        } else if (!foundPath) {
-          console.warn(`[BOT] ⚠️ FOTO FALTANTE: Se mencionó el producto "${productSlug}" en un link pero no se halló foto local`);
-        }
-      }
+      // Detectar y enviar imágenes de productos (etiquetas + URLs)
+      const { cleanResponse } = await detectAndSendProductImages(response, rawMsg, senderPhone);
+      response = cleanResponse;
 
       // Guardar respuesta del bot
       db.saveMessage(senderPhone, 'assistant', response);
 
       // Enviar respuesta (el texto principal)
       await rawMsg.reply(response);
-
-      // Enviar las imágenes de los productos encontrados
-      for (const imgPath of imagesToSend) {
-        try {
-          const media = MessageMedia.fromFilePath(imgPath);
-          await rawMsg.reply(media);
-          console.log(`[BOT] 🖼️ Imagen de producto enviada a ${senderPhone}: ${path.basename(imgPath)}`);
-        } catch (imgErr) {
-          console.error(`[BOT] Error enviando imagen ${imgPath}:`, imgErr.message);
-        }
-      }
 
       // Enviar imagen promo del Club ZT SOLO cuando el bot está ofreciendo la afiliación
       // (no en cada mención — solo cuando presenta los planes activamente)
@@ -1449,13 +1477,14 @@ async function handleHandoff(msg, clientPhone, triggerMessage, history, tipo = '
   const clientLink = `https://wa.me/${clientPhone}`;
 
   // --- MENSAJE AL CLIENTE informando que fue escalado ---
-  const msgCliente = tipo === 'postventa'
-    ? `✅ Tu solicitud fue registrada y ya la estamos gestionando. En breve un asesor te contacta. 🙏`
-    : `✅ ¡Perfecto! Ya te conecté con un asesor que te va a acompañar en el proceso. En breve te contacta. 💪`;
-  try {
-    await msg.reply(msgCliente);
-  } catch (e) {
-    console.error(`[HANDOFF] ❌ Error enviando mensaje al cliente:`, e.message);
+  // Para 'venta': NO enviar mensaje al cliente (la IA ya respondió con info del producto + imágenes)
+  // Para 'postventa': enviar confirmación al cliente
+  if (tipo === 'postventa') {
+    try {
+      await msg.reply(`✅ Tu solicitud fue registrada y ya la estamos gestionando. En breve un asesor te contacta. 🙏`);
+    } catch (e) {
+      console.error(`[HANDOFF] ❌ Error enviando mensaje al cliente:`, e.message);
+    }
   }
 
   // Estado según tipo
