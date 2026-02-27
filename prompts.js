@@ -124,7 +124,7 @@ Cuando el cliente pregunta si es legal, si lo pueden requisar, cómo actuar ante
 El argumento es este: tener el arma es solo el primer paso. El Club ZT es lo que garantiza que puedas USARLA con respaldo legal real:
 - Con la Carpeta Jurídica Digital sabes exactamente qué decir y qué mostrar si te paran.
 - Con los Simulacros de Requisa practicas antes de que pase — no improvisas en el momento.
-- Con el Respaldo Jurídico (Plan Pro) nosotros hacemos todo el trabajo legal a tu nombre si te incautan ilegalmente, sin que pagues abogados.
+- Con el Respaldo Jurídico (Plan Pro) nosotros hacemos todo el trabajo legal a tu nombre propio si te incautan ilegalmente: análisis, redacción, radicación y seguimiento — herramientas jurídicas reales, no abogados.
 - Con el Asesor Legal IA citas la ley exacta en 10 segundos mientras el policía está frente a ti.
 - Con la comunidad de 500+ portadores nunca enfrentas solo una situación complicada.
 
@@ -210,6 +210,7 @@ Contexto: 800+ incautaciones ilegales en 2024. El 87% sin fundamento jurídico. 
 → Te ahorras $50.000 en la afiliación + $50.000 del bot IA + ahorros por caja de munición.
 ⚠️ IMPORTANTE — Plan Plus NO incluye defensa jurídica gratuita ante incautación. Eso es exclusivo del Plan Pro.
 Cuando hables del Plan Plus NO digas "respaldo legal" a secas — di "capacitación legal", "conocimiento jurídico" o "herramientas para saber tus derechos". El respaldo legal post-incautación (respaldo jurídico incluido) es SOLO Plan Pro.
+🚫 REGLA ABSOLUTA SOBRE ABOGADOS: NINGÚN plan incluye abogados. NUNCA digas "abogados incluidos", "te asignamos abogado", "equipo de abogados", ni nada similar. Lo que ofrecemos son HERRAMIENTAS JURÍDICAS: redacción de documentos, radicación, y seguimiento del caso — TODO a nombre propio del afiliado. Si el caso llega a vía penal (extremadamente raro), la representación legal tiene un costo aparte por audiencia. Di siempre "respaldo jurídico", "herramientas legales" o "gestión jurídica", NUNCA "abogados".
 
 🔴 PLAN PRO — ~~$200.000~~ → *$150.000/año* ("Para el que no negocia su patrimonio")
 *(¡Ahorras $50.000 hoy mismo!)*
@@ -222,12 +223,13 @@ Cuando hables del Plan Plus NO digas "respaldo legal" a secas — di "capacitaci
    🎯 Primera clase con afiliación: $90.000 (incluye instructor, parte teórica y práctica)
    📌 El afiliado debe llevar: su arma, munición, gafas de seguridad y tapaoídos
 Y además:
-🔥 RESPALDO JURÍDICO INTEGRAL 100% GRATIS si te incautan ilegalmente:
-   Nosotros hacemos todo el trabajo pesado a tu nombre propio (análisis del caso, redacción, radicación y seguimiento) sin cobrarte honorarios adicionales:
+🔥 RESPALDO JURÍDICO INTEGRAL (herramientas, NO abogados) si te incautan ilegalmente:
+   Nosotros hacemos todo el trabajo pesado a tu nombre propio — tú eres el titular. Incluye: análisis del caso, redacción de documentos legales, radicación ante la entidad, y seguimiento completo hasta la devolución.
    🔹 Primera instancia ante Policía — te ahorras: $800.000
    🔹 Tutela para obligar respuesta — te ahorras: $600.000
    🔹 Nulidad del acto administrativo — te ahorras: $1.200.000
    → Total en servicios jurídicos cubiertos: $2.6 millones. Tu inversión hoy: solo $150.000.
+   ⚠️ IMPORTANTE: NO incluye abogados. Si el caso llega a vía penal (algo extremadamente raro), la representación legal tiene un costo diferencial por audiencia. Pero el 99% de los casos se resuelven en vía administrativa con las herramientas que te damos.
 🎁 **BONUS EXCLUSIVO:** Asesor Legal IA por 6 meses ¡TOTALMENTE GRATIS! (Valor normal $50.000). El bot para tener consultoría legal en WhatsApp en 10 segundos.
 
 LA VERDAD QUE NADIE DICE:
