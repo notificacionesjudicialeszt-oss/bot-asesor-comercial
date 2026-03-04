@@ -4,44 +4,49 @@ const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Inicializar Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const GEMINI_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+if (GEMINI_KEYS.length === 0) {
+  console.error('❌ ERROR: No se encontró GEMINI_API_KEYS en el archivo .env');
+  process.exit(1);
+}
+const genAI = new GoogleGenerativeAI(GEMINI_KEYS[0]);
 
 const IMAGE_PATH = path.join(__dirname, 'imagenes', 'oferta actual', 'inventario y precios pistolas.png');
 const CATALOG_PATH = path.join(__dirname, 'catalogo_contexto.json');
 
 // Función auxiliar para convertir la imagen local a la estructura que requiere Gemini
 function fileToGenerativePart(filePath, mimeType) {
-    return {
-        inlineData: {
-            data: Buffer.from(fs.readFileSync(filePath)).toString("base64"),
-            mimeType
-        },
-    };
+  return {
+    inlineData: {
+      data: Buffer.from(fs.readFileSync(filePath)).toString("base64"),
+      mimeType
+    },
+  };
 }
 
 async function updateInventory() {
-    console.log('🖼️ Iniciando actualización de inventario desde imagen...');
+  console.log('🖼️ Iniciando actualización de inventario desde imagen...');
 
-    if (!fs.existsSync(IMAGE_PATH)) {
-        console.error(`❌ ERROR: No se encontró la imagen en la ruta: ${IMAGE_PATH}`);
-        return;
+  if (!fs.existsSync(IMAGE_PATH)) {
+    console.error(`❌ ERROR: No se encontró la imagen en la ruta: ${IMAGE_PATH}`);
+    return;
+  }
+
+  try {
+    const backupPath = path.join(__dirname, `catalogo_contexto_backup_${Date.now()}.json`);
+    if (fs.existsSync(CATALOG_PATH)) {
+      console.log('💾 Creando backup del catálogo actual...');
+      fs.copyFileSync(CATALOG_PATH, backupPath);
     }
 
-    try {
-        const backupPath = path.join(__dirname, `catalogo_contexto_backup_${Date.now()}.json`);
-        if (fs.existsSync(CATALOG_PATH)) {
-            console.log('💾 Creando backup del catálogo actual...');
-            fs.copyFileSync(CATALOG_PATH, backupPath);
-        }
+    const imagePart = fileToGenerativePart(IMAGE_PATH, "image/png");
 
-        const imagePart = fileToGenerativePart(IMAGE_PATH, "image/png");
+    console.log('🧠 Enviando imagen a Gemini Vision AI. Por favor espera, esto puede tomar unos segundos...');
 
-        console.log('🧠 Enviando imagen a Gemini Vision AI. Por favor espera, esto puede tomar unos segundos...');
+    // Usamos el modelo Pro para máxima precisión con tablas de precios
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 
-        // Usamos el modelo Pro para máxima precisión con tablas de precios
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
-
-        const prompt = `
+    const prompt = `
 Eres un asistente experto en extracción de datos de inventario.
 A continuación te presento una imagen que es el afiche oficial de precios y disponibilidad de armas traumáticas de la tienda Zona Traumática.
 
@@ -99,32 +104,32 @@ Reglas CRÍTICAS de extracción:
 5. Tu respuesta debe ser EXCLUSIVAMENTE el JSON. No incluyas marcadores de Markdown (como \`\`\`json) ni texto explicativo, solo el objeto JSON crudo para que pueda ser parseado directamente.
 `;
 
-        const result = await model.generateContent([prompt, imagePart]);
-        let responseText = result.response.text();
+    const result = await model.generateContent([prompt, imagePart]);
+    let responseText = result.response.text();
 
-        // Limpieza por si Gemini insiste en meter backticks
-        responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    // Limpieza por si Gemini insiste en meter backticks
+    responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
 
-        // Validar que sea un JSON válido
-        let parsedJson;
-        try {
-            parsedJson = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error('❌ ERROR CRÍTICO: Gemini devolvió un JSON inválido. Revisa la salida:');
-            console.log(responseText);
-            return;
-        }
-
-        // Guardar el nuevo catálogo
-        fs.writeFileSync(CATALOG_PATH, JSON.stringify(parsedJson, null, 2), 'utf8');
-
-        console.log(`✅ ¡ÉXITO! Inventario actualizado correctamente.`);
-        console.log(`📊 Productos encontrados: ${parsedJson.metadata?.total_productos || 'N/A'}`);
-        console.log(`📁 El nuevo catálogo se ha guardado en ${CATALOG_PATH}`);
-
-    } catch (error) {
-        console.error('❌ Error durante la actualización:', error);
+    // Validar que sea un JSON válido
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('❌ ERROR CRÍTICO: Gemini devolvió un JSON inválido. Revisa la salida:');
+      console.log(responseText);
+      return;
     }
+
+    // Guardar el nuevo catálogo
+    fs.writeFileSync(CATALOG_PATH, JSON.stringify(parsedJson, null, 2), 'utf8');
+
+    console.log(`✅ ¡ÉXITO! Inventario actualizado correctamente.`);
+    console.log(`📊 Productos encontrados: ${parsedJson.metadata?.total_productos || 'N/A'}`);
+    console.log(`📁 El nuevo catálogo se ha guardado en ${CATALOG_PATH}`);
+
+  } catch (error) {
+    console.error('❌ Error durante la actualización:', error);
+  }
 }
 
 // Ejecutar

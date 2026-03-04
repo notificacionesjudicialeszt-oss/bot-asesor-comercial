@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { fork } = require('child_process');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 const jsQR = require('jsqr');
 const Jimp = require('jimp');
 
@@ -24,10 +24,79 @@ const db = require('./db');
 const router = require('./router');
 const search = require('./search');
 
-// Inicializar Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
+// Cola de reintentos para cuando falla Gemini
+const retryQueue = [];
 
+// ============================================
+// SISTEMA DE ROTACIÓN DE API KEYS — GEMINI
+// ============================================
+// Almacena múltiples keys en .env separadas por coma:
+//   GEMINI_API_KEYS=key1,key2,key3
+// Si solo hay una key, también funciona con GEMINI_API_KEY=key1.
+// Cuando una key da 429 (quota), rota automáticamente a la siguiente.
+
+const GEMINI_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+let geminiKeyIndex = 0;
+let genAI = new GoogleGenerativeAI(GEMINI_KEYS[0]);
+
+// Desactivar TODOS los filtros de seguridad — negocio legal de armas traumáticas
+const SAFETY_SETTINGS = [
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+];
+
+let geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview', safetySettings: SAFETY_SETTINGS });
+
+console.log(`[GEMINI] 🔑 ${GEMINI_KEYS.length} API key(s) cargadas — activa: #1`);
+
+function rotateGeminiKey(reason = '') {
+  if (GEMINI_KEYS.length <= 1) {
+    console.error('[GEMINI] ⚠️ Solo hay 1 API key — no se puede rotar. Agrega más keys a GEMINI_API_KEYS en .env');
+    return false;
+  }
+  const oldIndex = geminiKeyIndex;
+  geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_KEYS.length;
+  genAI = new GoogleGenerativeAI(GEMINI_KEYS[geminiKeyIndex]);
+  geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview', safetySettings: SAFETY_SETTINGS });
+  console.log(`[GEMINI] 🔄 Rotación de API key: #${oldIndex + 1} → #${geminiKeyIndex + 1} ${reason ? '(' + reason + ')' : ''}`);
+  return true;
+}
+
+/**
+ * Wrapper para llamadas a Gemini con rotación automática de keys en caso de 429.
+ * Uso: const result = await geminiGenerate(model, content, options);
+ * @param {string} modelName - Nombre del modelo (ej: 'gemini-2.5-flash')
+ * @param {any} content - Contenido para generateContent
+ * @param {object} options - Opciones adicionales del modelo (opcional)
+ * @returns {object} Resultado de generateContent
+ */
+async function geminiGenerate(modelName, content, options = {}) {
+  let lastError;
+  const maxRetries = GEMINI_KEYS.length;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName, safetySettings: SAFETY_SETTINGS, ...options });
+      const result = await model.generateContent(content);
+      return result;
+    } catch (err) {
+      lastError = err;
+      const is429 = err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('Too Many Requests'));
+
+      if (is429 && attempt < maxRetries - 1) {
+        console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada (429) — rotando...`);
+        rotateGeminiKey('429 quota exceeded');
+        // Esperar un momento antes de reintentar
+        await new Promise(r => setTimeout(r, 1000));
+      } else {
+        throw err; // No es 429 o ya se agotaron todas las keys
+      }
+    }
+  }
+  throw lastError;
+}
 
 // ============================================
 // CONFIGURACIÓN
@@ -264,7 +333,7 @@ process.on('uncaughtException', async (err) => {
 
   if (isSessionCorrupt) {
     console.log('[BOT] 🧹 Crash por sesión corrupta detectado. Limpiando...');
-    const sessionDir = path.join(__dirname, 'session', 'session-client-one');
+    const sessionDir = path.join(__dirname, 'session');
     if (fs.existsSync(sessionDir)) {
       fs.rmSync(sessionDir, { recursive: true, force: true });
       console.log('[BOT] ✅ Sesión corrupta eliminada. Reinicia el bot para escanear QR nuevo.');
@@ -295,15 +364,26 @@ client.on('ready', async () => {
   // setTimeout(() => recuperarChatsViejos(), 8000);
 
   // Iniciar broadcaster de imágenes a grupos (esperar 30s para que todo esté listo)
-  setTimeout(() => startGroupBroadcaster(), 30000);
+  setTimeout(() => {
+    if (typeof startGroupBroadcaster === 'function') {
+      startGroupBroadcaster();
+    }
+  }, 30000);
 
   // Iniciar publicación automática de Estados (esperar 45s)
-  setTimeout(() => startStatusBroadcaster(), 45000);
+  setTimeout(() => {
+    if (typeof startStatusBroadcaster === 'function') {
+      startStatusBroadcaster();
+    }
+  }, 45000);
 
   // Iniciar servidor interno para recibir comandos del panel
   if (!serverStarted) {
     serverStarted = true;
-    startReactivacionServer();
+    // startReactivacionServer() is defined globally but might be causing ReferenceError due to block scoping
+    if (typeof startReactivacionServer === 'function') {
+      startReactivacionServer();
+    }
   }
 });
 
@@ -311,7 +391,7 @@ client.on('ready', async () => {
 client.on('auth_failure', async (msg) => {
   console.error('[BOT] ❌ Error de autenticación:', msg);
   console.log('[BOT] 🧹 Limpiando sesión corrupta...');
-  const sessionDir = path.join(__dirname, 'session', 'session-client-one');
+  const sessionDir = path.join(__dirname, 'session');
   if (fs.existsSync(sessionDir)) {
     fs.rmSync(sessionDir, { recursive: true, force: true });
     console.log('[BOT] ✅ Sesión borrada. Reiniciando para QR nuevo...');
@@ -327,7 +407,7 @@ client.on('disconnected', async (reason) => {
   console.log('[BOT] ⚠️ Desconectado:', reason);
   if (reason === 'NAVIGATION' || reason === 'LOGOUT') {
     console.log('[BOT] Sesión cerrada. Limpiando para QR nuevo...');
-    const sessionDir = path.join(__dirname, 'session', 'session-client-one');
+    const sessionDir = path.join(__dirname, 'session');
     if (fs.existsSync(sessionDir)) {
       fs.rmSync(sessionDir, { recursive: true, force: true });
     }
@@ -359,25 +439,7 @@ async function enviarTransicionAdmin(clientPhone, chatId, alvaroMsg) {
       `${h.role === 'user' ? 'Cliente' : h.role === 'admin' ? 'Álvaro' : 'Bot'}: ${h.message}`
     ).join('\n');
 
-    const transModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-    const prompt = `El director Álvaro acaba de escribirle directamente a un cliente de Zona Traumática.
-
-MENSAJE DE ÁLVARO: "${alvaroMsg}"
-
-CONTEXTO DEL CLIENTE:
-${histText}
-
-MEMORIA: ${memory}
-
-Genera un mensaje MUY CORTO (máximo 2 líneas) que el bot enviará al mismo chat para:
-1. Confirmar al cliente que ahora está siendo atendido directamente por el director
-2. Tono cálido y natural, como "¡Estás en buenas manos! Álvaro te atiende personalmente"
-3. NO repetir lo que Álvaro dijo
-4. Máximo 1 emoji
-
-Solo escribe el mensaje, sin explicaciones.`;
-
-    const result = await transModel.generateContent(prompt);
+    const result = await geminiGenerate('gemini-2.5-flash', prompt);
     const transMsg = result.response.text().trim();
 
     // Enviar directo al chatId original (evita problemas con LID)
@@ -408,6 +470,18 @@ const DEBOUNCE_MS = 10000; // 10 segundos
 client.on('message', async (msg) => {
   try {
     // Ignorar ANTES de getChat() para evitar crash con canales/newsletters
+    // ============================================
+    // COMANDOS ADMIN (#) — interceptar ANTES de ignorar fromMe
+    // ============================================
+    if (msg.fromMe && (msg.body || '').startsWith('#')) {
+      try {
+        await handleAdminCommand(msg);
+      } catch (cmdErr) {
+        console.error('[CMD] Error procesando comando admin:', cmdErr.message);
+      }
+      return; // No procesar más — el comando fue manejado
+    }
+
     // Ignorar mensajes propios del bot (los de Álvaro se capturan en message_create)
     if (msg.fromMe) return;
     if (msg.from === 'status@broadcast') return;
@@ -633,13 +707,11 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
     if (isNewClient) {
       db.upsertClient(senderPhone, { name: profileName, chat_id: chatIdFromMsg });
       console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone}) [${chatIdFromMsg}]`);
-      saveContactToVCF(senderPhone, profileName);
     } else {
       const updateData = { chat_id: chatIdFromMsg };
       const bestName = profileName || chat.name || '';
       if (bestName && !existingClient.name) {
         updateData.name = bestName;
-        saveContactToVCF(senderPhone, bestName);
       }
       db.upsertClient(senderPhone, updateData);
     }
@@ -715,17 +787,16 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             let esCarnet = false;
             let datosCarnet = {};
             try {
-              const carnetCheckModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-              const carnetCheckResult = await carnetCheckModel.generateContent([
+              const carnetCheckResult = await geminiGenerate('gemini-2.5-flash', [
                 imagePart,
-                '¿Esta imagen es un CARNET del Club Zona Traumática / Carné de Tiro AML? Busca: texto "Carné de Tiro AML", logo "ZT", texto "ZONA TRAUMATICA", o referencia a "LEY 2197". Si es un carnet, extrae los campos visibles. Responde SOLO con JSON: {"esCarnet": true/false, "nombre": "", "cedula": "", "vigente_hasta": "", "marca_arma": "", "modelo_arma": "", "serial": ""}'
+                '¿Esta imagen es un CARNET del Club Zona Traumática / Carné de Tiro AML? Busca: texto "Carné de Tiro AML", logo "ZT", texto "ZONA TRAUMATICA", o referencia a "LEY 2197". Si es un carnet, extrae los campos visibles. Revisa especialmente la FECHA DE VIGENCIA o VÁLIDO HASTA. Responde SOLO con JSON: {"esCarnet": true/false, "nombre": "", "cedula": "", "vigente_hasta": "YYYY-MM-DD", "marca_arma": "", "modelo_arma": "", "serial": ""}'
               ]);
               const carnetText = carnetCheckResult.response.text().trim().replace(/```json|```/g, '').trim();
               const carnetData = JSON.parse(carnetText);
               esCarnet = carnetData.esCarnet === true;
               if (esCarnet) {
                 datosCarnet = carnetData;
-                console.log(`[CARNET] 🪪 Detectado de ${senderPhone}: ${datosCarnet.nombre || 'sin nombre'} (${datosCarnet.cedula || 'sin cedula'})`);
+                console.log(`[CARNET] 🪪 Detectado de ${senderPhone}: ${datosCarnet.nombre || 'sin nombre'} (${datosCarnet.cedula || 'sin cedula'}) Vence: ${datosCarnet.vigente_hasta || 'N/A'}`);
               }
             } catch (e) {
               console.log(`[CARNET] No pudo detectar si es carnet: ${e.message}`);
@@ -761,8 +832,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             let esComprobante = false;
             let infoComprobante = '';
             try {
-              const checkModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-              const checkResult = await checkModel.generateContent([
+              const checkResult = await geminiGenerate('gemini-2.5-flash', [
                 imagePart,
                 'Analiza esta imagen. ¿Es un COMPROBANTE DE PAGO real (captura de transferencia bancaria, Nequi, Bancolombia, Daviplata, Bold, PSE, etc.)? \n\nIMPORTANTE: Fotos de PRODUCTOS (armas, ropa, accesorios), selfies, memes, catálogos, o cualquier imagen que NO sea una captura de pantalla de una transacción financiera = esComprobante: false.\n\nResponde SOLO con JSON: {"esComprobante": true/false, "monto": "valor si lo ves o null", "entidad": "banco/app o null"}'
               ]);
@@ -857,16 +927,8 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
             } else if (qrTexto) {
               // QR detectado — responder SOLO sobre el contenido del QR
-              const qrModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
-              const qrPrompt = `Eres un asesor de Zona Traumática (tienda de armas traumáticas y Club ZT en Colombia).
-Un cliente te envió una imagen con un código QR. El contenido escaneado del QR es:
-
-"${qrTexto}"
-
-${msg.body ? `El cliente también escribió: "${msg.body}"` : ''}
-
-Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente de forma clara y útil qué contiene. Sé breve y directo.`;
-              const qrResult = await qrModel.generateContent(qrPrompt);
+              ;
+              const qrResult = await geminiGenerate('gemini-3.1-pro-preview', qrPrompt);
               reply = qrResult.response.text();
               await msg.reply(reply);
               db.saveMessage(senderPhone, 'user', `[QR escaneado: ${qrTexto.substring(0, 60)}]`);
@@ -879,6 +941,7 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
               const visionModel = genAI.getGenerativeModel({
                 model: 'gemini-3.1-pro-preview',
                 systemInstruction: systemPrompt,
+                safetySettings: SAFETY_SETTINGS,
                 generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
               });
               const visionChat = visionModel.startChat({ history: geminiHistory });
@@ -927,11 +990,12 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
           while (geminiHistoryAudio.length > 0 && geminiHistoryAudio[0].role !== 'user') geminiHistoryAudio.shift();
 
           const audioPart = { inlineData: { data: media.data, mimeType: audioMime } };
-          const textPart = 'El cliente envió este mensaje de voz. Transcríbelo, entiéndelo y responde como si fuera texto normal. No menciones que fue un audio.';
+          const textPart = 'El cliente te ha enviado este mensaje de voz. Escúchalo y respóndele directamente. IMPORTANTE: NO transcribas el audio ni repitas lo que dice. Tu única tarea es dar la respuesta correspondiente como asesor comercial.';
 
           const audioModel = genAI.getGenerativeModel({
             model: 'gemini-3.1-pro-preview',
             systemInstruction: systemPrompt,
+            safetySettings: SAFETY_SETTINGS,
             generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
           const audioChat = audioModel.startChat({ history: geminiHistoryAudio });
@@ -990,6 +1054,7 @@ Analiza qué tipo de QR es (carnet, link, documento, etc.) e informa al cliente 
           const pdfModel = genAI.getGenerativeModel({
             model: 'gemini-3.1-pro-preview',
             systemInstruction: systemPrompt,
+            safetySettings: SAFETY_SETTINGS,
             generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
           const pdfChat = pdfModel.startChat({ history: geminiHistoryPdf });
@@ -1164,11 +1229,23 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
     }
 
     if (response) {
-      response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
-      const { cleanResponse } = await detectAndSendProductImages(response, rawMsg, senderPhone);
-      response = cleanResponse;
-      db.saveMessage(senderPhone, 'assistant', response);
-      await rawMsg.reply(response);
+      if (response === '__ERROR_CONEXION__') {
+        await rawMsg.reply('Estoy experimentando una intermitencia técnica momentánea. Dame un momeeento que ya te reviso tu consulta y te respondo 🙏');
+        retryQueue.push({
+          senderPhone,
+          messageBody,
+          history,
+          rawMsg,
+          intent: 'hot_lead' // Para saber que era un lead caliente
+        });
+        console.log(`[RETRY QUEUE] 🕒 Mensaje de ${senderPhone} encolado para reintento automático (Lead Caliente). Queue size: ${retryQueue.length}`);
+      } else {
+        response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
+        const { cleanResponse } = await detectAndSendProductImages(response, rawMsg, senderPhone);
+        response = cleanResponse;
+        db.saveMessage(senderPhone, 'assistant', response);
+        await rawMsg.reply(response);
+      }
     }
 
     // Escalar silenciosamente a Álvaro (el cliente NO ve el mensaje de handoff)
@@ -1184,86 +1261,105 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
     }
 
     if (response) {
-      // Limpiar enlaces Markdown [texto](url) -> url (ej: [Retay G17](https://...) -> https://...)
-      // Esto evita que WhatsApp rompa los links si Gemini ignora la instrucción
-      response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
+      if (response === '__ERROR_CONEXION__') {
+        await rawMsg.reply('Estoy experimentando una intermitencia técnica momentánea. Dame un momeeento que ya te reviso tu consulta y te respondo 🙏');
+        retryQueue.push({
+          senderPhone,
+          messageBody,
+          history,
+          rawMsg,
+          intent: 'normal'
+        });
+        console.log(`[RETRY QUEUE] 🕒 Mensaje de ${senderPhone} encolado para reintento automático. Queue size: ${retryQueue.length}`);
+      } else {
+        // Limpiar enlaces Markdown [texto](url) -> url (ej: [Retay G17](https://...) -> https://...)
+        // Esto evita que WhatsApp rompa los links si Gemini ignora la instrucción
+        response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
 
-      // Detectar y enviar imágenes de productos (etiquetas + URLs)
-      const { cleanResponse } = await detectAndSendProductImages(response, rawMsg, senderPhone);
-      response = cleanResponse;
+        // Detectar y enviar imágenes de productos (etiquetas + URLs)
+        const { cleanResponse } = await detectAndSendProductImages(response, rawMsg, senderPhone);
+        response = cleanResponse;
 
-      // Guardar respuesta del bot
-      db.saveMessage(senderPhone, 'assistant', response);
-
-      // Enviar respuesta (el texto principal)
-      await rawMsg.reply(response);
-
-      // Enviar imagen promo del Club ZT SOLO cuando el bot está ofreciendo la afiliación
-      // (no en cada mención — solo cuando presenta los planes activamente)
-      const responseLower = response.toLowerCase();
-      const estaOfreciendoClub = (
-        responseLower.includes('plan plus') && responseLower.includes('plan pro')
-      ) || (
-          responseLower.includes('100.000') && responseLower.includes('afiliaci')
-        ) || (
-          responseLower.includes('inscripción') && responseLower.includes('club')
-        ) || (
-          responseLower.includes('promoción') && (responseLower.includes('club') || responseLower.includes('plan'))
-        );
-      if (estaOfreciendoClub) {
-        try {
-          const promoImgPath = path.join(__dirname, 'imagenes', 'club-promo.png');
-          if (fs.existsSync(promoImgPath)) {
-            const media = MessageMedia.fromFilePath(promoImgPath);
-            await rawMsg.reply(media);
-            console.log(`[BOT] 🖼️ Imagen Club ZT enviada a ${senderPhone}`);
-          }
-        } catch (imgErr) {
-          console.error('[BOT] Error enviando imagen Club ZT:', imgErr.message);
+        // --- MANEJO ESPECIAL PARA JONATHAN CORTEZ (Simular escritura) ---
+        if (senderPhone === '17607908733') {
+          const delayMs = Math.min(Math.max(response.length * 35, 2000), 15000);
+          console.log(`[JONATHAN DELAY] Esperando ${delayMs}ms para simular escritura humana...`);
+          await new Promise(r => setTimeout(r, delayMs));
         }
-      }
 
-      // Detectar confirmación de pago — SOLO basado en lo que el CLIENTE escribe
-      // Nunca usar responseLower para esto (el bot menciona "comprobante" al explicar pasos y dispara falsos positivos)
-      const mensajeBajo = messageBody.toLowerCase();
-      const pagoConfirmado = (
-        mensajeBajo.includes('ya pagu') ||
-        mensajeBajo.includes('hice el pago') ||
-        mensajeBajo.includes('realicé el pago') ||
-        mensajeBajo.includes('realice el pago') ||
-        mensajeBajo.includes('acabo de pagar') ||
-        mensajeBajo.includes('les acabo de transferir') ||
-        mensajeBajo.includes('ya transferí') ||
-        mensajeBajo.includes('ya transferi') ||
-        mensajeBajo.includes('te envié el comprobante') ||
-        mensajeBajo.includes('te envie el comprobante') ||
-        mensajeBajo.includes('ahí va el comprobante') ||
-        mensajeBajo.includes('ahi va el comprobante') ||
-        (mensajeBajo.includes('comprobante') && (mensajeBajo.includes('envi') || mensajeBajo.includes('adjunt') || mensajeBajo.includes('aquí') || mensajeBajo.includes('aqui')))
-      );
-      if (pagoConfirmado) {
-        const clienteActual = db.getClient(senderPhone);
-        const memoriaBaja = (clienteActual?.memory || '').toLowerCase();
-        // Detectar si es pago de club o de producto — solo mirar mensaje del cliente y memoria
-        const esClub = mensajeBajo.includes('club') ||
-          mensajeBajo.includes('afiliaci') ||
-          mensajeBajo.includes('carnet') ||
-          memoriaBaja.includes('club') ||
-          memoriaBaja.includes('afiliaci') ||
-          memoriaBaja.includes('carnet');
-        const nuevoStatus = esClub ? 'carnet_pendiente' : 'despacho_pendiente';
-        db.upsertClient(senderPhone, { status: nuevoStatus });
-        console.log(`[BOT] 💰 Pago detectado en mensaje del cliente → estado: ${nuevoStatus} para ${senderPhone}`);
-      }
+        // Guardar respuesta del bot
+        db.saveMessage(senderPhone, 'assistant', response);
 
-      // 7. Actualizar memoria del cliente (en background, no bloquea)
-      updateClientMemory(senderPhone, messageBody, response, history).catch(err => {
-        if (CONFIG.debug) console.error('[MEMORY] Error actualizando memoria:', err.message);
-      });
+        // Enviar respuesta (el texto principal)
+        await rawMsg.reply(response);
+
+        // Enviar imagen promo del Club ZT SOLO cuando el bot está ofreciendo la afiliación
+        // (no en cada mención — solo cuando presenta los planes activamente)
+        const responseLower = response.toLowerCase();
+        const estaOfreciendoClub = (
+          responseLower.includes('plan plus') && responseLower.includes('plan pro')
+        ) || (
+            responseLower.includes('100.000') && responseLower.includes('afiliaci')
+          ) || (
+            responseLower.includes('inscripción') && responseLower.includes('club')
+          ) || (
+            responseLower.includes('promoción') && (responseLower.includes('club') || responseLower.includes('plan'))
+          );
+        if (estaOfreciendoClub) {
+          try {
+            const promoImgPath = path.join(__dirname, 'imagenes', 'club-promo.png');
+            if (fs.existsSync(promoImgPath)) {
+              const media = MessageMedia.fromFilePath(promoImgPath);
+              await rawMsg.reply(media);
+              console.log(`[BOT] 🖼️ Imagen Club ZT enviada a ${senderPhone}`);
+            }
+          } catch (imgErr) {
+            console.error('[BOT] Error enviando imagen Club ZT:', imgErr.message);
+          }
+        }
+
+        // Detectar confirmación de pago — SOLO basado en lo que el CLIENTE escribe
+        // Nunca usar responseLower para esto (el bot menciona "comprobante" al explicar pasos y dispara falsos positivos)
+        const mensajeBajo = messageBody.toLowerCase();
+        const pagoConfirmado = (
+          mensajeBajo.includes('ya pagu') ||
+          mensajeBajo.includes('hice el pago') ||
+          mensajeBajo.includes('realicé el pago') ||
+          mensajeBajo.includes('realice el pago') ||
+          mensajeBajo.includes('acabo de pagar') ||
+          mensajeBajo.includes('les acabo de transferir') ||
+          mensajeBajo.includes('ya transferí') ||
+          mensajeBajo.includes('ya transferi') ||
+          mensajeBajo.includes('te envié el comprobante') ||
+          mensajeBajo.includes('te envie el comprobante') ||
+          mensajeBajo.includes('ahí va el comprobante') ||
+          mensajeBajo.includes('ahi va el comprobante') ||
+          (mensajeBajo.includes('comprobante') && (mensajeBajo.includes('envi') || mensajeBajo.includes('adjunt') || mensajeBajo.includes('aquí') || mensajeBajo.includes('aqui')))
+        );
+        if (pagoConfirmado) {
+          const clienteActual = db.getClient(senderPhone);
+          const memoriaBaja = (clienteActual?.memory || '').toLowerCase();
+          // Detectar si es pago de club o de producto — solo mirar mensaje del cliente y memoria
+          const esClub = mensajeBajo.includes('club') ||
+            mensajeBajo.includes('afiliaci') ||
+            mensajeBajo.includes('carnet') ||
+            memoriaBaja.includes('club') ||
+            memoriaBaja.includes('afiliaci') ||
+            memoriaBaja.includes('carnet');
+          const esPro = mensajeBajo.includes('plan pro') || memoriaBaja.includes('plan pro') || memoriaBaja.includes('pro');
+          const nuevoStatus = esClub ? (esPro ? 'carnet_pendiente_pro' : 'carnet_pendiente_plus') : 'despacho_pendiente';
+          db.upsertClient(senderPhone, { status: nuevoStatus });
+          console.log(`[BOT] 💰 Pago detectado en mensaje del cliente → estado: ${nuevoStatus} para ${senderPhone}`);
+        }
+
+        // 7. Actualizar memoria del cliente (en background, no bloquea)
+        updateClientMemory(senderPhone, messageBody, response, history).catch(err => {
+          if (CONFIG.debug) console.error('[MEMORY] Error actualizando memoria:', err.message);
+        });
+      }
     }
   }
 }
-
 // ============================================
 // MEMORIA DEL CLIENTE (se actualiza en background)
 // ============================================
@@ -1304,8 +1400,7 @@ NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
     // Usar Gemini Flash para memoria (barato y rápido)
-    const memoryModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-    const memoryResult = await memoryModel.generateContent(memoryPrompt);
+    const memoryResult = await geminiGenerate('gemini-2.5-flash', memoryPrompt);
     const newMemory = memoryResult.response.text().trim();
 
     // Solo actualizar si cambió y no está vacío
@@ -1616,7 +1711,16 @@ async function getClaudeResponse(clientPhone, message, history) {
     const clientProfile = db.getClient(clientPhone);
 
     // 3. Construir system prompt con ficha estructurada
-    const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile);
+    let systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile);
+
+    // --- MANEJO ESPECIAL PARA JONATHAN CORTEZ ---
+    if (clientPhone === '17607908733') {
+      systemPrompt += `\n\n⚠️ INSTRUCCIÓN ULTRA-ESPECIAL EXCLUSIVA PARA ESTE CLIENTE (Jonathan Cortez):
+Este usuario es un seguidor especial y peculiar, que a veces envía "mensajitos chimbos" o usa términos inusuales ("marik y autista"). Sin embargo, ha hecho donaciones a la causa.
+Tu objetivo AHORA MISMO es darle un MANEJO ESPECIAL, respondiendo de forma 100% HUMANA, súper conversacional, empática y con extremada paciencia. 
+Sigue su juego, muéstrate agradecido, no lo trates como un bot automático ni le lances respuestas genéricas o de venta directa de inmediato. 
+Llévalo sutilmente y con persuasión a que apoye la causa, logrando que haga OTRA donación a la causa personal de Álvaro o de la empresa. ¡Cero actitud bot, todo orgánico!`;
+    }
 
     // 4. Convertir historial al formato Gemini
     // Gemini usa 'user' y 'model' (no 'assistant')
@@ -1642,7 +1746,7 @@ async function getClaudeResponse(clientPhone, message, history) {
     }
 
     // 5. Llamar a Gemini con reintentos
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = Math.max(3, GEMINI_KEYS.length);
     let lastError = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -1650,6 +1754,7 @@ async function getClaudeResponse(clientPhone, message, history) {
         const model = genAI.getGenerativeModel({
           model: 'gemini-3.1-pro-preview',
           systemInstruction: systemPrompt,
+          safetySettings: SAFETY_SETTINGS,
           generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
         });
 
@@ -1666,8 +1771,14 @@ async function getClaudeResponse(clientPhone, message, history) {
         const errorMsg = retryError.message || 'Error desconocido';
         console.error(`[GEMINI] ⚠️ Intento ${attempt}/${MAX_RETRIES} falló: ${errorMsg}`);
 
+        const is429 = errorMsg && (errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('Too Many Requests'));
+        if (is429) {
+          console.warn(`[GEMINI] ⚠️ Key agotada (429) en chat principal — rotando...`);
+          rotateGeminiKey('429 quota exceeded in main chat');
+        }
+
         if (attempt < MAX_RETRIES) {
-          const wait = attempt * 2000;
+          const wait = is429 ? 1000 : attempt * 2000;
           console.log(`[GEMINI] ⏳ Reintentando en ${wait / 1000}s...`);
           await new Promise(r => setTimeout(r, wait));
         }
@@ -1675,10 +1786,11 @@ async function getClaudeResponse(clientPhone, message, history) {
     }
 
     console.error(`[GEMINI] ❌ Falló después de ${MAX_RETRIES} intentos: ${lastError?.message}`);
-    return 'Disculpa, estoy teniendo un problema momentáneo. Dame unos segundos e inténtalo de nuevo. 🙏';
+    // En lugar de enviar el mensaje quemado, enviamos la bandera para encolar
+    return '__ERROR_CONEXION__';
   } catch (error) {
     console.error('[GEMINI] Error general:', error.message);
-    return 'Disculpa, tuve un inconveniente. ¿Podrías repetir tu consulta?';
+    return '__ERROR_CONEXION__';
   }
 }
 
@@ -1989,6 +2101,18 @@ function isAdmin(phone) {
 
 function isAuditor(phone) {
   return CONFIG.auditors.includes(phone);
+}
+
+function notifyAuditors(senderPhone, text, senderName = 'BOT', isBotResponse = false) {
+  if (!CONFIG.auditors || CONFIG.auditors.length === 0) return;
+  const prefix = isBotResponse ? `🤖 [${senderName} → ${senderPhone}]` : `👤 [${senderPhone} → ${senderName}]`;
+  const message = `${prefix}\n\n${text}`;
+
+  for (const auditor of CONFIG.auditors) {
+    client.sendMessage(`${auditor}@c.us`, message).catch(e => {
+      console.error(`[AUDITOR] Error notificando a ${auditor}:`, e.message);
+    });
+  }
 }
 
 async function handleAdminCommand(msg, senderPhone, command) {
@@ -2396,12 +2520,225 @@ console.log(`[BOT] Modo: ${CONFIG.mode}`);
 console.log('[BOT] Conectando a WhatsApp...\n');
 
 // ============================================
+// SISTEMA DE COLA SECUENCIAL PARA BROADCASTING
+// ============================================
+// Itera todas las imágenes disponibles en orden de prioridad:
+// 1° Productos disponibles del catálogo
+// 2° Ofertas (club, inventario)
+// 3° Didáctico (contenido educativo)
+// Misma imagen para todos los grupos por ronda. Al agotar la cola,
+// se baraja y reinicia el ciclo. Persiste en broadcast_queue.json.
+
+const BROADCAST_QUEUE_PATH = path.join(__dirname, 'broadcast_queue.json');
+
+// ── Utilidades de la cola ──
+
+function obtenerImagenesRecursivo(dir, fileList = []) {
+  if (!fs.existsSync(dir)) return fileList;
+  try {
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      if (fs.statSync(filePath).isDirectory()) {
+        obtenerImagenesRecursivo(filePath, fileList);
+      } else if (file.match(/\.(png|jpg|jpeg|webp)$/i)) {
+        fileList.push(filePath);
+      }
+    }
+  } catch (e) { /* silencioso */ }
+  return fileList;
+}
+
+function shuffleArray(arr) {
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+/**
+ * Construye la cola de imágenes filtrando por catálogo disponible.
+ * Devuelve un array de objetos { fullPath, relativePath, productoInfo }
+ */
+function buildImageQueue() {
+  const imagenesDir = path.join(__dirname, 'imagenes');
+  const catalogoPath = path.join(__dirname, 'catalogo_contexto.json');
+
+  // 1. Cargar catálogo
+  let catalogo = { categorias: {} };
+  try {
+    catalogo = JSON.parse(fs.readFileSync(catalogoPath, 'utf8'));
+  } catch (e) {
+    console.error('[QUEUE] ⚠️ No se pudo leer catalogo_contexto.json:', e.message);
+  }
+
+  // 2. Construir mapeo de productos disponibles: modelo → info
+  const productosDisponibles = {};
+  for (const [marca, productos] of Object.entries(catalogo.categorias || {})) {
+    if (marca === 'SERVICIOS') continue; // Servicios no son imágenes de pistolas
+    for (const p of productos) {
+      if (p.disponible) {
+        // Normalizar modelo para matching: "Mini 9" → "mini 9", "F92" → "f92"
+        const modeloKey = (p.modelo || p.titulo || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        productosDisponibles[modeloKey] = {
+          titulo: p.titulo,
+          marca: p.marca || marca,
+          color: p.color,
+          precio_plus: p.precio_plus,
+          precio_pro: p.precio_pro,
+          url: p.url
+        };
+      }
+    }
+  }
+  console.log(`[QUEUE] 📦 Productos disponibles en catálogo: ${Object.keys(productosDisponibles).length}`);
+
+  // 3. Escanear imágenes por categoría
+  const pistolasDir = path.join(imagenesDir, 'pistolas');
+  const ofertaDir = path.join(imagenesDir, 'oferta actual');
+  const didacticoDir = path.join(imagenesDir, 'didactico');
+
+  const imagenesPistolas = obtenerImagenesRecursivo(pistolasDir);
+  const imagenesOferta = obtenerImagenesRecursivo(ofertaDir);
+  const imagenesDidactico = obtenerImagenesRecursivo(didacticoDir);
+
+  // 4. Filtrar pistolas: solo las que corresponden a productos del catálogo
+  const pistolasFiltradas = [];
+  const pistolasExcluidas = [];
+
+  for (const fullPath of imagenesPistolas) {
+    const relativePath = path.relative(imagenesDir, fullPath);
+    const fileName = path.basename(fullPath, path.extname(fullPath)).toLowerCase();
+    const parentFolder = path.basename(path.dirname(fullPath)).toLowerCase();
+
+    // Intentar hacer match del archivo con algún producto del catálogo
+    let productoMatch = null;
+    for (const [modeloKey, info] of Object.entries(productosDisponibles)) {
+      const marcaLower = (info.marca || '').toLowerCase();
+      const modeloLower = modeloKey;
+
+      // Match por carpeta padre (marca) + nombre de archivo contiene modelo
+      // Ej: carpeta "blow", archivo "f92 fume.png" → modelo "f92"
+      // Ej: carpeta "ekol", archivo "firatcompactk.png" → modelo "firat compact"
+      const modeloParts = modeloLower.split(' ');
+      const fileMatchesModel = modeloParts.every(part => fileName.includes(part)) ||
+        fileName.includes(modeloLower.replace(/\s+/g, ''));
+
+      if (parentFolder === marcaLower && fileMatchesModel) {
+        productoMatch = info;
+        break;
+      }
+
+      // También buscar si la marca está en la ruta y el modelo en el nombre
+      if (relativePath.toLowerCase().includes(marcaLower) && fileMatchesModel) {
+        productoMatch = info;
+        break;
+      }
+    }
+
+    // Helper - redefinir match con nombre correcto
+    if (productoMatch) {
+      pistolasFiltradas.push({ fullPath, relativePath, productoInfo: productoMatch });
+    } else {
+      pistolasExcluidas.push(relativePath);
+    }
+  }
+
+  if (pistolasExcluidas.length > 0) {
+    console.log(`[QUEUE] 🚫 Excluidas (no en catálogo): ${pistolasExcluidas.join(', ')}`);
+  }
+
+  // 5. Construir cola con prioridad: pistolas disponibles → ofertas → didáctico
+  const colaOrdenada = [];
+
+  // Pistolas (shuffle dentro de la categoría para variedad)
+  for (const item of shuffleArray(pistolasFiltradas)) {
+    colaOrdenada.push(item);
+  }
+
+  // Ofertas
+  for (const fullPath of shuffleArray(imagenesOferta)) {
+    colaOrdenada.push({
+      fullPath,
+      relativePath: path.relative(imagenesDir, fullPath),
+      productoInfo: null // No es un producto específico
+    });
+  }
+
+  // Didáctico
+  for (const fullPath of shuffleArray(imagenesDidactico)) {
+    colaOrdenada.push({
+      fullPath,
+      relativePath: path.relative(imagenesDir, fullPath),
+      productoInfo: null
+    });
+  }
+
+  console.log(`[QUEUE] 📋 Cola construida: ${pistolasFiltradas.length} pistolas + ${imagenesOferta.length} ofertas + ${imagenesDidactico.length} didáctico = ${colaOrdenada.length} total`);
+
+  return colaOrdenada;
+}
+
+// ── Persistencia de la cola ──
+
+function loadBroadcastQueues() {
+  try {
+    if (fs.existsSync(BROADCAST_QUEUE_PATH)) {
+      return JSON.parse(fs.readFileSync(BROADCAST_QUEUE_PATH, 'utf8'));
+    }
+  } catch (e) {
+    console.error('[QUEUE] Error leyendo broadcast_queue.json:', e.message);
+  }
+  return { groups: { queue: [], index: 0 }, status: { queue: [], index: 0 } };
+}
+
+function saveBroadcastQueues(data) {
+  try {
+    fs.writeFileSync(BROADCAST_QUEUE_PATH, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[QUEUE] Error guardando broadcast_queue.json:', e.message);
+  }
+}
+
+/**
+ * Obtiene la siguiente imagen de la cola para el tipo dado ('groups' o 'status').
+ * Si la cola está vacía o el índice se excedió, reconstruye y baraja.
+ * Devuelve { fullPath, relativePath, productoInfo } o null.
+ */
+function getNextImage(type) {
+  const queues = loadBroadcastQueues();
+  let queueData = queues[type] || { queue: [], index: 0 };
+
+  // Reconstruir cola si está vacía o el índice se excedió
+  if (!queueData.queue || queueData.queue.length === 0 || queueData.index >= queueData.queue.length) {
+    console.log(`[QUEUE] 🔄 Reconstruyendo cola para ${type}...`);
+    const nuevaCola = buildImageQueue();
+    if (nuevaCola.length === 0) return null;
+
+    queueData = { queue: nuevaCola, index: 0 };
+    queues[type] = queueData;
+    saveBroadcastQueues(queues);
+    console.log(`[QUEUE] ✅ Cola ${type} lista: ${nuevaCola.length} imágenes`);
+  }
+
+  // Obtener imagen actual y avanzar índice
+  const item = queueData.queue[queueData.index];
+  queueData.index++;
+  queues[type] = queueData;
+  saveBroadcastQueues(queues);
+
+  console.log(`[QUEUE] 📸 ${type} → [${queueData.index}/${queueData.queue.length}] ${item.relativePath}`);
+  return item;
+}
+
+// ============================================
 // BROADCASTER DE IMÁGENES A GRUPOS
 // ============================================
-// Envía imágenes rotativas a todos los grupos cada 4 horas
-// con texto generado por Claude (diferente cada vez)
+// Misma imagen para TODOS los grupos por ronda (cola secuencial)
 
-async function getGroupBroadcastText(imageRelativePath) {
+async function getGroupBroadcastText(imageRelativePath, productoInfo) {
   const contextos = [
     'Es de mañana, los grupos están empezando el día',
     'Es mediodía, buen momento para recordar la oferta',
@@ -2409,12 +2746,17 @@ async function getGroupBroadcastText(imageRelativePath) {
   ];
   const contextoAleatorio = contextos[Math.floor(Math.random() * contextos.length)];
 
+  // Construir contexto del producto si está disponible
+  let productoCtx = '';
+  if (productoInfo) {
+    productoCtx = `\nINFO DEL PRODUCTO:\n- Nombre: ${productoInfo.titulo}\n- Marca: ${productoInfo.marca}\n- Color(es): ${productoInfo.color}\n- Precio Plan Plus: ${productoInfo.precio_plus}\n- Precio Plan Pro: ${productoInfo.precio_pro}\nUsa estos datos reales en tu mensaje cuando sea natural hacerlo.`;
+  }
+
   try {
-    const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
     const prompt = `Eres el community manager de Zona Traumática Colombia.
 Escribe un mensaje corto y poderoso para acompañar esta imagen promocional en un grupo de WhatsApp de portadores de armas traumáticas.
 Contexto de tiempo: ${contextoAleatorio}.
-Dato de la imagen: ${imageRelativePath.replace(/\\/g, '/')} (Usa esta información de categoría/marca/color para darle sentido al mensaje si aplica).
+Dato de la imagen: ${imageRelativePath.replace(/\\/g, '/')}${productoCtx}
 El mensaje debe:
 - Ser máximo 4 líneas
 - Tener gancho emocional (miedo a perder el arma, orgullo del portador preparado)
@@ -2424,7 +2766,7 @@ El mensaje debe:
 - NO repetir exactamente lo que dice la imagen
 - REGLA LEGAL ESTRICTA: Las armas traumáticas NO son armas de fuego. Según la Ley 2197 de 2022, son dispositivos MENOS LETALES. JAMÁS digas que son armas de fuego.
 Solo escribe el mensaje, sin explicaciones.`;
-    const result = await broadcastModel.generateContent(prompt);
+    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
     return result.response.text().trim();
   } catch (err) {
     console.error('[BROADCASTER] Error generando texto:', err.message);
@@ -2435,36 +2777,20 @@ Solo escribe el mensaje, sin explicaciones.`;
 async function sendGroupBroadcast() {
   console.log('[BROADCASTER] 📢 Iniciando envío a grupos...');
 
-  // Función para obtener todos los archivos de imagen recursivamente
-  function obtenerImagenesRecursivo(dir, fileList = []) {
-    const files = fs.readdirSync(dir);
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      if (fs.statSync(filePath).isDirectory()) {
-        obtenerImagenesRecursivo(filePath, fileList);
-      } else if (file.match(/\.(png|jpg|jpeg|webp)$/i)) {
-        fileList.push(filePath);
-      }
-    }
-    return fileList;
-  }
-
-  // Obtener todas las imágenes disponibles en /imagenes (incluyendo subcarpetas)
-  const imagenesDir = path.join(__dirname, 'imagenes');
-  let imagenesPathList = [];
-  try {
-    imagenesPathList = obtenerImagenesRecursivo(imagenesDir);
-  } catch (e) {
-    console.error('[BROADCASTER] No se pudo leer carpeta imagenes:', e.message);
+  // 1. Obtener la siguiente imagen de la cola
+  const imageItem = getNextImage('groups');
+  if (!imageItem) {
+    console.log('[BROADCASTER] No hay imágenes disponibles en la cola — cancelando');
     return;
   }
 
-  if (imagenesPathList.length === 0) {
-    console.log('[BROADCASTER] No hay imágenes en /imagenes ni en sus subcarpetas — cancelando');
+  // Verificar que el archivo aún existe
+  if (!fs.existsSync(imageItem.fullPath)) {
+    console.log(`[BROADCASTER] ⚠️ Imagen ya no existe: ${imageItem.relativePath} — saltando`);
     return;
   }
 
-  // Obtener todos los grupos
+  // 2. Obtener todos los grupos
   let chats;
   try {
     chats = await client.getChats();
@@ -2481,22 +2807,17 @@ async function sendGroupBroadcast() {
     return;
   }
 
-  // Enviar a cada grupo con imagen y texto diferentes
+  // 3. Generar texto UNA vez (misma imagen y texto para todos los grupos)
+  const texto = await getGroupBroadcastText(imageItem.relativePath, imageItem.productoInfo);
+
+  // 4. Cargar la imagen UNA vez
+  const media = MessageMedia.fromFilePath(imageItem.fullPath);
+
+  // 5. Enviar a TODOS los grupos con la MISMA imagen y texto
   let enviados = 0;
   for (const grupo of grupos) {
     try {
-      // 1. Elegir una imagen aleatoria para este grupo
-      const imagenFullPath = imagenesPathList[Math.floor(Math.random() * imagenesPathList.length)];
-      const imageRelativePath = path.relative(imagenesDir, imagenFullPath); // Ej: pistolas/zoraki/foto.jpg
-
-      // 2. Generar el texto que acompañará la imagen
-      const texto = await getGroupBroadcastText(imageRelativePath);
-
-      // 3. Cargar la imagen seleccionada
-      const media = MessageMedia.fromFilePath(imagenFullPath);
-
-      // 4. Enviar
-      console.log(`[BROADCASTER] ➡️ Enviando a ${grupo.name} (Img: ${imageRelativePath})...`);
+      console.log(`[BROADCASTER] ➡️ Enviando a ${grupo.name} (Img: ${imageItem.relativePath})...`);
       await client.sendMessage(grupo.id._serialized, media, { caption: texto });
       enviados++;
       console.log(`[BROADCASTER] ✅ Enviado a: ${grupo.name}`);
@@ -2552,10 +2873,10 @@ function startGroupBroadcaster() {
 
 // ============================================
 // AUTOMATIZACIÓN DE ESTADOS (STATUS) DE WHATSAPP
-// Sube una imagen aleatoria al Estado principal cada hora
+// Cola secuencial independiente — 1 publicación por hora
 // ============================================
 
-async function getStatusBroadcastText(imageRelativePath) {
+async function getStatusBroadcastText(imageRelativePath, productoInfo) {
   const horasActivas = [
     'Mañana: invita a empezar el día protegido.',
     'Mediodía: mensaje rápido y contundente para el break del almuerzo.',
@@ -2563,14 +2884,20 @@ async function getStatusBroadcastText(imageRelativePath) {
   ];
   const contextoAleatorio = horasActivas[Math.floor(Math.random() * horasActivas.length)];
 
+  // Construir contexto del producto si está disponible
+  let productoCtx = '';
+  if (productoInfo) {
+    productoCtx = `\nINFO DEL PRODUCTO: ${productoInfo.titulo} (${productoInfo.marca}) — ${productoInfo.color} — Plus: ${productoInfo.precio_plus} / Pro: ${productoInfo.precio_pro}`;
+  }
+
   try {
-    const broadcastModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
     const prompt = `Eres el community manager de Zona Traumática Colombia.
 Escribe un texto persuasivo para acompañar esta imagen en una HISTORIA/ESTADO de WhatsApp.
 Dado que la imagen proviene de la ruta: "${imageRelativePath.replace(/\\/g, '/')}", adapta tu mensaje a la categoría:
 - Si es de /oferta: Enfatiza la promoción, el descuento de 50k o el bot IA gratis.
 - Si es de /didactico: Da un tip legal rápido de 1 frase (Ejemplo correcto: "Ley 2197/2022: Las traumáticas son dispositivos menos letales, NO armas de fuego").
 - Si es de /pistolas: Habla de equipo táctico, seguridad y respaldo.
+${productoCtx}
 
 Contexto de la hora: ${contextoAleatorio}
 
@@ -2582,7 +2909,7 @@ El mensaje debe:
 - REGLA LEGAL ESTRICTA: Las armas traumáticas NO son armas de fuego. Si las mencionas, son dispositivos o armas MENOS LETALES.
 Solo escribe el texto de la historia, sin comillas ni explicaciones extra.`;
 
-    const result = await broadcastModel.generateContent(prompt);
+    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
     return result.response.text().trim();
   } catch (err) {
     console.error('[STATUS] Error generando texto:', err.message);
@@ -2593,41 +2920,28 @@ Solo escribe el texto de la historia, sin comillas ni explicaciones extra.`;
 async function sendStatusBroadcast() {
   console.log('[STATUS] 📲 Iniciando publicación en Estado de WhatsApp...');
 
-  function obtenerImagenesRecursivo(dir, fileList = []) {
-    if (!fs.existsSync(dir)) return fileList;
-    const files = fs.readdirSync(dir);
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      if (fs.statSync(filePath).isDirectory()) {
-        obtenerImagenesRecursivo(filePath, fileList);
-      } else if (file.match(/\.(png|jpg|jpeg|webp)$/i)) {
-        fileList.push(filePath);
-      }
-    }
-    return fileList;
+  // 1. Obtener la siguiente imagen de la cola de estados
+  const imageItem = getNextImage('status');
+  if (!imageItem) {
+    console.log('[STATUS] No hay imágenes disponibles en la cola — cancelando');
+    return;
   }
 
-  const imagenesDir = path.join(__dirname, 'imagenes');
-  let imagenesPathList = obtenerImagenesRecursivo(imagenesDir);
-
-  if (imagenesPathList.length === 0) {
-    console.log('[STATUS] No hay imágenes en /imagenes — cancelando estado');
+  // Verificar que el archivo aún existe
+  if (!fs.existsSync(imageItem.fullPath)) {
+    console.log(`[STATUS] ⚠️ Imagen ya no existe: ${imageItem.relativePath} — saltando`);
     return;
   }
 
   try {
-    // 1. Elegir imagen aleatoria
-    const imagenFullPath = imagenesPathList[Math.floor(Math.random() * imagenesPathList.length)];
-    const imageRelativePath = path.relative(imagenesDir, imagenFullPath);
-
     // 2. Generar texto de la historia
-    const texto = await getStatusBroadcastText(imageRelativePath);
+    const texto = await getStatusBroadcastText(imageItem.relativePath, imageItem.productoInfo);
 
     // 3. Cargar la imagen
-    const media = MessageMedia.fromFilePath(imagenFullPath);
+    const media = MessageMedia.fromFilePath(imageItem.fullPath);
 
     // 4. Enviar a status@broadcast
-    console.log(`[STATUS] ➡️ Subiendo historia (Img: ${imageRelativePath})...`);
+    console.log(`[STATUS] ➡️ Subiendo historia (Img: ${imageItem.relativePath})...`);
     await client.sendMessage('status@broadcast', media, { caption: texto });
     console.log(`[STATUS] ✅ Historia publicada exitosamente.`);
 
@@ -2637,9 +2951,6 @@ async function sendStatusBroadcast() {
 }
 
 function startStatusBroadcaster() {
-  // Configuro para publicar cada 2 horas (podemos ajustarlo a 1 hora después)
-  // Para evitar spam excesivo, lo haremos cada hora en el minuto 00 (o lo más cerca posible)
-
   function getMsHastaSiguienteHora() {
     const ahora = new Date();
     const minutosRestantes = 60 - ahora.getMinutes();
@@ -2657,7 +2968,7 @@ function startStatusBroadcaster() {
     }, msEspera);
   }
 
-  console.log(`[STATUS] 🚀 Automatización de Historias iniciada (1 publicación cada hora).`);
+  console.log(`[STATUS] 🚀 Automatización de Historias iniciada (1 publicación cada hora, cola secuencial).`);
   programarSiguienteEstado();
 }
 
@@ -2676,7 +2987,7 @@ async function procesarClientesCalientes(clientes, mode = 'normal') {
       const historial = db.getConversationHistory(cliente.phone, 10);
       const resumenHistorial = historial.map(h => `${h.role === 'user' ? 'Cliente' : 'Bot'}: ${h.message}`).join('\n');
 
-      const reactivarModel = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview' });
+      const reactivarModel = 'gemini-3.1-pro-preview'; // Nombre del modelo para geminiGenerate
 
       let promoRules = '';
       if (mode === 'ultra') {
@@ -2714,7 +3025,7 @@ ${promoRules}
 
 Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
 
-      const result = await reactivarModel.generateContent(prompt);
+      const result = await geminiGenerate(reactivarModel, prompt);
       const mensaje = result.response.text().trim();
 
       const phoneForDb = cliente.phone.replace(/@.*/g, '').replace(/\D/g, '');
@@ -2735,6 +3046,128 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
   }
 
   console.log(`[REACTIVAR] 🎉 Reactivación completada — ${clientes.length} mensajes enviados`);
+}
+
+async function forceBotReply(phone) {
+  try {
+    const chatId = db.getClientChatId(phone) || `${phone}@c.us`;
+    console.log(`\n[PANEL-REACTIVACION] Buscando mensajes pendientes para: ${phone} (${chatId})`);
+
+    const chat = await client.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit: 5 });
+
+    if (!messages || messages.length === 0) {
+      return { ok: false, message: 'No se encontró historial de chat con este cliente.' };
+    }
+
+    // Buscar el último mensaje que realmente sea del usuario (retrocediendo en el historial)
+    let userMsg = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (!messages[i].fromMe) {
+        userMsg = messages[i];
+        break;
+      }
+    }
+
+    if (!userMsg) {
+      return { ok: false, message: 'No se encontraron mensajes recientes del usuario para reatender.' };
+    }
+
+    const hasMediaContent = userMsg.hasMedia || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(userMsg.type);
+
+    if ((!userMsg.body || userMsg.body.trim() === '') && !hasMediaContent) {
+      return { ok: false, message: 'El último mensaje del usuario no contiene texto ni multimedia que pueda procesar el bot.' };
+    }
+
+    const userMessageText = userMsg.body ? userMsg.body.trim() : `[Multimedia: ${userMsg.type}]`;
+    console.log(`[PANEL-REACTIVACION] Pendiente de usuario encontrado: "${userMessageText}"`);
+
+    await procesarMensaje(userMsg, chat, phone, userMsg);
+
+    return { ok: true, message: 'Se ha reactivado la conversación y enviado una respuesta.' };
+  } catch (err) {
+    console.error('[PANEL-REACTIVACION] Error:', err.message);
+    return { ok: false, message: err.message || 'Error reactivando el chat' };
+  }
+}
+
+// ============================================
+// FORZAR RESPUESTA BOT — MODO POST-VENTA
+// En lugar de re-procesar el último mensaje (comercial),
+// envía un seguimiento personalizado según el status del cliente.
+// ============================================
+async function forcePostventaReply(phone) {
+  try {
+    const clientData = db.getClient(phone);
+    if (!clientData) {
+      return { ok: false, message: 'Cliente no encontrado en BD.' };
+    }
+
+    const chatId = db.getClientChatId(phone) || `${phone}@c.us`;
+    const status = clientData.status || 'postventa';
+    const name = clientData.name || 'cliente';
+    const memory = db.getClientMemory(phone) || '';
+    const history = db.getConversationHistory(phone, 10);
+
+    // Construir contexto del historial
+    const histText = history.map(h =>
+      `${h.role === 'user' ? 'Cliente' : h.role === 'admin' ? 'Álvaro' : 'Bot'}: ${h.message}`
+    ).join('\n').substring(0, 2000);
+
+    const statusDescriptions = {
+      'carnet_pendiente_plus': 'Su carnet Club Plus está pendiente de generar/enviar.',
+      'carnet_pendiente_pro': 'Su carnet Club Pro está pendiente de generar/enviar.',
+      'despacho_pendiente': 'Tiene un dispositivo/arma pendiente de despacho.',
+      'municion_pendiente': 'Tiene munición pendiente de envío.',
+      'recuperacion_pendiente': 'Tiene un dispositivo en proceso de recuperación/servicio técnico.',
+      'bot_asesor_pendiente': 'Tiene el servicio de Bot Asesor Legal pendiente de activación.',
+      'postventa': 'Está en seguimiento post-venta general.',
+      'completed': 'Su proceso fue marcado como completado.'
+    };
+
+    const statusDesc = statusDescriptions[status] || 'Está en seguimiento post-venta.';
+
+    const prompt = `Eres el asistente post-venta de Zona Traumática. Tu tono es amable, cercano y profesional.
+El cliente se llama "${name}".
+Su estado actual: ${status} — ${statusDesc}
+
+Memoria CRM del cliente:
+${memory || 'Sin notas previas.'}
+
+Últimas conversaciones:
+${histText || 'Sin historial reciente.'}
+
+Tu tarea: Envía un mensaje de SEGUIMIENTO POST-VENTA al cliente. NO vendas productos nuevos.
+Objectivos:
+1. Saludar brevemente mencionando su nombre
+2. Confirmar el estado de su trámite pendiente según su status
+3. Preguntar si necesita algo más o tiene alguna duda
+4. Si falta información del cliente (datos de envío, foto para carnet, etc.), pedirla amablemente
+
+Reglas:
+- NO ofrecer productos nuevos ni promociones
+- SÉ breve y directo (máx 3-4 líneas)
+- Usa emojis moderadamente
+- Si el caso ya está resuelto, simplemente pregunta si todo está en orden
+
+Responde SOLO con el mensaje al cliente, sin explicaciones ni prefijos.`;
+
+    const result = await geminiGenerate('gemini-2.5-flash', prompt);
+    const followUpMsg = result.response.text().trim();
+
+    if (!followUpMsg) {
+      return { ok: false, message: 'Gemini no generó respuesta.' };
+    }
+
+    await safeSend(phone, followUpMsg);
+    db.saveMessage(phone, 'assistant', followUpMsg);
+    console.log(`[POSTVENTA] ✅ Seguimiento enviado a ${phone}: "${followUpMsg.substring(0, 60)}..."`);
+
+    return { ok: true, message: 'Seguimiento post-venta enviado correctamente.' };
+  } catch (err) {
+    console.error('[POSTVENTA] Error:', err.message);
+    return { ok: false, message: err.message || 'Error enviando seguimiento' };
+  }
 }
 
 function startReactivacionServer() {
@@ -2760,6 +3193,46 @@ function startReactivacionServer() {
           procesarClientesCalientes(clientes, mode).catch(e => console.error('[REACTIVAR]', e.message));
         } catch (e) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+    } else if (req.url === '/reatender-postventa' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone } = JSON.parse(body);
+          if (!phone) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, msg: 'Falta teléfono' }));
+            return;
+          }
+          const result = await forcePostventaReply(phone);
+          res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e) {
+          console.error('[POSTVENTA] Error /reatender-postventa:', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+    } else if (req.url === '/reatender' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone } = JSON.parse(body);
+          if (!phone) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, msg: 'Falta teléfono' }));
+            return;
+          }
+          const result = await forceBotReply(phone);
+          res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (e) {
+          console.error('[REACTIVAR] Error /reatender:', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
       });
@@ -2794,11 +3267,17 @@ function startReactivacionServer() {
           let msgRechazado = null;
 
           if (accion === 'confirmar') {
-            // tipo viene como "club,bot_asesor,producto" (multi-select del panel)
+            // tipo viene como "club_plus,bot_asesor,producto" (multi-select del panel)
             const tipos = tipo.split(',').map(t => t.trim()).filter(Boolean);
-            const tieneClub = tipos.includes('club');
+            const tieneClubPlus = tipos.includes('club_plus');
+            const tieneClubPro = tipos.includes('club_pro');
             const tieneBot = tipos.includes('bot_asesor');
             const tieneProducto = tipos.includes('producto');
+            // Compat: soporte legacy "club" genérico (sin especificar Plus/Pro)
+            const legacyClub = tipos.includes('club') && !tieneClubPlus && !tieneClubPro;
+            const tieneClub = tieneClubPlus || tieneClubPro || legacyClub;
+
+            const planNombre = tieneClubPro ? 'Plan Pro' : 'Plan Plus';
 
             let partes = [];
             let nuevoStatus;
@@ -2806,14 +3285,14 @@ function startReactivacionServer() {
 
             if (tieneClub) {
               partes.push(
-                `🛡️ *Afiliación Club ZT:* ¡Bienvenido!\n\n` +
+                `🛡️ *Afiliación Club ZT (${planNombre}):* ¡Bienvenido!\n\n` +
                 `Para generar tu *Carnet Digital* necesito:\n` +
                 `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
                 `4. Marca del arma\n5. Modelo del arma\n6. Número de serial del arma\n` +
                 `7. 📸 Foto de frente (selfie clara, sin gafas, buena luz)`
               );
-              nuevoStatus = 'carnet_pendiente';
-              memoriaTags.push('✅ YA AFILIADO AL CLUB ZT — comprobante confirmado. NO ofrecer más afiliación.');
+              nuevoStatus = tieneClubPro ? 'carnet_pendiente_pro' : 'carnet_pendiente_plus';
+              memoriaTags.push(`✅ YA AFILIADO AL CLUB ZT (${planNombre}) — comprobante confirmado. NO ofrecer más afiliación.`);
             }
 
             if (tieneBot) {
@@ -2850,12 +3329,37 @@ function startReactivacionServer() {
             }
 
             // Actualizar estado y memoria
-            db.upsertClient(phoneClean, { status: nuevoStatus });
+            const clientUpdate = { status: nuevoStatus };
+            if (tieneClub) clientUpdate.club_plan = planNombre;
+            db.upsertClient(phoneClean, clientUpdate);
+
+            // Activar flags de servicio automáticamente
+            if (tieneClubPlus) {
+              db.db.prepare('UPDATE clients SET is_club_plus = 1, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phoneClean);
+            }
+            if (tieneClubPro) {
+              db.db.prepare('UPDATE clients SET is_club_pro = 1, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phoneClean);
+            }
+            if (tieneBot) {
+              db.db.prepare('UPDATE clients SET has_ai_bot = 1, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phoneClean);
+            }
+
             const memoriaActual = db.getClientMemory(phoneClean) || '';
             const tagPago = memoriaTags.join('\n');
             const nuevaMemoria = memoriaActual ? memoriaActual + '\n' + tagPago : tagPago;
             db.updateClientMemory(phoneClean, nuevaMemoria);
             console.log(`[COMPROBANTE] ✅ BD actualizada ID #${id} para ${phone} (tipos: ${tipos.join(', ')})`);
+
+            // Guardar imagen del comprobante en el perfil del cliente
+            try {
+              const comp = db.db.prepare('SELECT imagen_base64, imagen_mime FROM comprobantes WHERE id = ?').get(id);
+              if (comp && comp.imagen_base64) {
+                db.saveClientFile(phoneClean, 'comprobante', `Comprobante confirmado (${tipos.join(', ')})`, comp.imagen_base64, comp.imagen_mime, 'panel', id, 'comprobantes');
+                console.log(`[COMPROBANTE] 🖼️ Imagen guardada en perfil de ${phoneClean}`);
+              }
+            } catch (imgErr) {
+              console.error(`[COMPROBANTE] ⚠️ Error guardando imagen en perfil:`, imgErr.message);
+            }
 
           } else {
             msgRechazado = `⚠️ Revisamos tu comprobante y el monto no coincide con el valor del plan seleccionado.\n\n` +
@@ -2895,7 +3399,7 @@ function startReactivacionServer() {
       req.on('data', chunk => body += chunk);
       req.on('end', async () => {
         try {
-          const { id, accion, phone, carnetData } = JSON.parse(body);
+          const { id, accion, phone, carnetData, planAprobado, vigenciaAprobada, razonRechazo } = JSON.parse(body);
 
           // 1. Actualizar estado del carnet en BD
           db.updateCarnetEstado(id, accion === 'confirmar' ? 'confirmado' : 'rechazado');
@@ -2920,23 +3424,48 @@ function startReactivacionServer() {
               name: carnetData.nombres || undefined,
               cedula: carnetData.cedula || undefined,
               ciudad: carnetData.ciudad || undefined,
-              club_plan: 'Plan Plus', // Por defecto asignamos Plus si es un carnet estándar
+              club_plan: planAprobado || 'Plan Plus',
+              club_vigente_hasta: vigenciaAprobada || undefined,
               serial_arma: carnetData.serial || undefined,
               modelo_arma: carnetData.arma || undefined
             };
             db.upsertClient(phoneClean, clientUpdate);
 
+            // 2.5 Actualizar bóveda (checkboxes)
+            if (planAprobado === 'Plan Pro') {
+              db.updateClientFlag(phoneClean, 'is_club_pro', 1);
+            } else {
+              db.updateClientFlag(phoneClean, 'is_club_plus', 1);
+            }
+
             // Actualizar memoria para que el bot lo trate como afiliado
             const memoriaActual = db.getClientMemory(phoneClean) || '';
-            const tagAfiliado = '✅ AFILIADO ACTIVO AL CLUB ZT (Carnet verificado). NO ofrecer venta de membresía. SIEMPRE ofrecer beneficios del club y soporte.';
+            const planTag = planAprobado === 'Plan Pro' ? 'Plan Pro (Máxima Cobertura Jurídica)' : 'Plan Plus (Capacitación Legal)';
+            const vigenciaTag = vigenciaAprobada ? ` (Vigente hasta: ${vigenciaAprobada})` : '';
+            const tagAfiliado = `✅ AFILIADO ACTIVO AL CLUB ZT - ${planTag}${vigenciaTag}. NO ofrecer venta de membresía. SIEMPRE ofrecer beneficios del club y soporte.`;
             if (!memoriaActual.includes(tagAfiliado)) {
               db.updateClientMemory(phoneClean, memoriaActual ? memoriaActual + '\n' + tagAfiliado : tagAfiliado);
             }
 
-            msgToClient = `✅ *¡Carnet verificado con éxito!*\n\nTu perfil en la base de datos de Zona Traumática ha sido actualizado y tu afiliación al Club ZT está **activa**. 🛡️\n\nA partir de este momento cuentas con:\n- Asistencia legal 24/7\n- Acceso a la comunidad de portadores\n- Descuentos en munición y accesorios\n\n¿Tienes alguna dudad legal o te gustaría consultar nuestro catálogo de munición?`;
+            msgToClient = `✅ *¡Carnet verificado con éxito!*\n\nTu perfil en la base de datos de Zona Traumática ha sido actualizado y tu afiliación al ${planAprobado || 'Club ZT'} está **activa**${vigenciaAprobada ? ' y vigente hasta el ' + vigenciaAprobada : ''}. 🛡️\n\nA partir de este momento cuentas con:\n- ${planAprobado === 'Plan Pro' ? 'Asistencia y RESPALDO JURÍDICO 24/7' : 'Asistencia legal y capacitación'}\n- Acceso a la comunidad de portadores\n- Descuentos en munición y accesorios\n\n¿Tienes alguna duda legal o te gustaría consultar nuestro catálogo de munición?`;
             console.log(`[CARNET] ✅ BD actualizada ID #${id} para ${phoneClean}`);
+
+            // Guardar imagen del carnet en el perfil del cliente
+            try {
+              const carn = db.db.prepare('SELECT imagen_base64, imagen_mime FROM carnets WHERE id = ?').get(id);
+              if (carn && carn.imagen_base64) {
+                db.saveClientFile(phoneClean, 'carnet', `Carnet ${planAprobado || 'Club ZT'} verificado`, carn.imagen_base64, carn.imagen_mime, 'panel', id, 'carnets');
+                console.log(`[CARNET] 🖼️ Imagen guardada en perfil de ${phoneClean}`);
+              }
+            } catch (imgErr) {
+              console.error(`[CARNET] ⚠️ Error guardando imagen en perfil:`, imgErr.message);
+            }
           } else {
-            msgToClient = `⚠️ *Revisión de Carnet*\n\nHola, hemos revisado la imagen de tu carnet pero los datos no son completamente legibles o hay alguna inconsistencia.\n\n👉 Por favor, envíanos una foto **más clara**, bien iluminada y donde se pueda leer todo el texto sin reflejos. ¡Quedo atento! 🙏`;
+            let razonTxt = "no son completamente legibles o hay alguna inconsistencia";
+            if (razonRechazo === 'vencido') razonTxt = "el documento se encuentra vencido o fuera de la vigencia aceptada";
+            else if (razonRechazo === 'inconsistencia') razonTxt = "hemos detectado una inconsistencia en los datos o foto del documento enviado";
+
+            msgToClient = `⚠️ *Revisión de Carnet*\n\nHola, hemos revisado la imagen de tu carnet pero ${razonTxt}.\n\n👉 Por favor, envíanos una foto **más clara**, vigente y original donde se pueda verificar toda la información. ¡Quedo atento! 🙏`;
           }
 
           // 3. Notificar al cliente
@@ -3043,6 +3572,133 @@ function startReactivacionServer() {
         }
       });
 
+      // POST /enviar-catalogo — panel envía catálogo completo con fotos al cliente
+    } else if (req.url === '/enviar-catalogo' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone } = JSON.parse(body);
+          if (!phone) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'phone es requerido' }));
+            return;
+          }
+
+          // Responder inmediatamente al panel — el envío corre en background
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, msg: 'Enviando catálogo en background...' }));
+
+          // Ejecutar en background
+          (async () => {
+            try {
+              const chatId = db.getClientChatId(phone);
+              const catalogoPath = path.join(__dirname, 'catalogo_contexto.json');
+              const imagenesDir = path.join(__dirname, 'imagenes');
+              const catalogo = JSON.parse(fs.readFileSync(catalogoPath, 'utf8'));
+
+              // 1. Enviar mensaje introductorio
+              const intro = `📋 *CATÁLOGO ZONA TRAUMÁTICA*\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                `Aquí te comparto nuestro inventario disponible con fotos y precios.\n` +
+                `Todos los dispositivos son 100% legales — armas menos letales (Ley 2197/2022).\n\n` +
+                `📦 *Cada compra incluye:*\n` +
+                `✓ Dispositivo + cargador\n` +
+                `✓ 50 municiones\n` +
+                `✓ Envío gratis a toda Colombia\n` +
+                `✓ Kit de limpieza\n\n` +
+                `👇 A continuación las referencias disponibles:`;
+
+              await client.sendMessage(chatId, intro);
+              db.saveMessage(phone, 'assistant', intro);
+              await new Promise(r => setTimeout(r, 2000));
+
+              // 2. Iterar por categorías y productos
+              let totalEnviados = 0;
+              for (const [marca, productos] of Object.entries(catalogo.categorias || {})) {
+                if (marca === 'SERVICIOS') continue; // Servicios se envían aparte
+
+                for (const p of productos) {
+                  if (!p.disponible) continue;
+
+                  // Buscar imagen del producto
+                  const marcaFolder = marca.toLowerCase();
+                  const pistolasDir = path.join(imagenesDir, 'pistolas', marcaFolder);
+                  let imagenPath = null;
+
+                  if (fs.existsSync(pistolasDir)) {
+                    const modeloLower = (p.modelo || '').toLowerCase();
+                    const modeloNoSpaces = modeloLower.replace(/\s+/g, '');
+                    const files = fs.readdirSync(pistolasDir);
+
+                    // Buscar primera imagen que coincida con el modelo
+                    for (const file of files) {
+                      if (!file.match(/\.(png|jpg|jpeg|webp)$/i)) continue;
+                      const fileLower = file.toLowerCase().replace(/\.(png|jpg|jpeg|webp)$/i, '');
+                      const modeloParts = modeloLower.split(' ');
+                      if (modeloParts.every(part => fileLower.includes(part)) ||
+                        fileLower.includes(modeloNoSpaces)) {
+                        imagenPath = path.join(pistolasDir, file);
+                        break;
+                      }
+                    }
+                  }
+
+                  // Caption con info del producto
+                  const caption = `🔫 *${p.titulo}*\n` +
+                    `Color(es): ${p.color}\n` +
+                    `💰 Plan Plus: ${p.precio_plus}\n` +
+                    `💰 Plan Pro: ${p.precio_pro}\n` +
+                    (p.url ? `🔗 ${p.url}` : '');
+
+                  if (imagenPath && fs.existsSync(imagenPath)) {
+                    // Enviar con foto
+                    const media = MessageMedia.fromFilePath(imagenPath);
+                    await client.sendMessage(chatId, media, { caption });
+                  } else {
+                    // Enviar solo texto si no hay foto
+                    await client.sendMessage(chatId, caption);
+                  }
+
+                  totalEnviados++;
+                  // Delay entre productos (1.5-3s) para parecer natural
+                  await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500));
+                }
+              }
+
+              // 3. Enviar imagen de inventario/precios general si existe
+              const inventarioImg = path.join(imagenesDir, 'oferta actual', 'inventario y precios', 'inventario y precios pistolas.png');
+              if (fs.existsSync(inventarioImg)) {
+                const media = MessageMedia.fromFilePath(inventarioImg);
+                await client.sendMessage(chatId, media, { caption: '📊 *Tabla oficial de precios — Zona Traumática*' });
+                await new Promise(r => setTimeout(r, 2000));
+              }
+
+              // 4. Mensaje final con servicios
+              const cierre = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                `🛡️ *Club Zona Traumática* — Respaldo jurídico total\n` +
+                `  🟡 Plan Plus: $100.000/año\n` +
+                `  🔴 Plan Pro: $150.000/año\n\n` +
+                `🤖 *Asesor Legal IA* — Tu abogado 24/7\n` +
+                `  $50.000 por 6 meses\n\n` +
+                `¿Cuál te interesa? Estoy para ayudarte 🙌`;
+
+              await client.sendMessage(chatId, cierre);
+              db.saveMessage(phone, 'assistant', `[📋 Catálogo completo enviado: ${totalEnviados} productos con fotos]`);
+              console.log(`[CATÁLOGO] ✅ Catálogo enviado a ${phone}: ${totalEnviados} productos`);
+
+            } catch (bgErr) {
+              console.error(`[CATÁLOGO] ❌ Error enviando catálogo a ${phone}:`, bgErr.message);
+            }
+          })();
+
+        } catch (e) {
+          console.error('[CATÁLOGO] Error:', e.message);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+
       // POST /devolver-bot — panel devuelve un cliente al bot (quita pausa de admin)
     } else if (req.url === '/devolver-bot' && req.method === 'POST') {
       let body = '';
@@ -3111,7 +3767,7 @@ function startReactivacionServer() {
               console.log(`[RESUME] 📋 ${phone} — ${msgsDurantePausa.length} msgs durante pausa. Comprobante pendiente: ${tieneComprobantePendiente}`);
 
               // Generar mensaje de re-engagement con Gemini
-              const resumeModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
               const clientMemory = db.getClientMemory(phone) || '';
 
               let instruccionExtra = '';
@@ -3139,7 +3795,8 @@ ${instruccionExtra}
 
 Solo escribe el mensaje, sin explicaciones.`;
 
-              const resumeResult = await resumeModel.generateContent(resumePrompt);
+
+              const resumeResult = await geminiGenerate('gemini-2.5-flash', resumePrompt);
               const resumeMsg = resumeResult.response.text().trim();
 
               if (resumeMsg) {
@@ -3206,5 +3863,70 @@ Solo escribe el mensaje, sin explicaciones.`;
     process.on('SIGTERM', cleanup);
   });
 }
+
+// ============================================
+// PROCESADOR DE COLA DE REINTENTOS (Fondo)
+// ============================================
+async function processRetryQueue() {
+  if (retryQueue.length === 0) return;
+
+  console.log(`[RETRY QUEUE] 🔄 Procesando cola (${retryQueue.length} mensajes pendientes)...`);
+
+  // Extraemos el primero de la cola
+  const item = retryQueue.shift();
+  const { senderPhone, messageBody, history, rawMsg, intent } = item;
+
+  try {
+    let response;
+    if (CONFIG.mode === 'direct') {
+      response = await getClaudeResponse(senderPhone, messageBody, history);
+    } else {
+      response = await getN8nResponse(senderPhone, messageBody, history);
+    }
+
+    if (response) {
+      if (response === '__ERROR_CONEXION__') {
+        // Falló de nuevo. Lo regresamos al FINAL de la cola para seguir intentando
+        console.log(`[RETRY QUEUE] ⚠️ Fallo nuevamente para ${senderPhone}. Regresando a la cola.`);
+        retryQueue.push(item);
+      } else {
+        // ¡ÉXITO!
+        console.log(`[RETRY QUEUE] ✅ ¡Éxito! Mensaje recuperado y respondido a ${senderPhone}.`);
+        response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
+        const { cleanResponse } = await detectAndSendProductImages(response, rawMsg, senderPhone);
+        response = cleanResponse;
+
+        db.saveMessage(senderPhone, 'assistant', response);
+        await rawMsg.reply(response);
+
+        if (intent !== 'hot_lead') {
+          const responseLower = response.toLowerCase();
+          const estaOfreciendoClub = (
+            responseLower.includes('plan plus') && responseLower.includes('plan pro')
+          ) || (
+              responseLower.includes('100.000') && responseLower.includes('afiliaci')
+            ) || (
+              responseLower.includes('150.000') && responseLower.includes('pro')
+            );
+          if (estaOfreciendoClub) {
+            sendPromoImage(senderPhone);
+          }
+        } else {
+          await handleHandoff(rawMsg, senderPhone, messageBody, history, 'venta');
+        }
+
+        const isBotResponse = true;
+        notifyAuditors(senderPhone, response, 'BOT', isBotResponse);
+      }
+    }
+  } catch (e) {
+    console.error(`[RETRY QUEUE] ❌ Error duro intentando reenviar a ${senderPhone}:`, e.message);
+    // Lo regresamos a la cola por si es un fallo intermitente de la función misma
+    retryQueue.push(item);
+  }
+}
+
+// Ejecutar el procesador cada 45 segundos
+setInterval(processRetryQueue, 45000);
 
 client.initialize();

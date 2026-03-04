@@ -190,6 +190,22 @@ function initDatabase() {
     )
   `);
 
+  // Tabla de archivos del cliente (fotos, comprobantes, carnets, selfies)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS client_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_phone TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      descripcion TEXT DEFAULT '',
+      imagen_base64 TEXT,
+      imagen_mime TEXT DEFAULT 'image/jpeg',
+      referencia_id INTEGER DEFAULT 0,
+      referencia_tabla TEXT DEFAULT '',
+      subido_por TEXT DEFAULT 'cliente',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   console.log('[DB] Base de datos inicializada correctamente');
 }
 
@@ -662,6 +678,42 @@ function getLidClients() {
 // ============================================
 // EXPORTAR
 // ============================================
+// ============================================
+// ARCHIVOS DEL CLIENTE (fotos, comprobantes, carnets, selfies)
+// ============================================
+function saveClientFile(phone, tipo, descripcion, imagenBase64, imagenMime, subidoPor = 'cliente', referenciaId = 0, referenciatabla = '') {
+  return db.prepare(`
+    INSERT INTO client_files (client_phone, tipo, descripcion, imagen_base64, imagen_mime, subido_por, referencia_id, referencia_tabla)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(phone, tipo, descripcion || '', imagenBase64 || '', imagenMime || 'image/jpeg', subidoPor, referenciaId, referenciatabla);
+}
+
+function getClientFiles(phone) {
+  return db.prepare(`
+    SELECT id, tipo, descripcion, imagen_mime, subido_por, referencia_id, referencia_tabla, created_at
+    FROM client_files WHERE client_phone = ? ORDER BY created_at DESC
+  `).all(phone);
+}
+
+function getClientFilesByTipo(phone, tipo) {
+  return db.prepare(`
+    SELECT * FROM client_files WHERE client_phone = ? AND tipo = ? ORDER BY created_at DESC
+  `).all(phone, tipo);
+}
+
+function getClientFile(id) {
+  return db.prepare('SELECT * FROM client_files WHERE id = ?').get(id);
+}
+
+// ============================================
+// HELPER: actualizar flag booleano de cliente
+// ============================================
+function updateClientFlag(phone, flagName, value) {
+  const allowed = ['has_bought_gun', 'is_club_plus', 'is_club_pro', 'has_ai_bot', 'ignored', 'spam_flag'];
+  if (!allowed.includes(flagName)) return;
+  db.prepare(`UPDATE clients SET ${flagName} = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?`).run(value ? 1 : 0, phone);
+}
+
 module.exports = {
   db,
   initDatabase,
@@ -682,6 +734,7 @@ module.exports = {
   isSpamFlagged,
   getSpamFlagged,
   getLidClients,
+  updateClientFlag,
   // Empleados
   getEmployee,
   getEmployeeByPhone,
@@ -707,6 +760,11 @@ module.exports = {
   saveCarnet,
   getCarnetsPendientes,
   updateCarnetEstado,
+  // Archivos del cliente
+  saveClientFile,
+  getClientFiles,
+  getClientFilesByTipo,
+  getClientFile,
 };
 
 // ============================================

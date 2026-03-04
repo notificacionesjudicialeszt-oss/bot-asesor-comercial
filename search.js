@@ -166,12 +166,33 @@ function searchProducts(message, maxResults = 6) {
     return { ...product, _score: score };
   });
 
-  const results = scored
+  let results = scored
     .filter(p => p._score > 0)
     .sort((a, b) => b._score - a._score)
     .slice(0, maxResults);
 
-  console.log(`[SEARCH] "${message}" → ${keywords.length} keywords → ${results.length} productos encontrados`);
+  // INYECCIÓN ANTI-ALUCINACIÓN (Ceguera de Inventario):
+  // Si no hay un "match exacto y contundente" (score > 35), significa que el modelo exacto
+  // que pidió muy probablemente está agotado, y solo encontraron migajas (ej. pura marca Ekol 
+  // que por defecto suma ~34 puntos solo por la palabra clave de la marca, pero ningún "Nig 211").
+  const hasStrongMatch = results.length > 0 && results[0]._score > 35;
+
+  if (!hasStrongMatch) {
+    // Esconder la cola de resultados basura de la misma marca y meter Highlights
+    results = results.slice(0, 3); // Dejamos máximo 3 sugerencias similares
+
+    const highlights = getHighlightProducts();
+    highlights.forEach(h => {
+      // Inyectamos modelos destacados diferentes para que ofrezca variedad
+      if (!results.some(r => r.titulo === h.titulo)) {
+        if (results.length < maxResults) {
+          results.push(h);
+        }
+      }
+    });
+  }
+
+  console.log(`[SEARCH] "${message}" → ${keywords.length} keywords → ${results.length} productos (con rellenos) encontrados`);
 
   return {
     keywords,
@@ -182,15 +203,19 @@ function searchProducts(message, maxResults = 6) {
 }
 
 // ============================================
-// PRODUCTOS DESTACADOS
+// PRODUCTOS DESTACADOS (1 por marca)
 // ============================================
 function getHighlightProducts() {
-  // Uno por marca
-  const marcas = ['RETAY', 'EKOL', 'BLOW'];
+  // Garantizar que mandamos 1 de cada marca como vitrina de respaldo
+  const marcas = ['retay', 'ekol', 'blow'];
   const highlights = [];
   marcas.forEach(marca => {
-    const inMarca = catalogo.filter(p => p.categoria === marca && p.disponible);
-    if (inMarca.length > 0) highlights.push(inMarca[0]);
+    // Buscamos productos de esta marca o categoría que estén disponibles
+    const inMarca = catalogo.filter(p => p.disponible && (p.categoria.toLowerCase().includes(marca) || (p.marca || '').toLowerCase().includes(marca)));
+    if (inMarca.length > 0) {
+      // Idealmente rotar, o escoger el más popular/primero
+      highlights.push(inMarca[0]);
+    }
   });
   return highlights;
 }

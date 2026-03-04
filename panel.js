@@ -63,7 +63,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   // Log de requests (excepto polling que genera ruido)
-  const silentRoutes = ['/api/data', '/api/comprobantes-count', '/api/chat', '/'];
+  const silentRoutes = ['/api/data', '/api/events', '/api/chat', '/'];
   if (!silentRoutes.includes(url.pathname)) {
     console.log(`[PANEL] ${req.method} ${url.pathname}`);
   }
@@ -248,6 +248,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Enviar catálogo completo con fotos — relay al bot en puerto 3001
+  if (url.pathname === '/api/enviar-catalogo' && req.method === 'POST') {
+    let bodyData = '';
+    req.on('data', chunk => bodyData += chunk);
+    req.on('end', () => {
+      const parsed = JSON.parse(bodyData);
+      console.log(`[PANEL] 📋 Enviando catálogo a ${parsed.phone}`);
+      const payload = bodyData;
+      const botReq = http.request({
+        hostname: 'localhost',
+        port: 3001,
+        path: '/enviar-catalogo',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      }, botRes => {
+        let data = '';
+        botRes.on('data', chunk => data += chunk);
+        botRes.on('end', () => {
+          res.writeHead(botRes.statusCode, { 'Content-Type': 'application/json' });
+          res.end(data);
+        });
+      });
+      botReq.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'No se pudo conectar con el bot. ¿Está corriendo?' }));
+      });
+      botReq.write(payload);
+      botReq.end();
+    });
+    return;
+  }
+
   // Reactivar clientes calientes — llama directo al bot por HTTP (puerto 3001)
   if (url.pathname === '/api/reactivar-calientes' && req.method === 'POST') {
     let body = '';
@@ -376,6 +408,83 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/reatender' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = body;
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/reatender',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 🔄 Reatender solicitado para:`, JSON.parse(body).phone);
+            res.writeHead(botRes.statusCode, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        console.error('[PANEL] Error reatender:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Reatender post-venta — seguimiento IA (NO comercial)
+  if (url.pathname === '/api/reatender-postventa' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = body;
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/reatender-postventa',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 📬 Seguimiento post-venta solicitado para:`, JSON.parse(body).phone);
+            res.writeHead(botRes.statusCode, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        console.error('[PANEL] Error reatender-postventa:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Confirmar o rechazar comprobante — relay al bot en puerto 3001
   if (url.pathname === '/api/confirmar-comprobante' && req.method === 'POST') {
     let body = '';
@@ -497,8 +606,10 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { phone, status } = JSON.parse(body);
-        const validStatuses = ['new', 'hot', 'warm', 'completed', 'postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+        const validStatuses = ['new', 'hot', 'warm', 'completed', 'postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+        console.log(`[PANEL] 📂 cambiar-status: phone="${phone}" status="${status}" válido=${validStatuses.includes(status)}`);
         if (!phone || !validStatuses.includes(status)) {
+          console.error(`[PANEL] ❌ cambiar-status rechazado: phone=${JSON.stringify(phone)} status=${JSON.stringify(status)}`);
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'phone o status inválido' }));
           return;
@@ -567,7 +678,7 @@ const server = http.createServer((req, res) => {
   // Carnets pendientes
   if (url.pathname === '/api/carnets') {
     try {
-      const carnets = db.prepare(`SELECT id, client_phone, datos_extraidos_json, imagen_base64, imagen_mime, estado, created_at FROM carnets WHERE estado = 'pendiente' ORDER BY created_at DESC`).all();
+      const carnets = db.prepare(`SELECT id, client_phone, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial, imagen_base64, imagen_mime, estado, created_at FROM carnets WHERE estado = 'pendiente' ORDER BY created_at DESC`).all();
       console.log(`[PANEL] 🪪 Carnets cargados: ${carnets.length} pendientes`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(carnets));
@@ -595,7 +706,41 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Count liviano de comprobantes (para el badge, sin cargar imágenes)
+  // Eventos bidireccionales SSE (Server-Sent Events) para actualizar badges en tiempo real sin polling
+  if (url.pathname === '/api/events') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+
+    // Función para obtener y enviar "count" de carnets y comprobantes al panel
+    const sendEvent = () => {
+      try {
+        const compCount = db.prepare(`SELECT COUNT(*) as c FROM comprobantes WHERE estado = 'pendiente'`).get().c;
+        const carnCount = db.prepare(`SELECT COUNT(*) as c FROM carnets WHERE estado = 'pendiente'`).get().c;
+        const payload = JSON.stringify({ comprobantesCount: compCount, carnetsCount: carnCount });
+        res.write(`data: ${payload}\n\n`);
+      } catch (e) {
+        console.error('[SSE] Error enviando actualización:', e.message);
+      }
+    };
+
+    // Enviar primer dato
+    sendEvent();
+
+    // Empujar eventos cada 10 segundos
+    const intervalId = setInterval(sendEvent, 10000);
+
+    // Cuando el cliente (navegador) cierra la conexión
+    req.on('close', () => {
+      clearInterval(intervalId);
+    });
+    return;
+  }
+
+  // Count liviano de comprobantes (para el badge, sin cargar imágenes) [OBSOLETO - SSE Reemplaza esto]
   if (url.pathname === '/api/comprobantes-count') {
     try {
       const count = db.prepare(`SELECT COUNT(*) as c FROM comprobantes WHERE estado = 'pendiente'`).get().c;
@@ -706,7 +851,8 @@ function getHTML() {
   .status-assigned { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
   .status-completed { background: #23863622; color: #3fb950; border: 1px solid #23863644; }
   .status-postventa { background: #3fb95022; color: #3fb950; border: 1px solid #3fb95044; }
-  .status-carnet_pendiente, .status-carnet-pendiente { background: #bc8cff22; color: #bc8cff; border: 1px solid #bc8cff44; }
+  .status-carnet_pendiente_plus, .status-carnet-pendiente-plus { background: #bc8cff22; color: #bc8cff; border: 1px solid #bc8cff44; }
+  .status-carnet_pendiente_pro, .status-carnet-pendiente-pro { background: #f0883e22; color: #f0883e; border: 1px solid #f0883e44; }
   .status-despacho_pendiente, .status-despacho-pendiente { background: #f0883e22; color: #f0883e; border: 1px solid #f0883e44; }
   .status-municion_pendiente, .status-municion-pendiente { background: #f8514922; color: #f85149; border: 1px solid #f8514944; }
   .status-recuperacion_pendiente, .status-recuperacion-pendiente { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
@@ -849,7 +995,8 @@ function getHTML() {
     </div>
     <div class="tabs" style="flex-wrap:wrap;">
       <div class="tab active" data-pvfilter="all" onclick="setPvFilter('all',this)">Todos</div>
-      <div class="tab" data-pvfilter="carnet_pendiente" onclick="setPvFilter('carnet_pendiente',this)">🪪 Carnet Club</div>
+      <div class="tab" data-pvfilter="carnet_pendiente_plus" onclick="setPvFilter('carnet_pendiente_plus',this)">🟢 Carnet Plus</div>
+      <div class="tab" data-pvfilter="carnet_pendiente_pro" onclick="setPvFilter('carnet_pendiente_pro',this)">🔴 Carnet Pro</div>
       <div class="tab" data-pvfilter="despacho_pendiente" onclick="setPvFilter('despacho_pendiente',this)">📦 Dispositivo</div>
       <div class="tab" data-pvfilter="municion_pendiente" onclick="setPvFilter('municion_pendiente',this)">🔫 Munición</div>
       <div class="tab" data-pvfilter="recuperacion_pendiente" onclick="setPvFilter('recuperacion_pendiente',this)">🔧 Recuperación</div>
@@ -925,6 +1072,35 @@ async function reactivarIndividual(phone, btnElement, mode = 'normal') {
       btnElement.style.color = '#fff';
     } else {
       alert('⚠️ ' + (data.msg || data.error || 'Error'));
+      btnElement.innerHTML = oldText;
+      btnElement.style.pointerEvents = 'auto';
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+    btnElement.innerHTML = oldText;
+    btnElement.style.pointerEvents = 'auto';
+  }
+}
+
+async function reatenderCliente(phone, btnElement) {
+  const oldText = btnElement.innerHTML;
+  btnElement.innerHTML = '⏳ Procesando...';
+  btnElement.style.pointerEvents = 'none';
+
+  try {
+    const res = await fetch('/api/reatender', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      btnElement.innerHTML = '✅ Reatendido';
+      btnElement.style.background = '#2ea043';
+      btnElement.style.borderColor = '#3fb950';
+      btnElement.style.color = '#fff';
+    } else {
+      alert('⚠️ ' + (data.message || data.error || 'Error'));
       btnElement.innerHTML = oldText;
       btnElement.style.pointerEvents = 'auto';
     }
@@ -1046,7 +1222,7 @@ async function resolveSpam(phone, isBot) {
 
 function renderStats() {
   const d = allData;
-  const PV_ST = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+  const PV_ST = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
   const pvCount = d.clients.filter(c => PV_ST.includes(c.status)).length;
   document.getElementById('stats').innerHTML = \`
     <div class="stat blue"><div class="num">\${d.totalClients}</div><div class="label">Total clientes</div></div>
@@ -1059,13 +1235,16 @@ function renderStats() {
 }
 
 function renderClients() {
-  // Comercial solo muestra clientes que NO están en post-venta
-  const PV_ST = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
-  let clients = allData.clients.filter(c => !PV_ST.includes(c.status));
+  const PV_ST = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
   const rawSearch = document.getElementById('searchInput').value.toLowerCase().trim();
-  // Para búsqueda de teléfono: quitar +, espacios y guiones
   const searchDigits = rawSearch.replace(/[^0-9]/g, '');
   const search = rawSearch;
+
+  // Si no hay búsqueda de texto, ocultamos post-venta, pero si el asesor busca a alguien, lo debe encontrar sin importar el estado.
+  let clients = allData.clients;
+  if (!search) {
+    clients = clients.filter(c => !PV_ST.includes(c.status));
+  }
 
   if (currentFilter === 'new') clients = clients.filter(c => c.status === 'new');
   else if (currentFilter === 'hot') clients = clients.filter(c =>
@@ -1126,11 +1305,19 @@ async function selectClient(phone) {
         
         <div class="detail-item" style="grid-column: 1 / -1; margin-top: 10px; background: #0d1117; padding: 10px; border-radius: 6px; border: 1px dashed #30363d;">
           <span class="dl" style="color:#3fb950; font-size:13px;"><i class="fas fa-lock"></i> 🔒 Bóveda de Servicios Adquiridos (Memoria para la IA):</span>
-          <div style="display:flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
-            <button class="btn-toggle \${client.has_bought_gun ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})">🔫 Compró Arma</button>
-            <button class="btn-toggle \${client.is_club_plus ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'is_club_plus', \${client.is_club_plus || 0})">🟡 Club Plus</button>
-            <button class="btn-toggle \${client.is_club_pro ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'is_club_pro', \${client.is_club_pro || 0})">🔴 Club Pro</button>
-            <button class="btn-toggle \${client.has_ai_bot ? 'on' : ''}" onclick="toggleFlag('\${client.phone}', 'has_ai_bot', \${client.has_ai_bot || 0})">🤖 Chatbot IA</button>
+          <div style="display:flex; gap: 12px; margin-top: 8px; flex-wrap: wrap;">
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.has_bought_gun ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})" style="accent-color:#3fb950;"> 🔫 Compró Arma
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.is_club_plus ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'is_club_plus', \${client.is_club_plus || 0})" style="accent-color:#d29922;"> 🟡 Club Plus ($100k)
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.is_club_pro ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'is_club_pro', \${client.is_club_pro || 0})" style="accent-color:#f85149;"> 🔴 Club Pro ($150k)
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.has_ai_bot ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'has_ai_bot', \${client.has_ai_bot || 0})" style="accent-color:#1f6feb;"> 🤖 Bot Asesor IA
+            </label>
           </div>
         </div>
       </div>
@@ -1152,13 +1339,16 @@ async function selectClient(phone) {
           <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#d29922;" onclick="changeStatus('\${client.phone}', 'completed')">✅ Marcar Completado</div>
           <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this, 'normal')">🔥 Reactivar Integración IA</div>
           <div class="crm-chip" style="background:#332900;border-color:#d29922;color:#e3b341;" onclick="reactivarIndividual('\${client.phone}', this, 'ultra')">💎 Reactivar Ultra (Promos)</div>
+          <div class="crm-chip" style="background:#58a6ff22;border-color:#58a6ff;color:#58a6ff;" onclick="reatenderCliente('\${client.phone}', this)">🔄 Reatender (Último Msj)</div>
           <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
+          <div class="crm-chip" style="background:#1a3a2a;border-color:#3fb950;color:#3fb950;" onclick="enviarCatalogo('\${client.phone}', this)">📋 Enviar Catálogo</div>
         </div>
         <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-size:12px;color:#8b949e;font-family:'Chakra Petch',sans-serif;">📦 Mover a Post-venta:</span>
           <select id="pvSelect_\${client.phone}" style="background:#111820;border:1px solid #30363d;color:#e6edf3;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
             <option value="">— seleccionar —</option>
-            <option value="carnet_pendiente">🪪 Pendiente Carnet Club</option>
+            <option value="carnet_pendiente_plus">🟢 Pendiente Carnet Club Plus</option>
+            <option value="carnet_pendiente_pro">🔴 Pendiente Carnet Club Pro</option>
             <option value="despacho_pendiente">📦 Pendiente Envío Dispositivo</option>
             <option value="municion_pendiente">🔫 Pendiente Envío Munición</option>
             <option value="recuperacion_pendiente">🔧 Pendiente Recuperación</option>
@@ -1421,6 +1611,46 @@ async function devolverAlBot(phone) {
   }
 }
 
+async function enviarCatalogo(phone, btn) {
+  if (!confirm('¿Enviar catálogo completo con fotos a este cliente? Se enviarán todas las referencias disponibles.')) return;
+  const originalText = btn.textContent;
+  btn.textContent = '⏳ Enviando...';
+  btn.style.pointerEvents = 'none';
+  btn.style.opacity = '0.6';
+  try {
+    const res = await fetch('/api/enviar-catalogo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ Catálogo enviado';
+      btn.style.background = '#1a3a2a';
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '📋 Catálogo enviándose en background — puede tardar unos minutos';
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 6000);
+      }
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.pointerEvents = '';
+        btn.style.opacity = '';
+      }, 10000);
+    } else {
+      alert('❌ ' + (data.error || 'Error enviando catálogo'));
+      btn.textContent = originalText;
+      btn.style.pointerEvents = '';
+      btn.style.opacity = '';
+    }
+  } catch(e) {
+    alert('❌ Error conectando con el bot. ¿Está corriendo?');
+    btn.textContent = originalText;
+    btn.style.pointerEvents = '';
+    btn.style.opacity = '';
+  }
+}
+
 async function moverPostventa(phone) {
   const select = document.getElementById('pvSelect_' + phone);
   const status = select ? select.value : '';
@@ -1453,48 +1683,49 @@ async function migrarAssigned() {
   if (btn) { btn.disabled = false; btn.textContent = '🔄 Migrar Asignados → Calientes'; }
 }
 
-async function loadComprobanteBadge() {
-  try {
-    const res = await fetch('/api/comprobantes-count');
-    const { count } = await res.json();
-    const badge = document.getElementById('comprobanteBadge');
-    if (badge) {
-      if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
-      else badge.style.display = 'none';
-    }
-  } catch(e) {}
+async function loadComprobanteBadge(count) {
+  const badge = document.getElementById('comprobanteBadge');
+  if (badge) {
+    if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+    else badge.style.display = 'none';
+  }
 }
 
-async function loadCarnetsBadge() {
-  try {
-    const res = await fetch('/api/carnets-count');
-    const { count } = await res.json();
-    const badge = document.getElementById('carnetsBadge');
-    if (badge) {
-      if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
-      else badge.style.display = 'none';
-    }
-  } catch(e) {}
+async function loadCarnetsBadge(count) {
+  const badge = document.getElementById('carnetsBadge');
+  if (badge) {
+    if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+    else badge.style.display = 'none';
+  }
 }
+
+// Escuchar Server-Sent Events (SSE) para badges sin hacer pollling
+const eventSource = new EventSource('/api/events');
+eventSource.onmessage = function(event) {
+  try {
+    const data = JSON.parse(event.data);
+    loadComprobanteBadge(data.comprobantesCount);
+    loadCarnetsBadge(data.carnetsCount);
+  } catch(e) {}
+};
 
 async function refreshAll() {
   await loadData();
-  await loadComprobanteBadge();
-  await loadCarnetsBadge();
   // Badge post-venta (todos los status del grupo PV)
   if (allData) {
-    const pvStatuses = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+    const pvStatuses = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
     const pvCount = allData.clients.filter(c => pvStatuses.includes(c.status)).length;
     const badge = document.getElementById('postventaBadge');
     if (badge) { badge.textContent = pvCount; badge.style.display = pvCount > 0 ? 'inline' : 'none'; }
   }
   // Si estamos en post-venta, refrescar la lista
   if (currentMainTab === 'postventa') renderPostventa();
+  if (currentMainTab === 'comprobantes') loadComprobantes();
+  if (currentMainTab === 'carnets') loadCarnets();
 }
 
-// Auto-refresh cada 15 segundos
+// Carga inicial de datos
 refreshAll();
-setInterval(refreshAll, 15000);
 
 // ====== VISTA PRINCIPAL TABS ======
 let currentMainTab = 'comercial';
@@ -1519,11 +1750,12 @@ let selectedPhonePv = null;
 let currentPvFilter = 'all';
 
 // Todos los status que pertenecen a post-venta
-const PV_STATUSES = ['postventa', 'carnet_pendiente', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+const PV_STATUSES = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
 
 const PV_LABELS = {
   'postventa': 'Post-venta',
-  'carnet_pendiente': '🪪 Carnet',
+  'carnet_pendiente_plus': '🟢 Carnet Plus',
+  'carnet_pendiente_pro': '🔴 Carnet Pro',
   'despacho_pendiente': '📦 Dispositivo',
   'municion_pendiente': '🔫 Munición',
   'recuperacion_pendiente': '🔧 Recuperación',
@@ -1587,33 +1819,79 @@ async function selectClientPv(phone) {
   selectedPhonePv = phone;
   renderPostventa();
   const client = allData.clients.find(c => c.phone === phone);
+  const assignment = allData.assignments.find(a => a.client_phone === phone && a.status === 'active');
   document.getElementById('chatTitlePv').textContent = '💬 ' + (client.name || phone);
   document.getElementById('clientDetailPv').style.display = 'block';
+  const statusClass = 'status-' + (client.status || 'postventa').replace(/_/g, '-');
+  const statusLabel = PV_LABELS[client.status] || client.status || 'postventa';
   document.getElementById('clientDetailPv').innerHTML = \`
     <div class="client-detail">
-      <h3>\${client.name || 'Sin nombre'} <span class="client-status status-postventa">postventa</span></h3>
+      <h3>\${client.name || 'Sin nombre'} <span class="client-status \${statusClass}">\${statusLabel}</span></h3>
       <div class="detail-grid">
         <div class="detail-item"><span class="dl">\${isLid(client.phone) ? '🔒 ID WA:' : '📱 Teléfono:'}</span> <span class="dv">\${isLid(client.phone) ? '<span style=\\"color:#8b949e;font-size:11px;\\">' + client.phone + ' (privado)</span>' : client.phone}</span></div>
         <div class="detail-item"><span class="dl">💬 Mensajes:</span> <span class="dv">\${client.interaction_count || 0}</span></div>
+        <div class="detail-item"><span class="dl">📅 Registro:</span> <span class="dv">\${new Date(client.created_at).toLocaleDateString()}</span></div>
+        <div class="detail-item"><span class="dl">👔 Asignado:</span> <span class="dv">\${assignment ? assignment.employee_name : 'No'}</span></div>
       </div>
-      \${client.memory ? '<div class="memory-box">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : ''}
+
+      <div class="detail-item" style="grid-column: 1 / -1; margin-top: 10px; background: #0d1117; padding: 10px; border-radius: 6px; border: 1px dashed #30363d;">
+        <span class="dl" style="color:#3fb950; font-size:13px;">🔒 Bóveda de Servicios Adquiridos (Memoria para la IA):</span>
+        <div style="display:flex; gap: 12px; margin-top: 8px; flex-wrap: wrap;">
+          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+            <input type="checkbox" \${client.has_bought_gun ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})" style="accent-color:#3fb950;"> 🔫 Compró Arma
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+            <input type="checkbox" \${client.is_club_plus ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'is_club_plus', \${client.is_club_plus || 0})" style="accent-color:#d29922;"> 🟡 Club Plus ($100k)
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+            <input type="checkbox" \${client.is_club_pro ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'is_club_pro', \${client.is_club_pro || 0})" style="accent-color:#f85149;"> 🔴 Club Pro ($150k)
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+            <input type="checkbox" \${client.has_ai_bot ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'has_ai_bot', \${client.has_ai_bot || 0})" style="accent-color:#1f6feb;"> 🤖 Bot Asesor IA
+          </label>
+        </div>
+      </div>
+
+      \${client.memory ? '<div class="memory-box">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : '<div class="memory-box" style="border-left-color:#3d4f5f;">🧠 <strong>Memoria CRM:</strong> Sin notas aún</div>'}
+
       <div class="crm-actions">
-        <div class="crm-actions-title">📂 Categorizar</div>
+        <div class="crm-actions-title">📝 Notas rápidas — el bot sabrá esto al responder</div>
         <div class="crm-chips">
-          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'carnet_pendiente')">🪪 Pend. Carnet Club</div>
-          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'despacho_pendiente')">📦 Pend. Dispositivo</div>
-          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'municion_pendiente')">🔫 Pend. Munición</div>
-          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'recuperacion_pendiente')">🔧 Pend. Recuperación</div>
-          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'bot_asesor_pendiente')">🤖 Pend. Bot Asesor</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '✅ Carnet enviado')">🪪 Carnet enviado</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '📦 Dispositivo despachado')">📦 Dispositivo despachado</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '💰 Pago recibido y confirmado')">💰 Pago recibido</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '🏆 Afiliación al club activa')">🏆 Afiliación activa</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '🔫 Munición despachada')">🔫 Munición enviada</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '🔧 Dispositivo en recuperación')">🔧 En recuperación</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '📋 Pendiente: enviar carnet')">🕐 Pendiente carnet</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '📋 Pendiente: despachar dispositivo')">🕐 Pendiente despacho</div>
+        </div>
+        <div class="crm-note-row" style="margin-top:8px;">
+          <input class="crm-note-input" id="notePvInput_\${client.phone}" type="text" placeholder="Nota interna... (ej: carnet listo, falta envío munición)" onkeydown="if(event.key==='Enter') saveNotePv('\${client.phone}')">
+          <button class="crm-note-btn" onclick="saveNotePv('\${client.phone}')">📝 Guardar</button>
+        </div>
+        <div class="crm-feedback" id="notePvFeedback_\${client.phone}"></div>
+
+        <div class="crm-actions-title" style="margin-top:12px;">📂 Categorizar</div>
+        <div class="crm-chips">
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'carnet_pendiente_plus')">🟢 Pend. Carnet Plus</div>
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'carnet_pendiente_pro')">🔴 Pend. Carnet Pro</div>
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'despacho_pendiente')">📦 Pend. Dispositivo</div>
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'municion_pendiente')">🔫 Pend. Munición</div>
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'recuperacion_pendiente')">🔧 Pend. Recuperación</div>
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'bot_asesor_pendiente')">🤖 Pend. Bot Asesor</div>
         </div>
         <div class="crm-actions-title" style="margin-top:10px;">⚡ Acciones</div>
         <div class="crm-chips">
-          <div class="crm-chip" onclick="addNote('\${client.phone}', '✅ Caso resuelto')">✅ Caso resuelto</div>
-          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'completed')">🏁 Marcar completado</div>
-          <div class="crm-chip" onclick="changeStatus('\${client.phone}', 'new')">↩️ Devolver a Comercial</div>
+          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '✅ Caso resuelto')">✅ Caso resuelto</div>
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'completed')">🏁 Marcar completado</div>
+          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'new')">↩️ Devolver a Comercial</div>
           <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this, 'normal')">🔥 Reactivar Integración IA</div>
           <div class="crm-chip" style="background:#332900;border-color:#d29922;color:#e3b341;" onclick="reactivarIndividual('\${client.phone}', this, 'ultra')">💎 Reactivar Ultra (Promos)</div>
+          <div class="crm-chip" style="background:#58a6ff22;border-color:#58a6ff;color:#58a6ff;" onclick="reatenderCliente('\${client.phone}', this)">🔄 Reatender (Último Msj)</div>
           <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
+          <div class="crm-chip" style="background:#1a3a2a;border-color:#3fb950;color:#3fb950;" onclick="enviarCatalogo('\${client.phone}', this)">📋 Enviar Catálogo</div>
+          <div class="crm-chip" style="background:#2d1640;border-color:#bc8cff;color:#d4a0ff;font-weight:700;" onclick="reatenderPostventaPv('\${client.phone}', this)">📬 Seguimiento Post-venta (IA)</div>
         </div>
       </div>
       <div style="margin-top:10px;">\${waLink(client.phone)}</div>
@@ -1623,8 +1901,8 @@ async function selectClientPv(phone) {
   const messages = await res.json();
   const chatHtml = messages.map(m => \`
     <div style="display:flex;flex-direction:column;align-items:\${m.role === 'user' ? 'flex-start' : 'flex-end'};">
-      <div class="chat-bubble chat-\${m.role}">\${m.message}</div>
-      <div class="chat-time">\${new Date(m.created_at).toLocaleString()}</div>
+      <div class="chat-bubble chat-\${m.role}" \${m.role === 'admin' ? 'style="background:#1a5276;border:1px solid #2980b9;"' : ''}>\${m.role === 'admin' ? '👤 ' : ''}\${m.message}</div>
+      <div class="chat-time">\${m.role === 'admin' ? 'Álvaro • ' : ''}\${new Date(m.created_at).toLocaleString()}</div>
     </div>
   \`).join('');
   const chatArea = document.getElementById('chatAreaPv');
@@ -1634,6 +1912,108 @@ async function selectClientPv(phone) {
       '<button onclick="enviarMensajeAdminPv()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
     '</div>';
   requestAnimationFrame(() => requestAnimationFrame(() => { chatArea.scrollTop = chatArea.scrollHeight; }));
+}
+
+// Helpers post-venta — refrescan la vista PV en lugar de la comercial
+async function addNotePv(phone, note) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note, append: true })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      renderPostventa();
+      selectedPhonePv = phone;
+      selectClientPv(phone);
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) { fb.textContent = '✅ Guardado: ' + note; setTimeout(() => { if(fb) fb.textContent = ''; }, 3000); }
+    } else {
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function saveNotePv(phone) {
+  const input = document.getElementById('notePvInput_' + phone);
+  if (!input || !input.value.trim()) return;
+  await addNotePv(phone, input.value.trim());
+  input.value = '';
+}
+
+async function toggleFlagPv(phone, flag, currentValue) {
+  const newValue = currentValue === 1 ? false : true;
+  try {
+    const res = await fetch('/api/toggle-client-flag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, flag, value: newValue })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      selectClientPv(phone);
+    } else {
+      alert('❌ Error actualizando flag: ' + data.error);
+    }
+  } catch (e) {
+    alert('❌ Error conectando con servidor local');
+  }
+}
+
+async function changeStatusPv(phone, status) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note: '', append: true, status })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      renderPostventa();
+      selectedPhonePv = phone;
+      selectClientPv(phone);
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '✅ Estado actualizado a: ' + (PV_LABELS[status] || status);
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 3000);
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function reatenderPostventaPv(phone, btn) {
+  const original = btn.textContent;
+  btn.textContent = '⏳ Enviando...';
+  btn.style.pointerEvents = 'none';
+  try {
+    const res = await fetch('/api/reatender-postventa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ Enviado';
+      btn.style.background = '#1a3a2a';
+      btn.style.color = '#3fb950';
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) { fb.textContent = '✅ Seguimiento enviado — el bot contactó al cliente'; setTimeout(() => { if(fb) fb.textContent = ''; }, 5000); }
+      // Refrescar chat para ver el mensaje enviado
+      setTimeout(() => selectClientPv(phone), 2000);
+    } else {
+      btn.textContent = '❌ Error';
+      alert('Error: ' + (data.message || data.error || 'desconocido'));
+    }
+  } catch(e) {
+    btn.textContent = '❌ Error';
+    alert('No se pudo conectar con el bot');
+  }
+  setTimeout(() => { btn.textContent = original; btn.style.pointerEvents = ''; btn.style.background = ''; btn.style.color = ''; }, 4000);
 }
 
 async function enviarMensajeAdminPv() {
@@ -1682,8 +2062,8 @@ async function loadComprobantes() {
     }
 
     container.innerHTML = comprobantes.map(c => {
-      const tipoClass = c.tipo === 'club' ? 'tipo-club' : c.tipo === 'producto' ? 'tipo-producto' : c.tipo === 'bot_asesor' ? 'tipo-bot' : 'tipo-desconocido';
-      const tipoLabel = c.tipo === 'club' ? '🏆 Club ZT' : c.tipo === 'producto' ? '📦 Producto' : c.tipo === 'bot_asesor' ? '🤖 Bot Asesor' : '❓ Desconocido';
+      const tipoClass = (c.tipo === 'club' || c.tipo === 'club_plus' || c.tipo === 'club_pro') ? 'tipo-club' : c.tipo === 'producto' ? 'tipo-producto' : c.tipo === 'bot_asesor' ? 'tipo-bot' : 'tipo-desconocido';
+      const tipoLabel = c.tipo === 'club_plus' ? '🟡 Club Plus' : c.tipo === 'club_pro' ? '🔴 Club Pro' : c.tipo === 'club' ? '🏆 Club ZT' : c.tipo === 'producto' ? '📦 Producto' : c.tipo === 'bot_asesor' ? '🤖 Bot Asesor' : '❓ Desconocido';
       const fecha = new Date(c.created_at).toLocaleString('es-CO');
       const imgHtml = c.imagen_base64
         ? \`<img class="comprobante-img" src="data:\${c.imagen_mime};base64,\${c.imagen_base64}" alt="comprobante" onclick="openLightbox(this.src)" title="Click para ver completo">\`
@@ -1707,7 +2087,10 @@ async function loadComprobantes() {
               <span style="color:#8b949e;font-size:11px;">📋 Tipo(s) de compra:</span>
               <div id="tipoChecks_\${c.id}" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">
                 <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">
-                  <input type="checkbox" value="club" \${c.tipo === 'club' || c.tipo === 'club_y_bot' ? 'checked' : ''} style="accent-color:#3fb950;"> 🏆 Club ZT
+                  <input type="checkbox" value="club_plus" \${c.tipo === 'club_plus' || c.tipo === 'club' || c.tipo === 'club_y_bot' ? 'checked' : ''} style="accent-color:#d29922;"> 🟡 Club Plus ($100k)
+                </label>
+                <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">
+                  <input type="checkbox" value="club_pro" \${c.tipo === 'club_pro' ? 'checked' : ''} style="accent-color:#f85149;"> 🔴 Club Pro ($150k)
                 </label>
                 <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">
                   <input type="checkbox" value="bot_asesor" \${c.tipo === 'bot_asesor' || c.tipo === 'club_y_bot' ? 'checked' : ''} style="accent-color:#1f6feb;"> 🤖 Bot Asesor
@@ -1810,21 +2193,27 @@ async function loadCarnets() {
     }
 
     container.innerHTML = carnets.map(c => {
-      let extraData = {};
-      try { extraData = JSON.parse(c.datos_extraidos_json); } catch(e){}
+      // Re-construir data para la vista compatible
+      let extraData = {
+        nombre: c.nombre,
+        cedula: c.cedula,
+        club: 'Club ZT Plus/Pro', 
+        arma: c.modelo_arma,
+        serial: c.serial
+      };
       
       const fecha = new Date(c.created_at).toLocaleString('es-CO');
       const imgHtml = c.imagen_base64
         ? \`<img class="comprobante-img" src="data:\${c.imagen_mime};base64,\${c.imagen_base64}" alt="carnet" onclick="openLightbox(this.src)" title="Click para ver completo">\`
         : \`<div class="comprobante-img-placeholder">📄 Sin carnet</div>\`;
 
-      const safeDataText = encodeURIComponent(c.datos_extraidos_json);
+      const safeDataText = encodeURIComponent(JSON.stringify({nombres: c.nombre, cedula: c.cedula, arma: c.modelo_arma, serial: c.serial}));
 
       return \`
         <div class="comprobante-card" id="carn_\${c.id}">
           \${imgHtml}
           <div class="comprobante-info">
-            <div class="comprobante-name">\${extraData.nombres || extraData.nombre || 'Nombre no detectado'}</div>
+            <div class="comprobante-name">\${extraData.nombre || 'Nombre no detectado'}</div>
             <div class="comprobante-phone">📱 \${c.client_phone}</div>
             <div class="comprobante-detail" style="margin-top: 5px;">
               <strong>Cédula:</strong> \${extraData.cedula || 'N/A'}<br>
@@ -1835,11 +2224,35 @@ async function loadCarnets() {
             <div><span class="comprobante-tipo tipo-club">🪪 Carnet ZT</span></div>
             <div class="comprobante-time">📅 \${fecha}</div>
             <div style="margin-top:8px;"><a href="https://wa.me/\${c.client_phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir en WhatsApp</a></div>
-          </div>
           <div class="comprobante-actions">
-            <!-- Pasamos los datos extraídos para que el backend pueda guardarlos -->
+            <!-- Menú de Plan y Vigencia al Aprobar -->
+            <div style="margin-bottom:8px;background:#0d1117;padding:8px;border-radius:6px;border:1px dashed #30363d;">
+              <div style="margin-bottom:6px;">
+                <span style="color:#3fb950;font-size:11px;font-weight:bold;">✅ Plan a asignar (Aprobar):</span>
+                <select id="plan_carnet_\${c.id}" style="width:100%;background:#111820;border:1px solid #3fb950;color:#e6edf3;padding:4px;border-radius:4px;font-size:12px;cursor:pointer;margin-top:4px;">
+                  <option value="Plan Plus">🟡 Plan Plus ($100k) - Default</option>
+                  <option value="Plan Pro">🔴 Plan Pro ($150k)</option>
+                </select>
+              </div>
+              <div>
+                <span style="color:#58a6ff;font-size:11px;font-weight:bold;">📅 Vence el (Leído por IA):</span>
+                <input type="date" id="vigencia_carnet_\${c.id}" value="\${c.vigencia_hasta || ''}" style="width:100%;background:#111820;border:1px solid #1f6feb;color:#e6edf3;padding:4px;border-radius:4px;font-size:12px;margin-top:4px;">
+              </div>
+            </div>
+            <!-- Botón Aprobar -->
             <button class="btn-confirmar" id="btn_carn_confirm_\${c.id}" onclick="accionCarnet(\${c.id}, 'confirmar', '\${c.client_phone}', '\${safeDataText}')">✅ Aprobar y Actualizar Ficha</button>
-            <button class="btn-rechazar" id="btn_carn_reject_\${c.id}" onclick="accionCarnet(\${c.id}, 'rechazar', '\${c.client_phone}', '')">❌ Rechazar (Ilegible/Falso)</button>
+
+            <!-- Menú de Razón al Rechazar -->
+            <div style="margin-top:12px;margin-bottom:8px;">
+              <span style="color:#f85149;font-size:11px;">❌ Razón de rechazo:</span>
+              <select id="razon_rechazo_\${c.id}" style="width:100%;background:#111820;border:1px solid #f85149;color:#e6edf3;padding:4px;border-radius:4px;font-size:12px;cursor:pointer;margin-top:4px;">
+                <option value="ilegible">📄 Ilegible o borroso</option>
+                <option value="vencido">⏳ Documento vencido</option>
+                <option value="inconsistencia">🚫 Inconsistencia en datos / Falso</option>
+              </select>
+            </div>
+            <!-- Botón Rechazar -->
+            <button class="btn-rechazar" id="btn_carn_reject_\${c.id}" onclick="accionCarnet(\${c.id}, 'rechazar', '\${c.client_phone}', '')">❌ Notificar Rechazo</button>
           </div>
         </div>
       \`;
@@ -1865,11 +2278,30 @@ async function accionCarnet(id, accion, phone, carnetDataEncoded) {
     }
   } catch(e) {}
 
+  // Extraer plan, vigencia o razón de rechazo de los UI seleccionados
+  let planAprobado = null;
+  let vigenciaAprobada = null;
+  let razonRechazo = null;
+
+  if (accion === 'confirmar') {
+    const selPlan = document.getElementById('plan_carnet_' + id);
+    if (selPlan) planAprobado = selPlan.value;
+    const inputVigencia = document.getElementById('vigencia_carnet_' + id);
+    if (inputVigencia) vigenciaAprobada = inputVigencia.value;
+
+    if (!vigenciaAprobada) {
+      if (!confirm('⚠️ No has ingresado la fecha de vigencia del carnet. ¿Deseas aprobarlo sin fecha de expiración?')) return;
+    }
+  } else if (accion === 'rechazar') {
+    const selRazon = document.getElementById('razon_rechazo_' + id);
+    if (selRazon) razonRechazo = selRazon.value;
+  }
+
   try {
     const res = await fetch('/api/confirmar-carnet', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, accion, phone, carnetData })
+      body: JSON.stringify({ id, accion, phone, carnetData, planAprobado, vigenciaAprobada, razonRechazo })
     });
     const data = await res.json();
     if (data.ok) {
