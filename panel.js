@@ -83,6 +83,126 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ============================================
+  // DOSSIER COMPLETO DEL CLIENTE — consulta TODAS las tablas
+  // ============================================
+  if (url.pathname === '/api/client-dossier') {
+    const phone = url.searchParams.get('phone');
+    if (!phone) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Parámetro phone requerido' }));
+      return;
+    }
+    try {
+      const clean = phone.replace(/@.*/, '').replace(/\D/g, '');
+      const profile = db.prepare('SELECT * FROM clients WHERE phone = ?').get(clean);
+      if (!profile) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Cliente no encontrado' }));
+        return;
+      }
+
+      // Comprobantes (TODOS, no solo pendientes)
+      const comprobantes = db.prepare(`
+        SELECT id, tipo, estado, info, imagen_mime, created_at, verified_at
+        FROM comprobantes WHERE client_phone = ? ORDER BY created_at DESC
+      `).all(clean);
+
+      // Carnets (TODOS)
+      const carnets = db.prepare(`
+        SELECT id, estado, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial, imagen_mime, created_at, verified_at
+        FROM carnets WHERE client_phone = ? ORDER BY created_at DESC
+      `).all(clean);
+
+      // Archivos del cliente (sin imagen_base64 para no sobrecargar)
+      const files = db.prepare(`
+        SELECT id, tipo, descripcion, imagen_mime, subido_por, created_at
+        FROM client_files WHERE client_phone = ? ORDER BY created_at DESC
+      `).all(clean);
+
+      // Estadísticas
+      const totalMessages = db.prepare('SELECT COUNT(*) as c FROM conversations WHERE client_phone = ?').get(clean).c;
+      const firstContact = db.prepare('SELECT MIN(created_at) as d FROM conversations WHERE client_phone = ?').get(clean).d;
+
+      // Asignación activa
+      const assignment = db.prepare(`
+        SELECT a.*, e.name as employee_name FROM assignments a
+        JOIN employees e ON a.employee_id = e.id
+        WHERE a.client_phone = ? AND a.status = 'active'
+        ORDER BY a.assigned_at DESC LIMIT 1
+      `).get(clean);
+
+      console.log(`[PANEL] 📋 Dossier cargado para ${clean}: ${comprobantes.length} comprobantes, ${carnets.length} carnets, ${files.length} archivos`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        profile,
+        comprobantes,
+        carnets,
+        files,
+        assignment: assignment || null,
+        stats: { totalMessages, firstContact, lastContact: profile.updated_at }
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Archivos de un cliente específico (con imagen_base64 para ver)
+  if (url.pathname === '/api/client-files') {
+    const phone = url.searchParams.get('phone');
+    const id = url.searchParams.get('id');
+    try {
+      if (id) {
+        // Un archivo específico con su imagen
+        const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(parseInt(id));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(file || null));
+      } else if (phone) {
+        const clean = phone.replace(/@.*/, '').replace(/\D/g, '');
+        const files = db.prepare(`
+          SELECT id, tipo, descripcion, imagen_mime, subido_por, created_at
+          FROM client_files WHERE client_phone = ? ORDER BY created_at DESC
+        `).all(clean);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(files));
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Parámetro phone o id requerido' }));
+      }
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Actualizar memoria completa de un cliente directamente
+  if (url.pathname === '/api/update-client-memory' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { phone, memory } = JSON.parse(body);
+        if (!phone) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'phone requerido' }));
+          return;
+        }
+        const clean = phone.replace(/@.*/, '').replace(/\D/g, '');
+        db.prepare('UPDATE clients SET memory = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(memory || '', clean);
+        console.log(`[PANEL] 🧠 Memoria editada para ${clean} (${(memory || '').length} chars)`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Actualizar memoria/estado de cliente desde el panel
   if (url.pathname === '/api/update-client' && req.method === 'POST') {
     let body = '';
@@ -485,7 +605,46 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Confirmar o rechazar comprobante — relay al bot en puerto 3001
+  // Agregar cliente nuevo y enviar primer mensaje
+  if (url.pathname === '/api/agregar-cliente' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const payload = body;
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/agregar-cliente',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] \u2795 Agregar cliente:`, JSON.parse(body).phone);
+            res.writeHead(botRes.statusCode, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: '\u274c No se pudo conectar con el bot. \u00bfEst\u00e1 corriendo?' }));
+        });
+
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        console.error('[PANEL] Error agregar-cliente:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Confirmar o rechazar comprobante \u2014 relay al bot en puerto 3001 — relay al bot en puerto 3001
   if (url.pathname === '/api/confirmar-comprobante' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
@@ -689,6 +848,105 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Carnets de un cliente específico (todos, no solo pendientes)
+  if (url.pathname === '/api/carnets-cliente') {
+    const phone = url.searchParams.get('phone');
+    if (!phone) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Parámetro phone requerido' }));
+      return;
+    }
+    try {
+      const clean = phone.replace(/@.*/, '').replace(/\D/g, '');
+      const carnets = db.prepare(`
+        SELECT id, client_phone, client_name, nombre, cedula, vigente_hasta,
+               marca_arma, modelo_arma, serial, plan_tipo, estado, imagen_mime,
+               created_at, verified_at
+        FROM carnets WHERE client_phone = ? ORDER BY created_at DESC
+      `).all(clean);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(carnets));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Enviar carnet por WhatsApp — proxy al bot en puerto 3001
+  if (url.pathname === '/api/enviar-carnet-whatsapp' && req.method === 'POST') {
+    let bodyData = '';
+    req.on('data', chunk => bodyData += chunk);
+    req.on('end', () => {
+      try {
+        const payload = bodyData;
+        console.log(`[PANEL] 🪪 Enviando carnet por WhatsApp...`);
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/enviar-carnet-whatsapp',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 🪪 Carnet procesado:`, data.substring(0, 100));
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Proxy: enviar guía de envío por WhatsApp
+  if (url.pathname === '/api/enviar-guia-whatsapp' && req.method === 'POST') {
+    let bodyData = '';
+    req.on('data', chunk => bodyData += chunk);
+    req.on('end', () => {
+      try {
+        const payload = bodyData;
+        console.log(`[PANEL] 📦 Enviando guía de envío por WhatsApp...`);
+        const botReq = http.request({
+          hostname: 'localhost',
+          port: 3001,
+          path: '/enviar-guia-whatsapp',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, botRes => {
+          let data = '';
+          botRes.on('data', chunk => data += chunk);
+          botRes.on('end', () => {
+            console.log(`[PANEL] 📦 Guía procesada:`, data.substring(0, 100));
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(data);
+          });
+        });
+        botReq.on('error', () => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+        });
+        botReq.write(payload);
+        botReq.end();
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Actualizar inventario usando IA (ejecuta el script update_inventory.js)
   if (url.pathname === '/api/update-inventory' && req.method === 'POST') {
     console.log('[PANEL] 📦 Recibida petición para actualizar inventario IA...');
@@ -823,14 +1081,18 @@ function getHTML() {
   .panel { background: #111820; border: 1px solid #1c2733; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
   .panel-left { flex: 1; min-width: 400px; }
   .panel-right { flex: 1.4; min-width: 400px; display: flex; flex-direction: column; }
-  .panel-right-detail { flex: 0 0 auto; max-height: 45%; overflow-y: auto; border-bottom: 2px solid #f8514933; }
+  .panel-right-detail { flex: 0 0 auto; max-height: 50vh; overflow-y: auto; border-bottom: 2px solid #f8514944; display: none; }
+  .panel-right-detail.open { display: block; }
   .panel-right-detail::-webkit-scrollbar { width: 4px; }
   .panel-right-detail::-webkit-scrollbar-track { background: #0a0e13; }
   .panel-right-detail::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 3px; }
-  .panel-right-chat { flex: 1; overflow-y: auto; min-height: 0; }
+  .panel-right-chat { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
   .panel-right-chat::-webkit-scrollbar { width: 6px; }
   .panel-right-chat::-webkit-scrollbar-track { background: #0a0e13; }
   .panel-right-chat::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 3px; }
+  .btn-toggle-detail { background: #1c2733; color: #8b949e; border: 1px solid #30363d; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer; font-family: 'Chakra Petch', sans-serif; font-weight: 600; transition: all 0.2s; }
+  .btn-toggle-detail:hover { background: #222e3c; color: #e6edf3; }
+  .btn-toggle-detail.active { background: #f8514922; color: #f85149; border-color: #f8514944; }
   .panel-header { padding: 12px 15px; border-bottom: 1px solid #1c2733; font-size: 15px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
   .panel-header input { background: #0a0e13; border: 1px solid #1c2733; color: #e6edf3; padding: 8px 14px; border-radius: 4px; font-size: 14px; width: 220px; font-family: 'Rajdhani', sans-serif; }
   .panel-header input:focus { border-color: #f85149; outline: none; }
@@ -934,17 +1196,22 @@ function getHTML() {
 <body>
 <div class="header">
   <h1>🔫 Panel <span>Zona Traumática</span></h1>
-  <div>
-    <span id="lastUpdate" style="color:#484f58;font-size:12px;margin-right:15px;"></span>
-    <button id="btnUpdateInventory" onclick="actualizarInventario()" style="background:linear-gradient(135deg, #8a2be2, #4b0082);color:white;border:none;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;margin-right:8px;text-transform:uppercase;letter-spacing:1px;" title="Actualiza el catálogo de productos leyendo la imagen con Inteligencia Artificial">🧠 Actualizar Inventario IA</button>
-    <button class="reactivar-btn" id="btnReactivar" onclick="reactivarCalientes('normal')" title="Mensajes para retomar ventas (catálogo oficial)">🔥 Reactivar Calientes</button>
-    <button class="reactivar-btn" id="btnReactivarUltra" onclick="reactivarCalientes('ultra')" style="background:linear-gradient(135deg, #FFD700, #DAA520);color:black;text-shadow:none;border:1px solid #B8860B;" title="Reactivar ofreciendo promos (100k desc en armas, tarifa afiliado munición, bot 6 meses gratis)">💎 Reactivar Ultra (Todo)</button>
-    <button id="btnMigrar" onclick="migrarAssigned()" style="background:#1c2733;border:1px solid #30363d;color:#8b949e;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Migración única: mueve todos los clientes 'asignados' a Calientes">🔄 Migrar Asignados → Calientes</button>
-    <button id="btnResolverLid" onclick="resolverLids()" style="background:#1c2733;border:1px solid #388bfd;color:#388bfd;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;margin-right:8px;" title="Resuelve LIDs de WhatsApp a números de teléfono reales">🔍 Resolver LIDs</button>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span id="lastUpdate" style="color:#484f58;font-size:12px;"></span>
+    <select id="headerActionSelect" style="background:#111820;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;min-width:220px;">
+      <option value="">🛠️ Herramientas...</option>
+      <option value="inventario">🧠 Actualizar Inventario IA</option>
+      <option value="reactivar_normal">🔥 Reactivar Calientes</option>
+      <option value="reactivar_ultra">💎 Reactivar Ultra (Todo)</option>
+      <option value="migrar">🔄 Migrar Asignados → Calientes</option>
+      <option value="resolver_lids">🔍 Resolver LIDs</option>
+    </select>
+    <button onclick="ejecutarHeaderAccion()" style="background:#1f6feb;border:none;color:white;padding:8px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;font-weight:700;white-space:nowrap;">▶ Ejecutar</button>
     <button class="refresh-btn" onclick="refreshAll()">🔄 Actualizar</button>
+    <button onclick="mostrarModalAgregar()" style="background:linear-gradient(135deg, #238636, #1a6b2d);color:white;border:none;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:1px;" title="Agregar un contacto nuevo y enviar primer mensaje del bot">➕ Agregar Cliente</button>
   </div>
 </div>
-<div class="stats" id="stats"></div>
+
 <div id="spamAlerts"></div>
 
 <!-- Tabs de vista principal -->
@@ -970,8 +1237,11 @@ function getHTML() {
     <div class="panel-body" id="clientList"></div>
   </div>
   <div class="panel panel-right">
-    <div class="panel-header"><span id="chatTitle">💬 Selecciona un cliente</span></div>
-    <div class="panel-right-detail" id="clientDetail" style="display:none;"></div>
+    <div class="panel-header">
+      <span id="chatTitle">💬 Selecciona un cliente</span>
+      <button class="btn-toggle-detail" id="btnToggleDetail" onclick="toggleDetailPanel()" style="display:none;">📋 Info</button>
+    </div>
+    <div class="panel-right-detail" id="clientDetail"></div>
     <div class="panel-right-chat" id="chatArea"><div class="chat-empty">Selecciona un cliente para ver su conversación</div></div>
   </div>
 </div>
@@ -1005,8 +1275,11 @@ function getHTML() {
     <div class="panel-body" id="postventaList"></div>
   </div>
   <div class="panel panel-right">
-    <div class="panel-header"><span id="chatTitlePv">💬 Selecciona un cliente</span></div>
-    <div class="panel-right-detail" id="clientDetailPv" style="display:none;"></div>
+    <div class="panel-header">
+      <span id="chatTitlePv">💬 Selecciona un cliente</span>
+      <button class="btn-toggle-detail" id="btnToggleDetailPv" onclick="toggleDetailPanelPv()" style="display:none;">📋 Info</button>
+    </div>
+    <div class="panel-right-detail" id="clientDetailPv"></div>
     <div class="panel-right-chat" id="chatAreaPv"><div class="chat-empty">Selecciona un cliente para ver su conversación</div></div>
   </div>
 </div>
@@ -1014,10 +1287,210 @@ function getHTML() {
 <!-- Lightbox imagen -->
 <div id="imgLightbox" onclick="closeLightbox()"><img id="imgLightboxImg" src="" alt="comprobante"></div>
 
+<!-- Modal Agregar Cliente -->
+<div id="modalAgregar" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:none;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:25px;width:420px;max-width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <h3 style="margin:0 0 15px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">➕ Agregar Cliente Nuevo</h3>
+    <p style="color:#8b949e;font-size:12px;margin:0 0 15px;">El bot le enviará un primer mensaje personalizado por WhatsApp.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <input id="agregarPhone" type="text" placeholder="Número (ej: 3001234567)" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px 14px;border-radius:6px;font-size:14px;font-family:'Rajdhani',sans-serif;">
+      <input id="agregarName" type="text" placeholder="Nombre (opcional)" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px 14px;border-radius:6px;font-size:14px;font-family:'Rajdhani',sans-serif;">
+      <textarea id="agregarContexto" placeholder="Contexto (ej: le interesa Club Plus, quiere ver armas compactas...)" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px 14px;border-radius:6px;font-size:13px;font-family:'Rajdhani',sans-serif;resize:none;height:60px;"></textarea>
+      <div style="display:flex;gap:10px;margin-top:5px;">
+        <button id="btnAgregarEnviar" onclick="agregarCliente()" style="flex:1;background:#238636;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Agregar y Enviar Mensaje</button>
+        <button onclick="cerrarModalAgregar()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:10px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="agregarFeedback" style="font-size:12px;color:#3fb950;min-height:18px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Enviar Carnet -->
+<div id="modalCarnet" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:25px;width:500px;max-width:95%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <h3 style="margin:0 0 5px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">🪪 Enviar Carnet por WhatsApp</h3>
+    <p id="carnetModalPhone" style="color:#8b949e;font-size:12px;margin:0 0 15px;"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <!-- Upload imagen -->
+      <div style="background:#0d1117;border:2px dashed #30363d;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;" onclick="document.getElementById('carnetFileInput').click()" id="carnetDropZone">
+        <input type="file" id="carnetFileInput" accept="image/*" style="display:none;" onchange="previewCarnetImage(this)">
+        <div id="carnetPreview" style="display:none;margin-bottom:10px;"><img id="carnetPreviewImg" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid #30363d;"></div>
+        <div id="carnetUploadText" style="color:#8b949e;font-size:13px;">📸 Click para seleccionar la imagen del carnet<br><span style="font-size:11px;color:#484f58;">JPG, PNG — máx 10MB</span></div>
+      </div>
+      <!-- Plan -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">📋 Plan</label>
+          <select id="carnetPlan" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;">
+            <option value="Plan Plus">🟡 Plan Plus ($100k)</option>
+            <option value="Plan Pro">🔴 Plan Pro ($150k)</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">📅 Vigente hasta</label>
+          <input type="date" id="carnetVigencia" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <!-- Datos del titular -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Nombre completo</label>
+          <input id="carnetNombre" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Cédula</label>
+          <input id="carnetCedula" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <!-- Datos del arma -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Marca arma</label>
+          <input id="carnetMarcaArma" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Modelo arma</label>
+          <input id="carnetModeloArma" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <div>
+        <label style="color:#8b949e;font-size:11px;">Serial del arma</label>
+        <input id="carnetSerial" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+      </div>
+      <!-- Caption personalizable -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📝 Caption (mensaje que acompaña el carnet)</label>
+        <textarea id="carnetCaption" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:12px;margin-top:4px;resize:none;height:50px;box-sizing:border-box;" placeholder="Dejar vacío para caption automático"></textarea>
+      </div>
+      <!-- Botones -->
+      <div style="display:flex;gap:10px;margin-top:5px;">
+        <button id="btnEnviarCarnet" onclick="enviarCarnetWhatsApp()" style="flex:1;background:linear-gradient(135deg, #238636, #2ea043);color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-size:14px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Enviar Carnet por WhatsApp</button>
+        <button onclick="cerrarModalCarnet()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:12px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="carnetFeedback" style="font-size:12px;min-height:18px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Enviar Guía de Envío -->
+<div id="modalGuia" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:25px;width:480px;max-width:95%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <h3 style="margin:0 0 5px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">📦 Enviar Guía de Envío por WhatsApp</h3>
+    <p id="guiaModalPhone" style="color:#8b949e;font-size:12px;margin:0 0 15px;"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <!-- Upload imagen guía -->
+      <div style="background:#0d1117;border:2px dashed #30363d;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;" onclick="document.getElementById('guiaFileInput').click()" id="guiaDropZone">
+        <input type="file" id="guiaFileInput" accept="image/*" style="display:none;" onchange="previewGuiaImage(this)">
+        <div id="guiaPreview" style="display:none;margin-bottom:10px;"><img id="guiaPreviewImg" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid #30363d;"></div>
+        <div id="guiaUploadText" style="color:#8b949e;font-size:13px;">📸 Click para adjuntar foto/captura de la guía<br><span style="font-size:11px;color:#484f58;">JPG, PNG — máx 10MB (opcional)</span></div>
+      </div>
+      <!-- Transportadora -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">🚚 Transportadora</label>
+          <select id="guiaTransportadora" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;">
+            <option value="Servientrega">Servientrega</option>
+            <option value="Interrapidísimo">Interrapidísimo</option>
+            <option value="Coordinadora">Coordinadora</option>
+            <option value="Envía">Envía</option>
+            <option value="TCC">TCC</option>
+            <option value="Deprisa">Deprisa</option>
+            <option value="otra">Otra...</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">📋 Número de guía</label>
+          <input id="guiaNumero" type="text" placeholder="Ej: 123456789" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <!-- Producto enviado -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📦 Producto(s) enviado(s)</label>
+        <input id="guiaProducto" type="text" placeholder="Ej: Retay S22 negra + 50 municiones" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+      </div>
+      <!-- Caption personalizable -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📝 Mensaje personalizado (opcional)</label>
+        <textarea id="guiaCaption" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:12px;margin-top:4px;resize:none;height:50px;box-sizing:border-box;" placeholder="Dejar vacío para mensaje automático"></textarea>
+      </div>
+      <!-- Botones -->
+      <div style="display:flex;gap:10px;margin-top:5px;">
+        <button id="btnEnviarGuia" onclick="enviarGuiaWhatsApp()" style="flex:1;background:linear-gradient(135deg, #1f6feb, #388bfd);color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-size:14px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Enviar Guía por WhatsApp</button>
+        <button onclick="cerrarModalGuia()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:12px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="guiaFeedback" style="font-size:12px;min-height:18px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 let allData = null;
 let currentFilter = 'all';
 let selectedPhone = null;
+
+function mostrarModalAgregar() {
+  const modal = document.getElementById('modalAgregar');
+  modal.style.display = 'flex';
+  document.getElementById('agregarPhone').value = '';
+  document.getElementById('agregarName').value = '';
+  document.getElementById('agregarContexto').value = '';
+  document.getElementById('agregarFeedback').textContent = '';
+  document.getElementById('btnAgregarEnviar').disabled = false;
+  document.getElementById('btnAgregarEnviar').textContent = '📨 Agregar y Enviar Mensaje';
+  setTimeout(() => document.getElementById('agregarPhone').focus(), 100);
+}
+
+function cerrarModalAgregar() {
+  document.getElementById('modalAgregar').style.display = 'none';
+}
+
+async function agregarCliente() {
+  const phone = document.getElementById('agregarPhone').value.trim();
+  const name = document.getElementById('agregarName').value.trim();
+  const contexto = document.getElementById('agregarContexto').value.trim();
+  const fb = document.getElementById('agregarFeedback');
+  const btn = document.getElementById('btnAgregarEnviar');
+
+  if (!phone || phone.length < 7) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ Ingresa un número válido (mínimo 7 dígitos)';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando...';
+  fb.style.color = '#d29922';
+  fb.textContent = 'Registrando cliente y generando mensaje con IA...';
+
+  try {
+    const res = await fetch('/api/agregar-cliente', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, name, contexto })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      fb.style.color = '#3fb950';
+      fb.textContent = '\u2705 ' + (data.message || 'Cliente agregado y mensaje enviado');
+      btn.textContent = '\u2705 Enviado';
+      // Refrescar datos del panel
+      await loadData();
+      renderClients();
+      // Cerrar modal después de 2s
+      setTimeout(() => cerrarModalAgregar(), 2500);
+    } else {
+      fb.style.color = '#f85149';
+      fb.textContent = '\u274c ' + (data.message || data.error || data.msg || 'Error desconocido');
+      btn.disabled = false;
+      btn.textContent = '\ud83d\udce8 Agregar y Enviar Mensaje';
+    }
+  } catch(e) {
+    fb.style.color = '#f85149';
+    fb.textContent = '\u274c No se pudo conectar con el servidor';
+    btn.disabled = false;
+    btn.textContent = '\ud83d\udce8 Agregar y Enviar Mensaje';
+  }
+}
 
 async function reactivarCalientes(mode = 'normal') {
   const btn = mode === 'ultra' ? document.getElementById('btnReactivarUltra') : document.getElementById('btnReactivar');
@@ -1111,57 +1584,52 @@ async function reatenderCliente(phone, btnElement) {
   }
 }
 
+// Dispatcher para dropdown de herramientas del header
+function ejecutarHeaderAccion() {
+  const sel = document.getElementById('headerActionSelect');
+  if (!sel.value) return;
+  switch(sel.value) {
+    case 'inventario': actualizarInventario(); break;
+    case 'reactivar_normal': reactivarCalientes('normal'); break;
+    case 'reactivar_ultra': reactivarCalientes('ultra'); break;
+    case 'migrar': migrarAssigned(); break;
+    case 'resolver_lids': resolverLids(); break;
+  }
+  sel.selectedIndex = 0;
+}
+
 async function actualizarInventario() {
   const btn = document.getElementById('btnUpdateInventory');
   const confirmacion = confirm("¿Estás seguro de querer actualizar el inventario con IA basándose en la imagen maestra? Esto podría tomar unos 30 segundos.");
   if (!confirmacion) return;
 
-  btn.disabled = true;
-  btn.textContent = '🧠 Procesando IA... (Unos 30s)';
+  if (btn) { btn.disabled = true; btn.textContent = '🧠 Procesando IA... (Unos 30s)'; }
   try {
     const res = await fetch('/api/update-inventory', { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
       alert('✅ ' + data.msg);
-      btn.textContent = '✅ Completado';
-      btn.style.background = '#238636';
-      setTimeout(() => {
-        btn.textContent = '🧠 Actualizar Inventario IA';
-        btn.style.background = 'linear-gradient(135deg, #8a2be2, #4b0082)';
-        btn.disabled = false;
-      }, 5000);
+      if (btn) { btn.textContent = '✅ Completado'; btn.style.background = '#238636'; setTimeout(() => { btn.textContent = '🧠 Actualizar Inventario IA'; btn.style.background = 'linear-gradient(135deg, #8a2be2, #4b0082)'; btn.disabled = false; }, 5000); }
     } else {
       alert('⚠️ ' + (data.error || 'Error desconocido'));
-      btn.textContent = '🧠 Actualizar Inventario IA';
-      btn.disabled = false;
+      if (btn) { btn.textContent = '🧠 Actualizar Inventario IA'; btn.disabled = false; }
     }
   } catch (e) {
     alert('❌ Error conectando con el servidor para actualizar inventario');
-    btn.textContent = '🧠 Actualizar Inventario IA';
-    btn.disabled = false;
+    if (btn) { btn.textContent = '🧠 Actualizar Inventario IA'; btn.disabled = false; }
   }
 }
 
 async function resolverLids() {
-  const btn = document.getElementById('btnResolverLid');
-  btn.disabled = true;
-  btn.textContent = '⏳ Resolviendo...';
   try {
     const res = await fetch('/api/resolver-lids', { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
       if (data.total === 0) {
-        btn.textContent = '✅ Sin LIDs pendientes';
+        alert('✅ Sin LIDs pendientes');
       } else {
-        btn.textContent = '⏳ Procesando ' + data.total + ' en background...';
-        // Esperar un momento y recargar datos para mostrar los resueltos
-        setTimeout(() => {
-          loadData();
-          btn.textContent = '🔍 Resolver LIDs';
-          btn.style.color = '#388bfd';
-          btn.disabled = false;
-        }, Math.min(data.total * 1200, 30000));
-        return;
+        alert('⏳ Procesando ' + data.total + ' LIDs en background... la data se recargará automáticamente.');
+        setTimeout(() => loadData(), Math.min(data.total * 1200, 30000));
       }
     } else {
       alert('⚠️ ' + (data.msg || data.error || 'Error'));
@@ -1169,8 +1637,29 @@ async function resolverLids() {
   } catch (e) {
     alert('❌ Error conectando con el servidor');
   }
-  btn.textContent = '🔍 Resolver LIDs';
-  btn.disabled = false;
+}
+
+// Auto-resolver LIDs silenciosamente — se ejecuta después de cada loadData
+let _autoLidRunning = false;
+let _autoLidLastRun = 0;
+const _AUTO_LID_COOLDOWN = 5 * 60 * 1000; // 5 minutos de cooldown si no resolvió nada
+async function autoResolverLids() {
+  if (_autoLidRunning) return;
+  // Cooldown: no repetir si ya corrió recientemente sin éxito
+  if (Date.now() - _autoLidLastRun < _AUTO_LID_COOLDOWN) return;
+  _autoLidRunning = true;
+  try {
+    const res = await fetch('/api/resolver-lids', { method: 'POST' });
+    const data = await res.json();
+    _autoLidLastRun = Date.now();
+    if (data.ok && data.total > 0) {
+      console.log('[AUTO-LID] ⏳ Procesando ' + data.total + ' en background...');
+      setTimeout(() => { _autoLidRunning = false; loadData(); }, Math.min(data.total * 1200, 30000));
+      return;
+    }
+    // total === 0 → cooldown se activa, no vuelve a intentar por 5 min
+  } catch(e) { console.error('[AUTO-LID] Error:', e.message); }
+  _autoLidRunning = false;
 }
 
 async function loadData() {
@@ -1180,6 +1669,8 @@ async function loadData() {
   renderSpamAlerts();
   renderClients();
   document.getElementById('lastUpdate').textContent = 'Actualizado: ' + new Date().toLocaleTimeString();
+  // Auto-resolver LIDs si hay pendientes
+  autoResolverLids();
 }
 
 function renderSpamAlerts() {
@@ -1221,17 +1712,7 @@ async function resolveSpam(phone, isBot) {
 }
 
 function renderStats() {
-  const d = allData;
-  const PV_ST = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
-  const pvCount = d.clients.filter(c => PV_ST.includes(c.status)).length;
-  document.getElementById('stats').innerHTML = \`
-    <div class="stat blue"><div class="num">\${d.totalClients}</div><div class="label">Total clientes</div></div>
-    <div class="stat green"><div class="num">\${d.clientsToday}</div><div class="label">Nuevos hoy</div></div>
-    <div class="stat red"><div class="num">\${d.hotLeads.length}</div><div class="label">🔥 Leads calientes</div></div>
-    <div class="stat orange"><div class="num">\${pvCount}</div><div class="label">🛠️ En post-venta</div></div>
-    <div class="stat purple"><div class="num">\${d.totalMessages}</div><div class="label">Mensajes totales</div></div>
-    <div class="stat green"><div class="num">\${d.messagesToday}</div><div class="label">Mensajes hoy</div></div>
-  \`;
+  // Stats container removed — no-op
 }
 
 function renderClients() {
@@ -1292,8 +1773,14 @@ async function selectClient(phone) {
 
   document.getElementById('chatTitle').textContent = '💬 ' + (client.name || phone);
 
-  // Detail
-  document.getElementById('clientDetail').style.display = 'block';
+  // Show toggle button & open detail panel
+  const toggleBtn = document.getElementById('btnToggleDetail');
+  toggleBtn.style.display = 'inline-block';
+  const detailEl = document.getElementById('clientDetail');
+  detailEl.classList.add('open');
+  toggleBtn.classList.add('active');
+  toggleBtn.textContent = 'Ocultar Info';
+
   document.getElementById('clientDetail').innerHTML = \`
     <div class="client-detail">
       <h3>\${client.name || 'Sin nombre'} <span class="client-status status-\${client.status}">\${client.status}</span></h3>
@@ -1303,9 +1790,14 @@ async function selectClient(phone) {
         <div class="detail-item"><span class="dl">📅 Registro:</span> <span class="dv">\${new Date(client.created_at).toLocaleDateString()}</span></div>
         <div class="detail-item"><span class="dl">👔 Asignado:</span> <span class="dv">\${assignment ? assignment.employee_name : 'No'}</span></div>
         
-        <div class="detail-item" style="grid-column: 1 / -1; margin-top: 10px; background: #0d1117; padding: 10px; border-radius: 6px; border: 1px dashed #30363d;">
-          <span class="dl" style="color:#3fb950; font-size:13px;"><i class="fas fa-lock"></i> 🔒 Bóveda de Servicios Adquiridos (Memoria para la IA):</span>
-          <div style="display:flex; gap: 12px; margin-top: 8px; flex-wrap: wrap;">
+      <!-- BÓVEDA: collapsible -->
+      <div style="margin-top:15px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
+          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▼</span>
+          <span style="color:#3fb950;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">🔒 Bóveda de Servicios Adquiridos</span>
+        </div>
+        <div style="padding:10px 14px;">
+          <div style="display:flex; gap: 12px; flex-wrap: wrap;">
             <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
               <input type="checkbox" \${client.has_bought_gun ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})" style="accent-color:#3fb950;"> 🔫 Compró Arma
             </label>
@@ -1321,49 +1813,112 @@ async function selectClient(phone) {
           </div>
         </div>
       </div>
-      
-      \${client.memory ? '<div class="memory-box" style="margin-top:15px;display:flex;gap:10px;align-items:flex-start;">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : ''}
 
-      <div class="crm-actions">
-        <div class="crm-actions-title">⚡ Acciones rápidas — el bot sabrá esto al responder</div>
-        <div class="crm-chips">
-          <div class="crm-chip" onclick="addNote('\${client.phone}', '✅ Carnet enviado')">🪪 Carnet enviado</div>
-          <div class="crm-chip" onclick="addNote('\${client.phone}', '📦 Dispositivo despachado')">📦 Dispositivo despachado</div>
-          <div class="crm-chip" onclick="addNote('\${client.phone}', '💰 Pago recibido y confirmado')">💰 Pago recibido</div>
-          <div class="crm-chip" onclick="addNote('\${client.phone}', '🏆 Afiliación al club activa')">🏆 Afiliación activa</div>
-          <div class="crm-chip" onclick="addNote('\${client.phone}', '📋 Pendiente: enviar carnet')">🕐 Pendiente carnet</div>
-          <div class="crm-chip" onclick="addNote('\${client.phone}', '📋 Pendiente: despachar dispositivo')">🕐 Pendiente despacho</div>
-          <div class="crm-chip danger" onclick="addNote('\${client.phone}', '🚫 Cliente marcado como NO interesado')">❌ No interesado</div>
-          <div class="crm-chip" style="background:\${client.ignored == 1 ? '#7c1d1d' : '#1c2733'};border-color:\${client.ignored == 1 ? '#f85149' : '#30363d'};color:\${client.ignored == 1 ? '#f85149' : '#8b949e'};" onclick="toggleIgnored('\${client.phone}', \${client.ignored == 1 ? 0 : 1})">\${client.ignored == 1 ? '🔇 IGNORADO — click para reactivar' : '🔇 Silenciar — no es cliente'}</div>
-          <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#8b949e;" onclick="changeStatus('\${client.phone}', 'new')">↩️ Resetear a Nuevo</div>
-          <div class="crm-chip" style="background:#1c2733;border-color:#30363d;color:#d29922;" onclick="changeStatus('\${client.phone}', 'completed')">✅ Marcar Completado</div>
-          <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this, 'normal')">🔥 Reactivar Integración IA</div>
-          <div class="crm-chip" style="background:#332900;border-color:#d29922;color:#e3b341;" onclick="reactivarIndividual('\${client.phone}', this, 'ultra')">💎 Reactivar Ultra (Promos)</div>
-          <div class="crm-chip" style="background:#58a6ff22;border-color:#58a6ff;color:#58a6ff;" onclick="reatenderCliente('\${client.phone}', this)">🔄 Reatender (Último Msj)</div>
-          <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
-          <div class="crm-chip" style="background:#1a3a2a;border-color:#3fb950;color:#3fb950;" onclick="enviarCatalogo('\${client.phone}', this)">📋 Enviar Catálogo</div>
+      <!-- MEMORIA CRM: collapsible, abierta por defecto -->
+      <div style="margin-top:10px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;background:#161b22;border-bottom:1px solid #30363d;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▼</span>
+            <span style="color:#bc8cff;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">🧠 Memoria CRM</span>
+          </div>
+          <button onclick="event.stopPropagation();saveMemory('\${client.phone}')" style="background:#238636;color:white;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-family:'Chakra Petch',sans-serif;">💾 Guardar</button>
         </div>
-        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <span style="font-size:12px;color:#8b949e;font-family:'Chakra Petch',sans-serif;">📦 Mover a Post-venta:</span>
-          <select id="pvSelect_\${client.phone}" style="background:#111820;border:1px solid #30363d;color:#e6edf3;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
-            <option value="">— seleccionar —</option>
-            <option value="carnet_pendiente_plus">🟢 Pendiente Carnet Club Plus</option>
-            <option value="carnet_pendiente_pro">🔴 Pendiente Carnet Club Pro</option>
-            <option value="despacho_pendiente">📦 Pendiente Envío Dispositivo</option>
-            <option value="municion_pendiente">🔫 Pendiente Envío Munición</option>
-            <option value="recuperacion_pendiente">🔧 Pendiente Recuperación</option>
-            <option value="bot_asesor_pendiente">🤖 Pendiente Bot Asesor</option>
-            <option value="postventa">📋 Post-venta general</option>
-          </select>
-          <button onclick="moverPostventa('\${client.phone}')" style="background:#238636;border:none;color:white;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">✅ Mover</button>
+        <div style="padding:10px 14px;">
+          <textarea id="memoryEdit_\${client.phone}" style="width:100%;background:#111820;border:1px solid #1c2733;border-radius:4px;padding:10px;font-size:12px;color:#8b949e;white-space:pre-wrap;min-height:70px;max-height:160px;resize:vertical;font-family:'Share Tech Mono',monospace;box-sizing:border-box;">\${(client.memory || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
         </div>
-        <div class="crm-note-row">
-          <input class="crm-note-input" id="noteInput_\${client.phone}" type="text" placeholder="Nota interna... (ej: ya le expliqué los precios, espera depósito)" onkeydown="if(event.key==='Enter') saveNote('\${client.phone}')">
-          <button class="crm-note-btn" onclick="saveNote('\${client.phone}')">📝 Guardar</button>
-        </div>
-        <div class="crm-feedback" id="noteFeedback_\${client.phone}"></div>
       </div>
 
+      <!-- ACCIONES RÁPIDAS: collapsible -->
+      <div style="margin-top:10px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
+          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>
+          <span style="color:#58a6ff;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">⚡ Acciones Rápidas</span>
+        </div>
+        <div style="display:none;padding:10px 14px;">
+
+          <!-- NOTA RÁPIDA (dropdown) -->
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="quickNote_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
+              <option value="">📝 Nota rápida...</option>
+              <option value="📦 Dispositivo despachado">📦 Dispositivo despachado</option>
+              <option value="💰 Pago recibido y confirmado">💰 Pago recibido</option>
+              <option value="🏆 Afiliación al club activa">🏆 Afiliación activa</option>
+              <option value="📋 Pendiente: enviar carnet">🕐 Pendiente carnet</option>
+              <option value="📋 Pendiente: despachar dispositivo">🕐 Pendiente despacho</option>
+              <option value="🚫 Cliente marcado como NO interesado">❌ No interesado</option>
+            </select>
+            <button onclick="const s=document.getElementById('quickNote_\${client.phone}');if(s.value){addNote('\${client.phone}',s.value);s.selectedIndex=0;}" style="background:#238636;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">✅ Aplicar</button>
+          </div>
+
+          <!-- ACCIÓN (dropdown) -->
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="quickAction_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
+              <option value="">⚡ Acción...</option>
+              <option value="carnet">🪪 Enviar Carnet por WhatsApp</option>
+              <option value="catalogo">📋 Enviar Catálogo</option>
+              <option value="guia">📦 Enviar Guía de Envío</option>
+              <option value="reatender">🔄 Reatender (Último Msj)</option>
+              <option value="devolver_bot">🤖 Devolver al Bot</option>
+              <option value="reactivar_normal">🔥 Reactivar Integración IA</option>
+              <option value="reactivar_ultra">💎 Reactivar Ultra (Promos)</option>
+              <option value="ignorar">\${client.ignored == 1 ? '🔇 Reactivar (está ignorado)' : '🔇 Silenciar — no es cliente'}</option>
+              <option value="resetear">↩️ Resetear a Nuevo</option>
+              <option value="completado">✅ Marcar Completado</option>
+            </select>
+            <button onclick="ejecutarAccion('\${client.phone}', document.getElementById('quickAction_\${client.phone}').value, this)" style="background:#1f6feb;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">▶ Ejecutar</button>
+          </div>
+
+          <!-- MOVER A POST-VENTA (dropdown) -->
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="pvSelect_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
+              <option value="">📦 Mover a Post-venta...</option>
+              <option value="carnet_pendiente_plus">🟢 Pendiente Carnet Club Plus</option>
+              <option value="carnet_pendiente_pro">🔴 Pendiente Carnet Club Pro</option>
+              <option value="despacho_pendiente">📦 Pendiente Envío Dispositivo</option>
+              <option value="municion_pendiente">🔫 Pendiente Envío Munición</option>
+              <option value="recuperacion_pendiente">🔧 Pendiente Recuperación</option>
+              <option value="bot_asesor_pendiente">🤖 Pendiente Bot Asesor</option>
+              <option value="postventa">📋 Post-venta general</option>
+            </select>
+            <button onclick="moverPostventa('\${client.phone}')" style="background:#238636;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">✅ Mover</button>
+          </div>
+        </div>
+
+        <!-- NOTA LIBRE -->
+        <div class="crm-note-row" style="margin-top:8px;">
+          <input class="crm-note-input" id="noteInput_\${client.phone}" type="text" placeholder="Nota interna libre..." onkeydown="if(event.key==='Enter') saveNote('\${client.phone}')">
+          <button class="crm-note-btn" onclick="saveNote('\${client.phone}')">📝</button>
+        </div>
+        <div class="crm-feedback" id="noteFeedback_\${client.phone}"></div>
+        </div>
+      </div>
+
+      <!-- FICHA CRM EDITABLE -->
+      <div style="margin-top:15px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
+          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>
+          <span style="color:#58a6ff;font-weight:700;font-size:13px;font-family:'Chakra Petch',sans-serif;">📋 Ficha CRM Completa — Datos Editables</span>
+        </div>
+        <div style="display:none;padding:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div><label style="color:#8b949e;font-size:10px;">Nombre</label><input id="prof_name_\${client.phone}" type="text" value="\${client.name || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Cédula</label><input id="prof_cedula_\${client.phone}" type="text" value="\${client.cedula || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Ciudad</label><input id="prof_ciudad_\${client.phone}" type="text" value="\${client.ciudad || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Dirección</label><input id="prof_direccion_\${client.phone}" type="text" value="\${client.direccion || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Profesión</label><input id="prof_profesion_\${client.phone}" type="text" value="\${client.profesion || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Plan Club</label><select id="prof_club_plan_\${client.phone}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"><option value="" \${!client.club_plan ? 'selected' : ''}>— Ninguno —</option><option value="Plan Plus" \${client.club_plan === 'Plan Plus' ? 'selected' : ''}>🟡 Plan Plus</option><option value="Plan Pro" \${client.club_plan === 'Plan Pro' ? 'selected' : ''}>🔴 Plan Pro</option></select></div>
+            <div><label style="color:#8b949e;font-size:10px;">Vigente hasta</label><input id="prof_club_vigente_hasta_\${client.phone}" type="date" value="\${client.club_vigente_hasta || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Modelo arma</label><input id="prof_modelo_arma_\${client.phone}" type="text" value="\${client.modelo_arma || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div style="grid-column:1/-1;"><label style="color:#8b949e;font-size:10px;">Serial arma</label><input id="prof_serial_arma_\${client.phone}" type="text" value="\${client.serial_arma || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+            <button onclick="saveProfile('\${client.phone}')" style="background:linear-gradient(135deg,#238636,#2ea043);color:white;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;">💾 Guardar Ficha CRM</button>
+            <div id="prof_feedback_\${client.phone}" style="display:none;color:#3fb950;font-size:12px;">✅ Ficha guardada</div>
+          </div>
+        </div>
+      </div>
+      <!-- HISTORIAL DE CARNETS -->
+      <div id="carnetHistory_\${client.phone}" style="margin-top:10px;"></div>
       <div style="margin-top:10px;">
         \${waLink(client.phone)}
       </div>
@@ -1393,6 +1948,24 @@ async function selectClient(phone) {
       chatArea.scrollTop = chatArea.scrollHeight;
     });
   });
+  // Cargar historial de carnets del cliente
+  loadCarnetHistory(phone);
+}
+
+function toggleDetailPanel() {
+  const detail = document.getElementById('clientDetail');
+  const btn = document.getElementById('btnToggleDetail');
+  const isOpen = detail.classList.toggle('open');
+  btn.classList.toggle('active', isOpen);
+  btn.textContent = isOpen ? '\ud83d\udccb Ocultar Info' : '\ud83d\udccb Info';
+}
+
+function toggleDetailPanelPv() {
+  const detail = document.getElementById('clientDetailPv');
+  const btn = document.getElementById('btnToggleDetailPv');
+  const isOpen = detail.classList.toggle('open');
+  btn.classList.toggle('active', isOpen);
+  btn.textContent = isOpen ? 'Ocultar Info' : 'Info';
 }
 
 function setFilter(filter, el) {
@@ -1476,6 +2049,29 @@ async function saveNote(phone) {
   if (!input || !input.value.trim()) return;
   await addNote(phone, input.value.trim());
   input.value = '';
+}
+
+async function saveMemory(phone) {
+  // Busca en ambos tabs (Comercial y Postventa)
+  const ta = document.getElementById('memoryEdit_' + phone) || document.getElementById('memoryEditPv_' + phone);
+  if (!ta) return;
+  const newMemory = ta.value.trim();
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note: newMemory, append: false })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      if (selectedPhone === phone) selectClient(phone);
+      if (selectedPhonePv === phone) selectClientPv(phone);
+      alert('✅ Memoria CRM guardada');
+    } else {
+      alert('❌ Error: ' + (data.error || 'desconocido'));
+    }
+  } catch(e) { alert('❌ Error de conexión'); }
 }
 
 async function saveProfile(phone) {
@@ -1611,6 +2207,46 @@ async function devolverAlBot(phone) {
   }
 }
 
+// Dispatcher para dropdown de acciones — Comercial
+function ejecutarAccion(phone, action, btn) {
+  if (!action) return;
+  const sel = document.getElementById('quickAction_' + phone);
+  switch(action) {
+    case 'carnet': abrirModalCarnet(phone); break;
+    case 'catalogo': enviarCatalogo(phone, btn); break;
+    case 'guia': abrirModalGuia(phone); break;
+    case 'reatender': reatenderCliente(phone, btn); break;
+    case 'devolver_bot': devolverAlBot(phone); break;
+    case 'reactivar_normal': reactivarIndividual(phone, btn, 'normal'); break;
+    case 'reactivar_ultra': reactivarIndividual(phone, btn, 'ultra'); break;
+    case 'ignorar': { const c = allData.clients.find(c => c.phone === phone); toggleIgnored(phone, c && c.ignored ? 0 : 1); break; }
+    case 'resetear': changeStatus(phone, 'new'); break;
+    case 'completado': changeStatus(phone, 'completed'); break;
+    default: break;
+  }
+  if (sel) sel.selectedIndex = 0;
+}
+
+// Dispatcher para dropdown de acciones — Post-venta
+function ejecutarAccionPv(phone, action, btn) {
+  if (!action) return;
+  const sel = document.getElementById('quickActionPv_' + phone);
+  switch(action) {
+    case 'carnet': abrirModalCarnet(phone); break;
+    case 'catalogo': enviarCatalogo(phone, btn); break;
+    case 'guia': abrirModalGuia(phone); break;
+    case 'reatender': reatenderCliente(phone, btn); break;
+    case 'devolver_bot': devolverAlBot(phone); break;
+    case 'reactivar_normal': reactivarIndividual(phone, btn, 'normal'); break;
+    case 'reactivar_ultra': reactivarIndividual(phone, btn, 'ultra'); break;
+    case 'seguimiento_pv': reatenderPostventaPv(phone, btn); break;
+    case 'devolver_comercial': changeStatusPv(phone, 'new'); break;
+    case 'completado': changeStatusPv(phone, 'completed'); break;
+    default: break;
+  }
+  if (sel) sel.selectedIndex = 0;
+}
+
 async function enviarCatalogo(phone, btn) {
   if (!confirm('¿Enviar catálogo completo con fotos a este cliente? Se enviarán todas las referencias disponibles.')) return;
   const originalText = btn.textContent;
@@ -1722,10 +2358,22 @@ async function refreshAll() {
   if (currentMainTab === 'postventa') renderPostventa();
   if (currentMainTab === 'comprobantes') loadComprobantes();
   if (currentMainTab === 'carnets') loadCarnets();
+  // Re-seleccionar cliente activo para actualizar chat y detalles en tiempo real
+  if (selectedPhone && currentMainTab === 'comercial') selectClient(selectedPhone);
+  if (selectedPhonePv && currentMainTab === 'postventa') selectClientPv(selectedPhonePv);
 }
 
 // Carga inicial de datos
 refreshAll();
+
+// Auto-refresh cada 10 segundos — sincroniza con WhatsApp en tiempo real
+let _loadingData = false;
+setInterval(async () => {
+  if (_loadingData) return;
+  _loadingData = true;
+  try { await refreshAll(); } catch(e) {}
+  _loadingData = false;
+}, 10000);
 
 // ====== VISTA PRINCIPAL TABS ======
 let currentMainTab = 'comercial';
@@ -1821,7 +2469,11 @@ async function selectClientPv(phone) {
   const client = allData.clients.find(c => c.phone === phone);
   const assignment = allData.assignments.find(a => a.client_phone === phone && a.status === 'active');
   document.getElementById('chatTitlePv').textContent = '💬 ' + (client.name || phone);
-  document.getElementById('clientDetailPv').style.display = 'block';
+  const toggleBtnPv = document.getElementById('btnToggleDetailPv');
+  toggleBtnPv.style.display = 'inline-block';
+  document.getElementById('clientDetailPv').classList.add('open');
+  toggleBtnPv.classList.add('active');
+  toggleBtnPv.textContent = 'Ocultar Info';
   const statusClass = 'status-' + (client.status || 'postventa').replace(/_/g, '-');
   const statusLabel = PV_LABELS[client.status] || client.status || 'postventa';
   document.getElementById('clientDetailPv').innerHTML = \`
@@ -1834,66 +2486,134 @@ async function selectClientPv(phone) {
         <div class="detail-item"><span class="dl">👔 Asignado:</span> <span class="dv">\${assignment ? assignment.employee_name : 'No'}</span></div>
       </div>
 
-      <div class="detail-item" style="grid-column: 1 / -1; margin-top: 10px; background: #0d1117; padding: 10px; border-radius: 6px; border: 1px dashed #30363d;">
-        <span class="dl" style="color:#3fb950; font-size:13px;">🔒 Bóveda de Servicios Adquiridos (Memoria para la IA):</span>
-        <div style="display:flex; gap: 12px; margin-top: 8px; flex-wrap: wrap;">
-          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-            <input type="checkbox" \${client.has_bought_gun ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})" style="accent-color:#3fb950;"> 🔫 Compró Arma
-          </label>
-          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-            <input type="checkbox" \${client.is_club_plus ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'is_club_plus', \${client.is_club_plus || 0})" style="accent-color:#d29922;"> 🟡 Club Plus ($100k)
-          </label>
-          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-            <input type="checkbox" \${client.is_club_pro ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'is_club_pro', \${client.is_club_pro || 0})" style="accent-color:#f85149;"> 🔴 Club Pro ($150k)
-          </label>
-          <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-            <input type="checkbox" \${client.has_ai_bot ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'has_ai_bot', \${client.has_ai_bot || 0})" style="accent-color:#1f6feb;"> 🤖 Bot Asesor IA
-          </label>
+      <!-- BÓVEDA PV: collapsible -->
+      <div style="margin-top:15px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
+          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▼</span>
+          <span style="color:#3fb950;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">🔒 Bóveda de Servicios</span>
+        </div>
+        <div style="padding:10px 14px;">
+          <div style="display:flex; gap: 12px; flex-wrap: wrap;">
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.has_bought_gun ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})" style="accent-color:#3fb950;"> 🔫 Compró Arma
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.is_club_plus ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'is_club_plus', \${client.is_club_plus || 0})" style="accent-color:#d29922;"> 🟡 Club Plus
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.is_club_pro ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'is_club_pro', \${client.is_club_pro || 0})" style="accent-color:#f85149;"> 🔴 Club Pro
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
+              <input type="checkbox" \${client.has_ai_bot ? 'checked' : ''} onchange="toggleFlagPv('\${client.phone}', 'has_ai_bot', \${client.has_ai_bot || 0})" style="accent-color:#1f6feb;"> 🤖 Bot IA
+            </label>
+          </div>
         </div>
       </div>
 
-      \${client.memory ? '<div class="memory-box">🧠 <strong>Memoria CRM:</strong>\\n' + client.memory + '</div>' : '<div class="memory-box" style="border-left-color:#3d4f5f;">🧠 <strong>Memoria CRM:</strong> Sin notas aún</div>'}
-
-      <div class="crm-actions">
-        <div class="crm-actions-title">📝 Notas rápidas — el bot sabrá esto al responder</div>
-        <div class="crm-chips">
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '✅ Carnet enviado')">🪪 Carnet enviado</div>
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '📦 Dispositivo despachado')">📦 Dispositivo despachado</div>
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '💰 Pago recibido y confirmado')">💰 Pago recibido</div>
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '🏆 Afiliación al club activa')">🏆 Afiliación activa</div>
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '🔫 Munición despachada')">🔫 Munición enviada</div>
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '🔧 Dispositivo en recuperación')">🔧 En recuperación</div>
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '📋 Pendiente: enviar carnet')">🕐 Pendiente carnet</div>
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '📋 Pendiente: despachar dispositivo')">🕐 Pendiente despacho</div>
+      <!-- MEMORIA CRM PV: collapsible -->
+      <div style="margin-top:10px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;background:#161b22;border-bottom:1px solid #30363d;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▼</span>
+            <span style="color:#bc8cff;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">🧠 Memoria CRM</span>
+          </div>
+          <button onclick="event.stopPropagation();saveMemory('\${client.phone}')" style="background:#238636;color:white;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-family:'Chakra Petch',sans-serif;">💾 Guardar</button>
         </div>
+        <div style="padding:10px 14px;">
+          <textarea id="memoryEditPv_\${client.phone}" style="width:100%;background:#111820;border:1px solid #1c2733;border-radius:4px;padding:10px;font-size:12px;color:#8b949e;white-space:pre-wrap;min-height:70px;max-height:160px;resize:vertical;font-family:'Share Tech Mono',monospace;box-sizing:border-box;">\${(client.memory || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+        </div>
+      </div>
+
+      <!-- ACCIONES PV: collapsible -->
+      <div style="margin-top:10px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
+          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>
+          <span style="color:#58a6ff;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">⚡ Acciones Rápidas</span>
+        </div>
+        <div style="display:none;padding:10px 14px;">
+
+          <!-- NOTA RÁPIDA PV (dropdown) -->
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="quickNotePv_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
+              <option value="">📝 Nota rápida...</option>
+              <option value="📦 Dispositivo despachado">📦 Dispositivo despachado</option>
+              <option value="💰 Pago recibido y confirmado">💰 Pago recibido</option>
+              <option value="🏆 Afiliación al club activa">🏆 Afiliación activa</option>
+              <option value="🔫 Munición despachada">🔫 Munición enviada</option>
+              <option value="🔧 Dispositivo en recuperación">🔧 En recuperación</option>
+              <option value="📋 Pendiente: enviar carnet">🕐 Pendiente carnet</option>
+              <option value="📋 Pendiente: despachar dispositivo">🕐 Pendiente despacho</option>
+              <option value="✅ Caso resuelto">✅ Caso resuelto</option>
+            </select>
+            <button onclick="const s=document.getElementById('quickNotePv_\${client.phone}');if(s.value){addNotePv('\${client.phone}',s.value);s.selectedIndex=0;}" style="background:#238636;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">✅ Aplicar</button>
+          </div>
+
+          <!-- CATEGORIZAR PV (dropdown) -->
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="categorizePv_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
+              <option value="">📂 Categorizar...</option>
+              <option value="carnet_pendiente_plus">🟢 Pend. Carnet Plus</option>
+              <option value="carnet_pendiente_pro">🔴 Pend. Carnet Pro</option>
+              <option value="despacho_pendiente">📦 Pend. Dispositivo</option>
+              <option value="municion_pendiente">🔫 Pend. Munición</option>
+              <option value="recuperacion_pendiente">🔧 Pend. Recuperación</option>
+              <option value="bot_asesor_pendiente">🤖 Pend. Bot Asesor</option>
+            </select>
+            <button onclick="const s=document.getElementById('categorizePv_\${client.phone}');if(s.value){changeStatusPv('\${client.phone}',s.value);s.selectedIndex=0;}" style="background:#1f6feb;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">▶ Aplicar</button>
+          </div>
+
+          <!-- ACCIÓN PV (dropdown) -->
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select id="quickActionPv_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
+              <option value="">⚡ Acción...</option>
+              <option value="carnet">🪪 Enviar Carnet por WhatsApp</option>
+              <option value="catalogo">📋 Enviar Catálogo</option>
+              <option value="guia">📦 Enviar Guía de Envío</option>
+              <option value="reatender">🔄 Reatender (Último Msj)</option>
+              <option value="devolver_bot">🤖 Devolver al Bot</option>
+              <option value="reactivar_normal">🔥 Reactivar Integración IA</option>
+              <option value="reactivar_ultra">💎 Reactivar Ultra (Promos)</option>
+              <option value="seguimiento_pv">📬 Seguimiento Post-venta (IA)</option>
+              <option value="devolver_comercial">↩️ Devolver a Comercial</option>
+              <option value="completado">🏁 Marcar completado</option>
+            </select>
+            <button onclick="ejecutarAccionPv('\${client.phone}', document.getElementById('quickActionPv_\${client.phone}').value, this)" style="background:#1f6feb;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">▶ Ejecutar</button>
+          </div>
+        </div>
+
+        <!-- NOTA LIBRE PV -->
         <div class="crm-note-row" style="margin-top:8px;">
-          <input class="crm-note-input" id="notePvInput_\${client.phone}" type="text" placeholder="Nota interna... (ej: carnet listo, falta envío munición)" onkeydown="if(event.key==='Enter') saveNotePv('\${client.phone}')">
-          <button class="crm-note-btn" onclick="saveNotePv('\${client.phone}')">📝 Guardar</button>
+          <input class="crm-note-input" id="notePvInput_\${client.phone}" type="text" placeholder="Nota interna libre..." onkeydown="if(event.key==='Enter') saveNotePv('\${client.phone}')">
+          <button class="crm-note-btn" onclick="saveNotePv('\${client.phone}')">📝</button>
         </div>
         <div class="crm-feedback" id="notePvFeedback_\${client.phone}"></div>
-
-        <div class="crm-actions-title" style="margin-top:12px;">📂 Categorizar</div>
-        <div class="crm-chips">
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'carnet_pendiente_plus')">🟢 Pend. Carnet Plus</div>
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'carnet_pendiente_pro')">🔴 Pend. Carnet Pro</div>
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'despacho_pendiente')">📦 Pend. Dispositivo</div>
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'municion_pendiente')">🔫 Pend. Munición</div>
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'recuperacion_pendiente')">🔧 Pend. Recuperación</div>
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'bot_asesor_pendiente')">🤖 Pend. Bot Asesor</div>
+      </div>
+      <!-- FICHA CRM EDITABLE (PV) -->
+      <div style="margin-top:15px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
+          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>
+          <span style="color:#58a6ff;font-weight:700;font-size:13px;font-family:'Chakra Petch',sans-serif;">📋 Ficha CRM Completa — Datos Editables</span>
         </div>
-        <div class="crm-actions-title" style="margin-top:10px;">⚡ Acciones</div>
-        <div class="crm-chips">
-          <div class="crm-chip" onclick="addNotePv('\${client.phone}', '✅ Caso resuelto')">✅ Caso resuelto</div>
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'completed')">🏁 Marcar completado</div>
-          <div class="crm-chip" onclick="changeStatusPv('\${client.phone}', 'new')">↩️ Devolver a Comercial</div>
-          <div class="crm-chip" style="background:#2d1b1b;border-color:#f85149;color:#ff6b6b;" onclick="reactivarIndividual('\${client.phone}', this, 'normal')">🔥 Reactivar Integración IA</div>
-          <div class="crm-chip" style="background:#332900;border-color:#d29922;color:#e3b341;" onclick="reactivarIndividual('\${client.phone}', this, 'ultra')">💎 Reactivar Ultra (Promos)</div>
-          <div class="crm-chip" style="background:#58a6ff22;border-color:#58a6ff;color:#58a6ff;" onclick="reatenderCliente('\${client.phone}', this)">🔄 Reatender (Último Msj)</div>
-          <div class="crm-chip" style="background:#0d3b66;border-color:#1f6feb;color:#58a6ff;" onclick="devolverAlBot('\${client.phone}')">🤖 Devolver al Bot</div>
-          <div class="crm-chip" style="background:#1a3a2a;border-color:#3fb950;color:#3fb950;" onclick="enviarCatalogo('\${client.phone}', this)">📋 Enviar Catálogo</div>
-          <div class="crm-chip" style="background:#2d1640;border-color:#bc8cff;color:#d4a0ff;font-weight:700;" onclick="reatenderPostventaPv('\${client.phone}', this)">📬 Seguimiento Post-venta (IA)</div>
+        <div style="display:none;padding:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div><label style="color:#8b949e;font-size:10px;">Nombre</label><input id="prof_name_\${client.phone}" type="text" value="\${client.name || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Cédula</label><input id="prof_cedula_\${client.phone}" type="text" value="\${client.cedula || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Ciudad</label><input id="prof_ciudad_\${client.phone}" type="text" value="\${client.ciudad || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Dirección</label><input id="prof_direccion_\${client.phone}" type="text" value="\${client.direccion || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Profesión</label><input id="prof_profesion_\${client.phone}" type="text" value="\${client.profesion || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Plan Club</label><select id="prof_club_plan_\${client.phone}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"><option value="" \${!client.club_plan ? 'selected' : ''}>— Ninguno —</option><option value="Plan Plus" \${client.club_plan === 'Plan Plus' ? 'selected' : ''}>🟡 Plan Plus</option><option value="Plan Pro" \${client.club_plan === 'Plan Pro' ? 'selected' : ''}>🔴 Plan Pro</option></select></div>
+            <div><label style="color:#8b949e;font-size:10px;">Vigente hasta</label><input id="prof_club_vigente_hasta_\${client.phone}" type="date" value="\${client.club_vigente_hasta || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div><label style="color:#8b949e;font-size:10px;">Modelo arma</label><input id="prof_modelo_arma_\${client.phone}" type="text" value="\${client.modelo_arma || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+            <div style="grid-column:1/-1;"><label style="color:#8b949e;font-size:10px;">Serial arma</label><input id="prof_serial_arma_\${client.phone}" type="text" value="\${client.serial_arma || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+            <button onclick="saveProfile('\${client.phone}')" style="background:linear-gradient(135deg,#238636,#2ea043);color:white;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;">💾 Guardar Ficha CRM</button>
+            <div id="prof_feedback_\${client.phone}" style="display:none;color:#3fb950;font-size:12px;">✅ Ficha guardada</div>
+          </div>
         </div>
       </div>
+      <!-- HISTORIAL DE CARNETS (PV) -->
+      <div id="carnetHistory_\${client.phone}" style="margin-top:10px;"></div>
       <div style="margin-top:10px;">\${waLink(client.phone)}</div>
     </div>
   \`;
@@ -1912,6 +2632,7 @@ async function selectClientPv(phone) {
       '<button onclick="enviarMensajeAdminPv()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
     '</div>';
   requestAnimationFrame(() => requestAnimationFrame(() => { chatArea.scrollTop = chatArea.scrollHeight; }));
+  loadCarnetHistory(phone);
 }
 
 // Helpers post-venta — refrescan la vista PV en lugar de la comercial
@@ -2329,6 +3050,275 @@ async function accionCarnet(id, accion, phone, carnetDataEncoded) {
     alert('❌ Error de red. ¿Está corriendo el panel?');
     if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Aprobar y Actualizar Ficha'; }
     if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar (Ilegible/Falso)'; }
+  }
+}
+
+// ====== CARNETS — MODAL Y ENVÍO ======
+let carnetTargetPhone = null;
+let carnetImageBase64 = null;
+let carnetImageMime = null;
+
+function abrirModalCarnet(phone) {
+  carnetTargetPhone = phone;
+  carnetImageBase64 = null;
+  carnetImageMime = null;
+  
+  // Pre-llenar datos del cliente
+  const client = allData.clients.find(c => c.phone === phone);
+  document.getElementById('carnetModalPhone').textContent = '📱 Cliente: ' + (client?.name || phone) + ' (' + phone + ')';
+  document.getElementById('carnetNombre').value = client?.name || '';
+  document.getElementById('carnetCedula').value = client?.cedula || '';
+  document.getElementById('carnetMarcaArma').value = '';
+  document.getElementById('carnetModeloArma').value = client?.modelo_arma || '';
+  document.getElementById('carnetSerial').value = client?.serial_arma || '';
+  document.getElementById('carnetCaption').value = '';
+  document.getElementById('carnetPreview').style.display = 'none';
+  document.getElementById('carnetUploadText').style.display = 'block';
+  document.getElementById('carnetFileInput').value = '';
+  document.getElementById('carnetFeedback').textContent = '';
+  document.getElementById('carnetFeedback').style.color = '';
+  document.getElementById('btnEnviarCarnet').disabled = false;
+  document.getElementById('btnEnviarCarnet').textContent = '📨 Enviar Carnet por WhatsApp';
+  
+  // Auto-seleccionar plan según bóveda
+  if (client?.is_club_pro) document.getElementById('carnetPlan').value = 'Plan Pro';
+  else document.getElementById('carnetPlan').value = 'Plan Plus';
+  
+  // Default vigencia: 1 año desde hoy
+  const nextYear = new Date();
+  nextYear.setFullYear(nextYear.getFullYear() + 1);
+  document.getElementById('carnetVigencia').value = nextYear.toISOString().split('T')[0];
+  
+  const modal = document.getElementById('modalCarnet');
+  modal.style.display = 'flex';
+}
+
+function cerrarModalCarnet() {
+  document.getElementById('modalCarnet').style.display = 'none';
+  carnetTargetPhone = null;
+  carnetImageBase64 = null;
+  carnetImageMime = null;
+}
+
+function previewCarnetImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) {
+    alert('⚠️ La imagen es demasiado grande (máx 10MB)');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const result = e.target.result;
+    carnetImageMime = file.type || 'image/jpeg';
+    carnetImageBase64 = result.split(',')[1]; // quitar el data:... prefix
+    document.getElementById('carnetPreviewImg').src = result;
+    document.getElementById('carnetPreview').style.display = 'block';
+    document.getElementById('carnetUploadText').style.display = 'none';
+    document.getElementById('carnetDropZone').style.borderColor = '#3fb950';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function enviarCarnetWhatsApp() {
+  if (!carnetTargetPhone) { alert('Error: no hay cliente seleccionado'); return; }
+  if (!carnetImageBase64) { alert('⚠️ Selecciona una imagen del carnet primero'); return; }
+  
+  const btn = document.getElementById('btnEnviarCarnet');
+  const fb = document.getElementById('carnetFeedback');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando carnet...';
+  fb.textContent = '';
+  
+  const payload = {
+    phone: carnetTargetPhone,
+    imagenBase64: carnetImageBase64,
+    imagenMime: carnetImageMime || 'image/jpeg',
+    caption: document.getElementById('carnetCaption').value.trim() || '',
+    carnetData: {
+      nombre: document.getElementById('carnetNombre').value.trim(),
+      cedula: document.getElementById('carnetCedula').value.trim(),
+      vigente_hasta: document.getElementById('carnetVigencia').value,
+      marca_arma: document.getElementById('carnetMarcaArma').value.trim(),
+      modelo_arma: document.getElementById('carnetModeloArma').value.trim(),
+      serial: document.getElementById('carnetSerial').value.trim(),
+      plan_tipo: document.getElementById('carnetPlan').value
+    }
+  };
+  
+  try {
+    const res = await fetch('/api/enviar-carnet-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.waSent) {
+        fb.style.color = '#3fb950';
+        fb.textContent = '✅ Carnet enviado por WhatsApp y guardado en la BD';
+        btn.textContent = '✅ Enviado';
+        btn.style.background = '#238636';
+      } else {
+        fb.style.color = '#d29922';
+        fb.textContent = '⚠️ Carnet guardado en BD pero no se pudo enviar por WhatsApp: ' + (data.waWarning || 'error');
+        btn.textContent = '⚠️ Guardado (WA falló)';
+      }
+      // Recargar datos y refrescar vista
+      await loadData();
+      if (selectedPhone === carnetTargetPhone) selectClient(carnetTargetPhone);
+      if (selectedPhonePv === carnetTargetPhone) selectClientPv(carnetTargetPhone);
+      setTimeout(cerrarModalCarnet, 3000);
+    } else {
+      fb.style.color = '#f85149';
+      fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+      btn.disabled = false;
+      btn.textContent = '📨 Enviar Carnet por WhatsApp';
+    }
+  } catch (e) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ Error de conexión con el servidor';
+    btn.disabled = false;
+    btn.textContent = '📨 Enviar Carnet por WhatsApp';
+  }
+}
+
+// ====== GUÍA DE ENVÍO ======
+let guiaTargetPhone = null;
+let guiaImageBase64 = null;
+let guiaImageMime = null;
+
+function abrirModalGuia(phone) {
+  guiaTargetPhone = phone;
+  guiaImageBase64 = null;
+  guiaImageMime = null;
+  
+  const client = allData.clients.find(c => c.phone === phone);
+  document.getElementById('guiaModalPhone').textContent = '📱 Cliente: ' + (client?.name || phone) + ' (' + phone + ')';
+  document.getElementById('guiaNumero').value = '';
+  document.getElementById('guiaProducto').value = client?.modelo_arma ? client.modelo_arma : '';
+  document.getElementById('guiaCaption').value = '';
+  document.getElementById('guiaPreview').style.display = 'none';
+  document.getElementById('guiaUploadText').style.display = 'block';
+  document.getElementById('guiaFileInput').value = '';
+  document.getElementById('guiaFeedback').textContent = '';
+  document.getElementById('guiaFeedback').style.color = '';
+  document.getElementById('btnEnviarGuia').disabled = false;
+  document.getElementById('btnEnviarGuia').textContent = '📨 Enviar Guía por WhatsApp';
+  document.getElementById('guiaDropZone').style.borderColor = '#30363d';
+  document.getElementById('guiaTransportadora').selectedIndex = 0;
+  
+  document.getElementById('modalGuia').style.display = 'flex';
+}
+
+function cerrarModalGuia() {
+  document.getElementById('modalGuia').style.display = 'none';
+  guiaTargetPhone = null;
+  guiaImageBase64 = null;
+  guiaImageMime = null;
+}
+
+function previewGuiaImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { alert('⚠️ La imagen es demasiado grande (máx 10MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const result = e.target.result;
+    guiaImageMime = file.type || 'image/jpeg';
+    guiaImageBase64 = result.split(',')[1];
+    document.getElementById('guiaPreviewImg').src = result;
+    document.getElementById('guiaPreview').style.display = 'block';
+    document.getElementById('guiaUploadText').style.display = 'none';
+    document.getElementById('guiaDropZone').style.borderColor = '#3fb950';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function enviarGuiaWhatsApp() {
+  if (!guiaTargetPhone) { alert('Error: no hay cliente seleccionado'); return; }
+  const numero = document.getElementById('guiaNumero').value.trim();
+  const transportadora = document.getElementById('guiaTransportadora').value;
+  if (!numero) { alert('⚠️ Ingresa el número de guía'); return; }
+  
+  const btn = document.getElementById('btnEnviarGuia');
+  const fb = document.getElementById('guiaFeedback');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando guía...';
+  fb.textContent = '';
+  
+  const payload = {
+    phone: guiaTargetPhone,
+    transportadora,
+    numeroGuia: numero,
+    producto: document.getElementById('guiaProducto').value.trim() || '',
+    caption: document.getElementById('guiaCaption').value.trim() || '',
+    imagenBase64: guiaImageBase64 || null,
+    imagenMime: guiaImageMime || null
+  };
+  
+  try {
+    const res = await fetch('/api/enviar-guia-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      fb.style.color = '#3fb950';
+      fb.textContent = '✅ Guía enviada por WhatsApp y registrada';
+      btn.textContent = '✅ Enviada';
+      btn.style.background = '#238636';
+      await loadData();
+      if (selectedPhone === guiaTargetPhone) selectClient(guiaTargetPhone);
+      if (selectedPhonePv === guiaTargetPhone) selectClientPv(guiaTargetPhone);
+      setTimeout(cerrarModalGuia, 3000);
+    } else {
+      fb.style.color = '#f85149';
+      fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+      btn.disabled = false;
+      btn.textContent = '📨 Enviar Guía por WhatsApp';
+    }
+  } catch (e) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ Error de conexión con el servidor';
+    btn.disabled = false;
+    btn.textContent = '📨 Enviar Guía por WhatsApp';
+  }
+}
+
+async function loadCarnetHistory(phone) {
+  var container = document.getElementById('carnetHistory_' + phone);
+  if (!container) return;
+  try {
+    var res2 = await fetch('/api/carnets-cliente?phone=' + phone);
+    var carnets = await res2.json();
+    if (!carnets || carnets.length === 0) { container.innerHTML = ''; return; }
+    var estadoColors = { enviado: '#3fb950', confirmado: '#3fb950', pendiente: '#d29922', rechazado: '#f85149' };
+    var estadoIcons = { enviado: '📨', confirmado: '✅', pendiente: '⏳', rechazado: '❌' };
+    var html = '<div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">';
+    html += "<div onclick=\\"this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';\\" style=\\"padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;\\">";
+    html += '<span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>';
+    html += '<span style="color:#d4a0ff;font-weight:700;font-size:13px;">🪪 Historial de Carnets (' + carnets.length + ')</span></div>';
+    html += '<div style="display:none;padding:10px;">';
+    carnets.forEach(function(c) {
+      var fecha = new Date(c.created_at).toLocaleDateString('es-CO');
+      var plan = c.plan_tipo || 'N/A';
+      var color = estadoColors[c.estado] || '#8b949e';
+      var icon = estadoIcons[c.estado] || '📋';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#111820;border:1px solid #21262d;border-radius:6px;margin-bottom:6px;font-size:12px;">';
+      html += '<div><span style="color:' + color + ';font-weight:700;">' + icon + ' ' + (c.estado ? c.estado.toUpperCase() : 'N/A') + '</span>';
+      html += '<span style="color:#8b949e;"> — </span><span style="color:#e6edf3;">' + plan + '</span></div>';
+      html += '<div style="color:#8b949e;font-size:11px;text-align:right;">';
+      html += '<div>' + (c.nombre || '') + (c.cedula ? ' (CC: ' + c.cedula + ')' : '') + '</div>';
+      html += '<div>' + (c.modelo_arma ? '🔫 ' + c.modelo_arma + ' S/N: ' + (c.serial || 'N/A') : '') + '</div>';
+      html += '<div>📅 ' + fecha + (c.vigente_hasta ? ' → Vence: ' + c.vigente_hasta : '') + '</div>';
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Error cargando carnets:', e);
   }
 }
 

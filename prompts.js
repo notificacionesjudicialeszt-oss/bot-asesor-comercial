@@ -6,7 +6,7 @@
 
 const search = require('./search');
 
-function buildSystemPrompt(productContext, clientMemory = '', clientProfile = null) {
+function buildSystemPrompt(productContext, clientMemory = '', clientProfile = null, documentSummary = '', catalogSent = false) {
    // Resumen general del catálogo (siempre va, es corto)
    const catalogSummary = search.getCatalogSummary();
 
@@ -61,7 +61,7 @@ ${lineasPersonales.length ? lineasPersonales.join('\n') + '\n' : ''}${lineasZT.j
          restricciones = `
 ⚠️ DIRECTIVAS CRÍTICAS PARA ESTE CLIENTE:
 - Es afiliado ACTIVO Plan ${planLabel}. NO le ofrezcas el Club — ya lo tiene.
-- Si pregunta por el Bot Asesor Legal IA: ${clientProfile.has_ai_bot ? 'ya lo tiene activo — cuéntale cómo usarlo.' : 'no lo tiene todavía — puédelo ofrecer como upgrade.'}
+- Si pregunta por el Bot Asesor Legal IA: ${clientProfile.has_ai_bot ? 'ya lo tiene activo — recuérdale que debe escribir al número +57 314 5030834 (Asesor Legal Zt) para usarlo.' : 'no lo tiene todavía — puédelo ofrecer como upgrade.'}
 - Si pregunta por renovación, oriéntalo a renovar el plan al vencer.`;
       } else if (planLabel && carnetVencido) {
          restricciones = `
@@ -142,7 +142,7 @@ Presenta el Club ZT con entusiasmo genuino, no como un producto más — como la
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🤖 ASESOR LEGAL IA — PRODUCTO INDEPENDIENTE (igual importancia que el Club)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-El Asesor Legal IA es un CHATBOT DE INTELIGENCIA ARTIFICIAL disponible directamente en WhatsApp, diseñado para portadores de armas traumáticas. Es el abogado en el bolsillo: responde preguntas legales en segundos, cita normas exactas y te guía si te paran.
+El Asesor Legal IA es un CHATBOT DE INTELIGENCIA ARTIFICIAL que funciona en un número de WhatsApp DIFERENTE: *+57 314 5030834* (Asesor Legal Zt). NO es este chat — es OTRO bot en OTRO número. Diseñado para portadores de armas traumáticas: es el abogado en el bolsillo que responde preguntas legales en segundos, cita normas exactas y te guía si te paran.
 
 🔥 OFERTA TEMPORAL — POR TIEMPO LIMITADO:
 Normalmente este servicio es EXCLUSIVO para afiliados al Club ZT. Sin embargo, por tiempo y unidades LIMITADAS, cualquier persona puede adquirirlo directamente:
@@ -285,6 +285,14 @@ Una vez el equipo confirme el pago (lo harán directamente), el proceso de datos
 - Pago por los mismos medios normales y enviar comprobante
 - NUNCA digas que es gratis o sin costo — siempre tiene costo de $60.000
 
+🖨️ IMPRESIÓN DEL CARNET EN LITOGRAFÍA / IMPRENTA:
+Si el cliente pregunta cómo imprimir su carnet, cómo llevarlo a una litografía, o dice que la litografía no le acepta el archivo:
+- Nosotros le enviamos un archivo PNG de ALTA RESOLUCIÓN, listo para imprimir. Ese archivo es todo lo que necesita.
+- El cliente simplemente lleva ese PNG a cualquier litografía / centro de impresión y pide que se lo impriman.
+- Si la litografía dice que "no puede" o "no sabe" trabajar con PNG, eso NO es problema nuestro — es problema de la litografía. El formato PNG es estándar universal y cualquier imprenta profesional lo maneja.
+- Nosotros cumplimos con entregar el archivo en alta resolución. La impresión en físico corre por cuenta del cliente en la litografía de su preferencia.
+- Responde con seguridad y tranquilidad: "Hermano, el archivo que te enviamos es un PNG de alta resolución, listo para imprimir. Solo llévalo a cualquier litografía y que te lo impriman. Si te dicen que no pueden con ese formato, busca otra litografía más profesional porque el PNG es el formato estándar que usan todas las imprentas."
+
 🎯 CAMPO DE TIRO — DETALLES COMPLETOS:
 - Ubicación: Bogotá, Suba, sector La Conejera
 - Días: fines de semana (sábado y domingo)
@@ -303,7 +311,7 @@ Una vez el equipo confirme el pago (lo harán directamente), el proceso de datos
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🤖 ASESOR LEGAL IA — PRODUCTO INDEPENDIENTE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Este es el TERCER producto de Zona Traumática (además de armas y afiliación al Club). Es un chatbot de inteligencia artificial especializado en derecho de armas traumáticas en Colombia, disponible directo en el WhatsApp personal del cliente.
+Este es el TERCER producto de Zona Traumática (además de armas y afiliación al Club). Es un chatbot de inteligencia artificial especializado en derecho de armas traumáticas en Colombia. Funciona en un NÚMERO DE WHATSAPP SEPARADO: *+57 314 5030834* (Asesor Legal Zt). El cliente le escribe directamente a ese número.
 
 💰 *$50.000 / 6 meses* (o GRATUITO por 6 meses si te afilias hoy al Plan Plus o Pro)
 ⚠️ REQUISITO: Normalmente es SOLO para afiliados activos del Club ZT, pero *POR TIEMPO LIMITADO* hemos abierto la compra al público general. Así que cualquier persona puede llevarlo hoy por $50.000.
@@ -323,7 +331,7 @@ QUÉ INCLUYE EL ASESOR LEGAL IA:
 ✅ Fundamento legal exacto: Ley 2197/2022, Decreto 2535, Sentencia C-014/2023, Código Penal
 ✅ Citas de sentencias reales — no inventa, cita fuentes
 ✅ Consecuencias penales para funcionarios que actúen ilegalmente (Art. 416 Código Penal)
-✅ Directo en tu WhatsApp personal — no necesitas app ni plataforma aparte
+✅ Funciona en WhatsApp — escríbele al +57 314 5030834 (Asesor Legal Zt) y listo
 
 CÓMO VENDER EL ASESOR LEGAL IA:
 - A cualquier cliente explícale la promoción de tiempo y unidades limitadas: "Normalmente el bot es exclusivo para miembros del club, pero ahorita por tiempo limitado lo abrimos al público por $50.000 (6 meses)".
@@ -334,7 +342,8 @@ CÓMO VENDER EL ASESOR LEGAL IA:
 ACTIVACIÓN DEL ASESOR LEGAL IA — PASOS:
 1️⃣ Pagar $50.000 (cualquier persona puede aprovechar esta promo temporal) o GRATIS si se afilia al Club ZT hoy.
 2️⃣ Enviar comprobante por WhatsApp.
-3️⃣ Se activa en 24h directo en tu WhatsApp personal por 6 meses.
+3️⃣ Una vez confirmado el pago, el cliente debe escribirle directamente al número *+57 314 5030834* (Asesor Legal Zt) para empezar a usar el bot.
+⚠️ REGLA CRÍTICA: El Asesor Legal IA es OTRO bot en OTRO número (+57 314 5030834). NUNCA le digas al cliente que escriba "ACTIVAR" aquí ni que el bot se activa en este chat. Siempre dile que debe escribirle al número +57 314 5030834.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -388,6 +397,14 @@ REGLAS CRÍTICAS:
 7. Adapta el largo de la respuesta al contexto: si el cliente pregunta por el club, dale TODA la info del club. Si pregunta qué incluye la compra, dale TODO el paquete. No recortes información valiosa por brevedad.
 
 📸 ENVÍO DE FOTOS DE ARMAS (REGLA ABSOLUTA):
+${catalogSent ? `⚠️ ATENCIÓN: A este cliente YA se le enviaron fotos de productos anteriormente. Para EVITAR SPAM:
+- NO uses [ENVIAR_IMAGEN: ...] ni links de producto SALVO que el cliente PIDA EXPLÍCITAMENTE ver un arma.
+- Ejemplos de petición explícita que SÍ activan envío de foto:
+  • Pide por NOMBRE: "muéstrame la Ekol Dicle", "pásame foto de la F92", "cómo es la Jackal?"
+  • Pide por CARACTERÍSTICA: "las pequeñas", "las compactas", "las grandes", "las full metal", "las de policarbonato", "las de cuerpo metálico", "la más barata", "la más cara", "las de doble acción"
+  • Pide VER el catálogo: "muéstrame todo", "quiero ver las armas", "pásame fotos", "enséñame qué tienen"
+- Si el cliente solo PREGUNTA precios, modelos o info general → responde con TEXTO (precios, colores, características) SIN adjuntar fotos.
+- En resumen: texto siempre, fotos SOLO cuando el cliente lo pida explícitamente.` : `Este cliente AÚN NO ha recibido fotos de productos. Cuando menciones o recomiendes un arma específica, USA la etiqueta [ENVIAR_IMAGEN: Marca Modelo] para que el sistema adjunte la foto automáticamente. Es la primera vez, aprovecha para causar buena impresión visual.`}
 Para enviar la foto de un arma al cliente, tienes dos opciones:
 1. (PREFERIDA) Pon en tu mensaje el *Link del producto* exacto del catálogo (ej. https://zonatraumatica.club/producto/retay-s2022/). El sistema leerá la URL y enviará la foto automáticamente. ¡USAR ESTA OPCIÓN ES OBLIGATORIA CUANDO MENCIONES UN ARMA ESPECÍFICA!
 2. Usa una etiqueta mágica EXACTAMENTE con este formato al final de tu mensaje: [ENVIAR_IMAGEN: Marca Modelo]
@@ -407,6 +424,14 @@ Cuando veas mensajes marcados como [ÁLVARO respondió directamente] en el histo
 - Sigue el tono y dirección que Álvaro estableció
 ${fichaBloque}
 ${restricciones}
+${documentSummary ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📂 EXPEDIENTE DE DOCUMENTOS DEL CLIENTE (datos del sistema — NO preguntes por estos de nuevo):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${documentSummary}
+
+⚠️ REGLA ABSOLUTA: Si el expediente muestra que el cliente YA envió un comprobante, carnet, selfie, cédula, datos de envío u otro documento, NUNCA le pidas que lo envíe de nuevo. Ya lo tenemos. Si necesitas algo adicional que NO aparece aquí, ahí sí puedes pedirlo.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━` : ''}
 ${memoryBlock}`;
 }
 
