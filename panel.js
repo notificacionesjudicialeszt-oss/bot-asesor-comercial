@@ -1191,6 +1191,45 @@ function getHTML() {
   .btn-toggle { background: #1c2733; color: #8b949e; border: 1px solid #30363d; border-radius: 4px; padding: 6px 12px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-family: 'Chakra Petch', sans-serif; transition: all 0.2s; white-space: nowrap; }
   .btn-toggle:hover { background: #222e3c; }
   .btn-toggle.on { background: #23863622; color: #3fb950; border-color: #238636; }
+  /* CRM Professional Tabs */
+  .crm-tabs { display: flex; border-bottom: 2px solid #1c2733; background: #0d1117; }
+  .crm-tab { padding: 8px 16px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; color: #586776; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; transition: all 0.15s; }
+  .crm-tab.active { color: #e6edf3; border-bottom-color: #f85149; }
+  .crm-tab:hover { color: #e6edf3; }
+  .crm-tab-content { display: none; padding: 12px; }
+  .crm-tab-content.active { display: block; }
+  .crm-header-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #0d1117; border-bottom: 1px solid #1c2733; flex-wrap: wrap; }
+  .crm-header-bar h3 { font-size: 16px; font-family: 'Chakra Petch', sans-serif; font-weight: 700; margin: 0; flex-shrink: 0; }
+  .crm-header-bar .crm-meta { display: flex; gap: 12px; font-size: 11px; color: #586776; font-family: 'Share Tech Mono', monospace; flex-wrap: wrap; align-items: center; }
+  .crm-field { display: flex; flex-direction: column; gap: 2px; }
+  .crm-field label { color: #586776; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; font-family: 'Chakra Petch', sans-serif; }
+  .crm-field input, .crm-field select { background: #0d1117; border: 1px solid #1c2733; color: #e6edf3; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-family: 'Rajdhani', sans-serif; box-sizing: border-box; width: 100%; }
+  .crm-field input:focus, .crm-field select:focus { border-color: #f85149; outline: none; }
+  .crm-field input[readonly] { color: #586776; cursor: default; }
+  .crm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .crm-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .crm-toggles { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 0; }
+  .crm-toggle-chip { display: flex; align-items: center; gap: 4px; background: #111820; border: 1px solid #1c2733; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; color: #8b949e; font-family: 'Chakra Petch', sans-serif; font-weight: 600; transition: all 0.15s; user-select: none; }
+  .crm-toggle-chip:has(input:checked) { border-color: #3fb950; color: #3fb950; background: #23863615; }
+  .crm-toggle-chip input { accent-color: #3fb950; cursor: pointer; }
+  .crm-save-row { display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid #1c2733; margin-top: 8px; }
+  .crm-save-btn { background: linear-gradient(135deg, #238636, #2ea043); color: white; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 12px; font-family: 'Chakra Petch', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .crm-save-btn:hover { filter: brightness(1.15); }
+  .crm-section-title { font-size: 11px; color: #586776; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; font-family: 'Chakra Petch', sans-serif; padding-bottom: 6px; border-bottom: 1px solid #1c2733; margin-bottom: 8px; }
+  .crm-wa-link { display: inline-flex; align-items: center; gap: 5px; color: #3fb950; font-size: 12px; text-decoration: none; padding: 4px 10px; border: 1px solid #23863644; border-radius: 4px; background: #23863611; }
+  .crm-wa-link:hover { background: #23863633; }
+  .crm-action-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .crm-action-row select { flex: 1; background: #0d1117; border: 1px solid #1c2733; color: #e6edf3; padding: 8px 10px; border-radius: 6px; font-size: 12px; font-family: 'Chakra Petch', sans-serif; }
+  .crm-action-row button { background: #1f6feb; border: none; color: white; padding: 8px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: 'Chakra Petch', sans-serif; font-weight: 600; white-space: nowrap; }
+  .crm-action-row button:hover { filter: brightness(1.15); }
+  .crm-action-row button.green { background: #238636; }
+  .crm-memory-textarea { width: 100%; background: #0d1117; border: 1px solid #1c2733; border-radius: 6px; padding: 10px; font-size: 12px; color: #8b949e; white-space: pre-wrap; min-height: 80px; max-height: 200px; resize: vertical; font-family: 'Share Tech Mono', monospace; box-sizing: border-box; }
+  .crm-memory-textarea:focus { border-color: #bc8cff; outline: none; color: #e6edf3; }
+  .crm-carnet-warn { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; background: #f8514915; border: 1px solid #f8514944; border-radius: 6px; margin: 6px 12px; font-size: 11px; color: #f85149; font-family: 'Chakra Petch', sans-serif; }
+  .crm-carnet-warn .warn-icon { font-size: 14px; flex-shrink: 0; }
+  .crm-carnet-warn .warn-text { line-height: 1.4; }
+  .crm-carnet-warn .warn-fields { color: #d29922; font-weight: 700; }
+  .crm-carnet-ok { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: #23863615; border: 1px solid #23863644; border-radius: 6px; margin: 6px 12px; font-size: 11px; color: #3fb950; font-family: 'Chakra Petch', sans-serif; }
 </style>
 </head>
 <body>
@@ -1782,146 +1821,156 @@ async function selectClient(phone) {
   toggleBtn.textContent = 'Ocultar Info';
 
   document.getElementById('clientDetail').innerHTML = \`
-    <div class="client-detail">
+    <!-- CRM HEADER BAR -->
+    <div class="crm-header-bar">
       <h3>\${client.name || 'Sin nombre'} <span class="client-status status-\${client.status}">\${client.status}</span></h3>
-      <div class="detail-grid">
-        <div class="detail-item"><span class="dl">\${isLid(client.phone) ? '🔒 ID WA:' : '📱 Teléfono:'}</span> <span class="dv">\${isLid(client.phone) ? '<span style="color:#8b949e;font-size:11px;">' + client.phone + ' (privado)</span>' : client.phone}</span></div>
-        <div class="detail-item"><span class="dl">💬 Mensajes:</span> <span class="dv">\${client.interaction_count || 0}</span></div>
-        <div class="detail-item"><span class="dl">📅 Registro:</span> <span class="dv">\${new Date(client.created_at).toLocaleDateString()}</span></div>
-        <div class="detail-item"><span class="dl">👔 Asignado:</span> <span class="dv">\${assignment ? assignment.employee_name : 'No'}</span></div>
-        
-      <!-- BÓVEDA: collapsible -->
-      <div style="margin-top:15px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
-        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
-          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▼</span>
-          <span style="color:#3fb950;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">🔒 Bóveda de Servicios Adquiridos</span>
-        </div>
-        <div style="padding:10px 14px;">
-          <div style="display:flex; gap: 12px; flex-wrap: wrap;">
-            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-              <input type="checkbox" \${client.has_bought_gun ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'has_bought_gun', \${client.has_bought_gun || 0})" style="accent-color:#3fb950;"> 🔫 Compró Arma
-            </label>
-            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-              <input type="checkbox" \${client.is_club_plus ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'is_club_plus', \${client.is_club_plus || 0})" style="accent-color:#d29922;"> 🟡 Club Plus ($100k)
-            </label>
-            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-              <input type="checkbox" \${client.is_club_pro ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'is_club_pro', \${client.is_club_pro || 0})" style="accent-color:#f85149;"> 🔴 Club Pro ($150k)
-            </label>
-            <label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;color:#e6edf3;">
-              <input type="checkbox" \${client.has_ai_bot ? 'checked' : ''} onchange="toggleFlag('\${client.phone}', 'has_ai_bot', \${client.has_ai_bot || 0})" style="accent-color:#1f6feb;"> 🤖 Bot Asesor IA
-            </label>
-          </div>
-        </div>
+      <div class="crm-meta">
+        <span>\${isLid(client.phone) ? '🔒 ' + client.phone : '📱 ' + client.phone}</span>
+        <span>💬 \${client.interaction_count || 0} msgs</span>
+        <span>📅 \${new Date(client.created_at).toLocaleDateString()}</span>
+        \${assignment ? '<span>👔 ' + assignment.employee_name + '</span>' : ''}
       </div>
-
-      <!-- MEMORIA CRM: collapsible, abierta por defecto -->
-      <div style="margin-top:10px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
-        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;background:#161b22;border-bottom:1px solid #30363d;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▼</span>
-            <span style="color:#bc8cff;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">🧠 Memoria CRM</span>
-          </div>
-          <button onclick="event.stopPropagation();saveMemory('\${client.phone}')" style="background:#238636;color:white;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-family:'Chakra Petch',sans-serif;">💾 Guardar</button>
-        </div>
-        <div style="padding:10px 14px;">
-          <textarea id="memoryEdit_\${client.phone}" style="width:100%;background:#111820;border:1px solid #1c2733;border-radius:4px;padding:10px;font-size:12px;color:#8b949e;white-space:pre-wrap;min-height:70px;max-height:160px;resize:vertical;font-family:'Share Tech Mono',monospace;box-sizing:border-box;">\${(client.memory || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
-        </div>
-      </div>
-
-      <!-- ACCIONES RÁPIDAS: collapsible -->
-      <div style="margin-top:10px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
-        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
-          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>
-          <span style="color:#58a6ff;font-weight:700;font-size:12px;font-family:'Chakra Petch',sans-serif;">⚡ Acciones Rápidas</span>
-        </div>
-        <div style="display:none;padding:10px 14px;">
-
-          <!-- NOTA RÁPIDA (dropdown) -->
-          <div style="display:flex;align-items:center;gap:8px;">
-            <select id="quickNote_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
-              <option value="">📝 Nota rápida...</option>
-              <option value="📦 Dispositivo despachado">📦 Dispositivo despachado</option>
-              <option value="💰 Pago recibido y confirmado">💰 Pago recibido</option>
-              <option value="🏆 Afiliación al club activa">🏆 Afiliación activa</option>
-              <option value="📋 Pendiente: enviar carnet">🕐 Pendiente carnet</option>
-              <option value="📋 Pendiente: despachar dispositivo">🕐 Pendiente despacho</option>
-              <option value="🚫 Cliente marcado como NO interesado">❌ No interesado</option>
-            </select>
-            <button onclick="const s=document.getElementById('quickNote_\${client.phone}');if(s.value){addNote('\${client.phone}',s.value);s.selectedIndex=0;}" style="background:#238636;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">✅ Aplicar</button>
-          </div>
-
-          <!-- ACCIÓN (dropdown) -->
-          <div style="display:flex;align-items:center;gap:8px;">
-            <select id="quickAction_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
-              <option value="">⚡ Acción...</option>
-              <option value="carnet">🪪 Enviar Carnet por WhatsApp</option>
-              <option value="catalogo">📋 Enviar Catálogo</option>
-              <option value="guia">📦 Enviar Guía de Envío</option>
-              <option value="reatender">🔄 Reatender (Último Msj)</option>
-              <option value="devolver_bot">🤖 Devolver al Bot</option>
-              <option value="reactivar_normal">🔥 Reactivar Integración IA</option>
-              <option value="reactivar_ultra">💎 Reactivar Ultra (Promos)</option>
-              <option value="ignorar">\${client.ignored == 1 ? '🔇 Reactivar (está ignorado)' : '🔇 Silenciar — no es cliente'}</option>
-              <option value="resetear">↩️ Resetear a Nuevo</option>
-              <option value="completado">✅ Marcar Completado</option>
-            </select>
-            <button onclick="ejecutarAccion('\${client.phone}', document.getElementById('quickAction_\${client.phone}').value, this)" style="background:#1f6feb;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">▶ Ejecutar</button>
-          </div>
-
-          <!-- MOVER A POST-VENTA (dropdown) -->
-          <div style="display:flex;align-items:center;gap:8px;">
-            <select id="pvSelect_\${client.phone}" style="flex:1;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;">
-              <option value="">📦 Mover a Post-venta...</option>
-              <option value="carnet_pendiente_plus">🟢 Pendiente Carnet Club Plus</option>
-              <option value="carnet_pendiente_pro">🔴 Pendiente Carnet Club Pro</option>
-              <option value="despacho_pendiente">📦 Pendiente Envío Dispositivo</option>
-              <option value="municion_pendiente">🔫 Pendiente Envío Munición</option>
-              <option value="recuperacion_pendiente">🔧 Pendiente Recuperación</option>
-              <option value="bot_asesor_pendiente">🤖 Pendiente Bot Asesor</option>
-              <option value="postventa">📋 Post-venta general</option>
-            </select>
-            <button onclick="moverPostventa('\${client.phone}')" style="background:#238636;border:none;color:white;padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;white-space:nowrap;">✅ Mover</button>
-          </div>
-        </div>
-
-        <!-- NOTA LIBRE -->
-        <div class="crm-note-row" style="margin-top:8px;">
-          <input class="crm-note-input" id="noteInput_\${client.phone}" type="text" placeholder="Nota interna libre..." onkeydown="if(event.key==='Enter') saveNote('\${client.phone}')">
-          <button class="crm-note-btn" onclick="saveNote('\${client.phone}')">📝</button>
-        </div>
-        <div class="crm-feedback" id="noteFeedback_\${client.phone}"></div>
-        </div>
-      </div>
-
-      <!-- FICHA CRM EDITABLE -->
-      <div style="margin-top:15px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">
-        <div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">
-          <span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>
-          <span style="color:#58a6ff;font-weight:700;font-size:13px;font-family:'Chakra Petch',sans-serif;">📋 Ficha CRM Completa — Datos Editables</span>
-        </div>
-        <div style="display:none;padding:14px;">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div><label style="color:#8b949e;font-size:10px;">Nombre</label><input id="prof_name_\${client.phone}" type="text" value="\${client.name || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-            <div><label style="color:#8b949e;font-size:10px;">Cédula</label><input id="prof_cedula_\${client.phone}" type="text" value="\${client.cedula || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-            <div><label style="color:#8b949e;font-size:10px;">Ciudad</label><input id="prof_ciudad_\${client.phone}" type="text" value="\${client.ciudad || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-            <div><label style="color:#8b949e;font-size:10px;">Dirección</label><input id="prof_direccion_\${client.phone}" type="text" value="\${client.direccion || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-            <div><label style="color:#8b949e;font-size:10px;">Profesión</label><input id="prof_profesion_\${client.phone}" type="text" value="\${client.profesion || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-            <div><label style="color:#8b949e;font-size:10px;">Plan Club</label><select id="prof_club_plan_\${client.phone}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"><option value="" \${!client.club_plan ? 'selected' : ''}>— Ninguno —</option><option value="Plan Plus" \${client.club_plan === 'Plan Plus' ? 'selected' : ''}>🟡 Plan Plus</option><option value="Plan Pro" \${client.club_plan === 'Plan Pro' ? 'selected' : ''}>🔴 Plan Pro</option></select></div>
-            <div><label style="color:#8b949e;font-size:10px;">Vigente hasta</label><input id="prof_club_vigente_hasta_\${client.phone}" type="date" value="\${client.club_vigente_hasta || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-            <div><label style="color:#8b949e;font-size:10px;">Modelo arma</label><input id="prof_modelo_arma_\${client.phone}" type="text" value="\${client.modelo_arma || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-            <div style="grid-column:1/-1;"><label style="color:#8b949e;font-size:10px;">Serial arma</label><input id="prof_serial_arma_\${client.phone}" type="text" value="\${client.serial_arma || ''}" style="width:100%;background:#111820;border:1px solid #30363d;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;box-sizing:border-box;"></div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
-            <button onclick="saveProfile('\${client.phone}')" style="background:linear-gradient(135deg,#238636,#2ea043);color:white;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;">💾 Guardar Ficha CRM</button>
-            <div id="prof_feedback_\${client.phone}" style="display:none;color:#3fb950;font-size:12px;">✅ Ficha guardada</div>
-          </div>
-        </div>
-      </div>
-      <!-- HISTORIAL DE CARNETS -->
-      <div id="carnetHistory_\${client.phone}" style="margin-top:10px;"></div>
-      <div style="margin-top:10px;">
+      <div style="margin-left:auto;display:flex;gap:6px;">
         \${waLink(client.phone)}
       </div>
+    </div>
+
+    <!-- CARNET DATA COMPLETENESS CHECK -->
+    \${(function() {
+      const missing = [];
+      if (!client.name || client.name.trim().length < 3) missing.push('Nombre completo');
+      if (!client.cedula) missing.push('Cédula');
+      if (!client.modelo_arma) missing.push('Modelo arma');
+      if (!client.serial_arma) missing.push('Serial arma');
+      if (!client.club_plan) missing.push('Plan Club');
+      if (missing.length === 0) {
+        return '<div class="crm-carnet-ok">✅ Datos completos para carnet</div>';
+      }
+      return '<div class="crm-carnet-warn"><span class="warn-icon">⚠️</span><div class="warn-text">Faltan datos para generar carnet: <span class="warn-fields">' + missing.join(' · ') + '</span></div></div>';
+    })()}
+
+    <!-- CRM TABS -->
+    <div class="crm-tabs">
+      <div class="crm-tab active" onclick="switchCrmTab('\${client.phone}','perfil',this)">📋 Perfil</div>
+      <div class="crm-tab" onclick="switchCrmTab('\${client.phone}','notas',this)">🧠 Notas</div>
+      <div class="crm-tab" onclick="switchCrmTab('\${client.phone}','acciones',this)">⚡ Acciones</div>
+    </div>
+
+    <!-- TAB: PERFIL -->
+    <div class="crm-tab-content active" id="crmTab_perfil_\${client.phone}">
+      <div class="crm-section-title">Servicios Adquiridos</div>
+      <div class="crm-toggles">
+        <label class="crm-toggle-chip"><input type="checkbox" \${client.has_bought_gun ? 'checked' : ''} onchange="toggleFlag('\${client.phone}','has_bought_gun',\${client.has_bought_gun||0})"> 🔫 Compró Arma</label>
+        <label class="crm-toggle-chip"><input type="checkbox" \${client.is_club_plus ? 'checked' : ''} onchange="toggleFlag('\${client.phone}','is_club_plus',\${client.is_club_plus||0})" style="accent-color:#d29922;"> 🟡 Club Plus</label>
+        <label class="crm-toggle-chip"><input type="checkbox" \${client.is_club_pro ? 'checked' : ''} onchange="toggleFlag('\${client.phone}','is_club_pro',\${client.is_club_pro||0})" style="accent-color:#f85149;"> 🔴 Club Pro</label>
+        <label class="crm-toggle-chip"><input type="checkbox" \${client.has_ai_bot ? 'checked' : ''} onchange="toggleFlag('\${client.phone}','has_ai_bot',\${client.has_ai_bot||0})" style="accent-color:#1f6feb;"> 🤖 Bot IA</label>
+      </div>
+
+      <div class="crm-section-title">Datos Personales</div>
+      <div class="crm-grid">
+        <div class="crm-field"><label>Nombre</label><input id="prof_name_\${client.phone}" type="text" value="\${client.name || ''}"></div>
+        <div class="crm-field"><label>Cédula</label><input id="prof_cedula_\${client.phone}" type="text" value="\${client.cedula || ''}"></div>
+        <div class="crm-field"><label>Ciudad</label><input id="prof_ciudad_\${client.phone}" type="text" value="\${client.ciudad || ''}"></div>
+        <div class="crm-field"><label>Dirección</label><input id="prof_direccion_\${client.phone}" type="text" value="\${client.direccion || ''}"></div>
+        <div class="crm-field"><label>Profesión</label><input id="prof_profesion_\${client.phone}" type="text" value="\${client.profesion || ''}"></div>
+        <div class="crm-field"><label>Status</label>
+          <select onchange="cambiarStatusCRM('\${client.phone}',this.value)" style="background:#0d1117;border:1px solid #1c2733;color:#e6edf3;padding:6px 10px;border-radius:4px;font-size:12px;">
+            <option value="new" \${client.status==='new'?'selected':''}>New</option>
+            <option value="hot" \${client.status==='hot'?'selected':''}>🔥 Hot</option>
+            <option value="warm" \${client.status==='warm'?'selected':''}>Warm</option>
+            <option value="completed" \${client.status==='completed'?'selected':''}>✅ Completed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="crm-section-title" style="margin-top:10px;">Armamento & Club</div>
+      <div class="crm-grid">
+        <div class="crm-field"><label>Plan Club</label>
+          <select id="prof_club_plan_\${client.phone}">
+            <option value="" \${!client.club_plan ? 'selected' : ''}>— Ninguno —</option>
+            <option value="Plan Plus" \${client.club_plan === 'Plan Plus' ? 'selected' : ''}>🟡 Plan Plus</option>
+            <option value="Plan Pro" \${client.club_plan === 'Plan Pro' ? 'selected' : ''}>🔴 Plan Pro</option>
+          </select>
+        </div>
+        <div class="crm-field"><label>Vigente hasta</label><input id="prof_club_vigente_hasta_\${client.phone}" type="date" value="\${client.club_vigente_hasta || ''}"></div>
+        <div class="crm-field"><label>Modelo Arma</label><input id="prof_modelo_arma_\${client.phone}" type="text" value="\${client.modelo_arma || ''}"></div>
+        <div class="crm-field"><label>Serial Arma</label><input id="prof_serial_arma_\${client.phone}" type="text" value="\${client.serial_arma || ''}"></div>
+      </div>
+
+      <div class="crm-save-row">
+        <button class="crm-save-btn" onclick="saveProfile('\${client.phone}')">💾 Guardar Todo</button>
+        <div id="prof_feedback_\${client.phone}" style="display:none;color:#3fb950;font-size:12px;">✅ Guardado</div>
+      </div>
+    </div>
+
+    <!-- TAB: NOTAS -->
+    <div class="crm-tab-content" id="crmTab_notas_\${client.phone}">
+      <div class="crm-section-title">🧠 Memoria del Bot</div>
+      <textarea class="crm-memory-textarea" id="memoryEdit_\${client.phone}">\${(client.memory || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <button class="crm-save-btn" onclick="saveMemory('\${client.phone}')">💾 Guardar Memoria</button>
+        <div id="memoryFeedback_\${client.phone}" style="display:none;color:#3fb950;font-size:12px;align-self:center;">✅ Memoria guardada</div>
+      </div>
+
+      <div class="crm-section-title" style="margin-top:14px;">📝 Nota Rápida</div>
+      <div class="crm-action-row">
+        <select id="quickNote_\${client.phone}">
+          <option value="">Seleccionar nota...</option>
+          <option value="📦 Dispositivo despachado">📦 Dispositivo despachado</option>
+          <option value="💰 Pago recibido y confirmado">💰 Pago recibido</option>
+          <option value="🏆 Afiliación al club activa">🏆 Afiliación activa</option>
+          <option value="📋 Pendiente: enviar carnet">🕐 Pendiente carnet</option>
+          <option value="📋 Pendiente: despachar dispositivo">🕐 Pendiente despacho</option>
+          <option value="🚫 Cliente marcado como NO interesado">❌ No interesado</option>
+        </select>
+        <button class="green" onclick="const s=document.getElementById('quickNote_\${client.phone}');if(s.value){addNote('\${client.phone}',s.value);s.selectedIndex=0;}">✅ Aplicar</button>
+      </div>
+
+      <div class="crm-section-title">✏️ Nota Libre</div>
+      <div class="crm-action-row">
+        <input type="text" id="noteInput_\${client.phone}" placeholder="Escribir nota interna..." onkeydown="if(event.key==='Enter') saveNote('\${client.phone}')" style="flex:1;background:#0d1117;border:1px solid #1c2733;color:#e6edf3;padding:8px 10px;border-radius:6px;font-size:12px;">
+        <button class="green" onclick="saveNote('\${client.phone}')">📝 Guardar</button>
+      </div>
+      <div class="crm-feedback" id="noteFeedback_\${client.phone}" style="font-size:11px;color:#3fb950;height:14px;"></div>
+    </div>
+
+    <!-- TAB: ACCIONES -->
+    <div class="crm-tab-content" id="crmTab_acciones_\${client.phone}">
+      <div class="crm-section-title">⚡ Acciones</div>
+      <div class="crm-action-row">
+        <select id="quickAction_\${client.phone}">
+          <option value="">Seleccionar acción...</option>
+          <option value="carnet">🪪 Enviar Carnet por WhatsApp</option>
+          <option value="catalogo">📋 Enviar Catálogo</option>
+          <option value="guia">📦 Enviar Guía de Envío</option>
+          <option value="reatender">🔄 Reatender (Último Msj)</option>
+          <option value="devolver_bot">🤖 Devolver al Bot</option>
+          <option value="reactivar_normal">🔥 Reactivar Integración IA</option>
+          <option value="reactivar_ultra">💎 Reactivar Ultra (Promos)</option>
+          <option value="ignorar">\${client.ignored == 1 ? '🔇 Reactivar (está ignorado)' : '🔇 Silenciar — no es cliente'}</option>
+          <option value="resetear">↩️ Resetear a Nuevo</option>
+          <option value="completado">✅ Marcar Completado</option>
+        </select>
+        <button onclick="ejecutarAccion('\${client.phone}', document.getElementById('quickAction_\${client.phone}').value, this)">▶ Ejecutar</button>
+      </div>
+
+      <div class="crm-section-title">📦 Mover a Post-venta</div>
+      <div class="crm-action-row">
+        <select id="pvSelect_\${client.phone}">
+          <option value="">Seleccionar destino...</option>
+          <option value="carnet_pendiente_plus">🟢 Pendiente Carnet Club Plus</option>
+          <option value="carnet_pendiente_pro">🔴 Pendiente Carnet Club Pro</option>
+          <option value="despacho_pendiente">📦 Pendiente Envío Dispositivo</option>
+          <option value="municion_pendiente">🔫 Pendiente Envío Munición</option>
+          <option value="recuperacion_pendiente">🔧 Pendiente Recuperación</option>
+          <option value="bot_asesor_pendiente">🤖 Pendiente Bot Asesor</option>
+          <option value="postventa">📋 Post-venta general</option>
+        </select>
+        <button class="green" onclick="moverPostventa('\${client.phone}')">✅ Mover</button>
+      </div>
+
+      <div class="crm-section-title" style="margin-top:8px;">🪪 Historial de Carnets</div>
+      <div id="carnetHistory_\${client.phone}"></div>
     </div>
   \`;
 
@@ -1948,6 +1997,19 @@ async function selectClient(phone) {
       chatArea.scrollTop = chatArea.scrollHeight;
     });
   });
+  // Restore active CRM tab after re-render
+  if (activeCrmTab && activeCrmTab !== 'perfil') {
+    const tabContent = document.getElementById('crmTab_' + activeCrmTab + '_' + phone);
+    if (tabContent) {
+      document.querySelectorAll('.crm-tab-content').forEach(c => c.classList.remove('active'));
+      document.querySelectorAll('.crm-tab').forEach(t => t.classList.remove('active'));
+      tabContent.classList.add('active');
+      // Highlight the correct tab
+      const tabs = document.querySelectorAll('.crm-tab');
+      tabs.forEach(t => { if (t.textContent.toLowerCase().includes(activeCrmTab === 'notas' ? 'notas' : activeCrmTab === 'acciones' ? 'acciones' : 'perfil')) t.classList.add('active'); });
+    }
+  }
+
   // Cargar historial de carnets del cliente
   loadCarnetHistory(phone);
 }
@@ -1966,6 +2028,29 @@ function toggleDetailPanelPv() {
   const isOpen = detail.classList.toggle('open');
   btn.classList.toggle('active', isOpen);
   btn.textContent = isOpen ? 'Ocultar Info' : 'Info';
+}
+
+let activeCrmTab = 'perfil'; // Remember active tab across re-renders
+
+function switchCrmTab(phone, tab, el) {
+  activeCrmTab = tab;
+  document.querySelectorAll('.crm-tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.crm-tab').forEach(t => t.classList.remove('active'));
+  const target = document.getElementById('crmTab_' + tab + '_' + phone);
+  if (target) target.classList.add('active');
+  if (el) el.classList.add('active');
+}
+
+async function cambiarStatusCRM(phone, newStatus) {
+  try {
+    await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, data: { status: newStatus } })
+    });
+    await loadData();
+    selectClient(phone);
+  } catch(e) { console.error(e); }
 }
 
 function setFilter(filter, el) {
