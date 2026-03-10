@@ -235,6 +235,10 @@ async function detectAndSendProductImages(response, rawMsg, senderPhone) {
 
   if (imagesToSend.length === 0) {
     console.log(`[IMG] ℹ️ Sin imágenes detectadas en respuesta para ${senderPhone}`);
+  } else {
+    // Marcar que ya se enviaron fotos del catálogo a este cliente
+    db.markCatalogSent(senderPhone);
+    console.log(`[IMG] 📌 Catálogo marcado como enviado para ${senderPhone}`);
   }
 
   return { cleanResponse: response, imagesSent: sent };
@@ -754,10 +758,11 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             if (!isValidImage) return;
 
             // Obtener historial y memoria del cliente (contexto completo)
-            const history = db.getConversationHistory(senderPhone, 10);
+            const history = db.getConversationHistory(senderPhone, 30);
             const clientMemory = db.getClientMemory(senderPhone);
             const clientProfile = db.getClient(senderPhone);
-            const systemPrompt = buildSystemPrompt('El cliente envió una imagen. Continúa la conversación con el contexto previo que ya tienes.', clientMemory, clientProfile);
+            const documentSummary = db.buildDocumentSummary(senderPhone);
+            const systemPrompt = buildSystemPrompt('El cliente envió una imagen. Continúa la conversación con el contexto previo que ya tienes.', clientMemory, clientProfile, documentSummary);
 
             // Construir historial previo para que Gemini tenga contexto de la conversación
             const geminiHistory = history
@@ -948,7 +953,27 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               const visionResult = await visionChat.sendMessage([imagePart, textPart]);
               reply = visionResult.response.text();
               await msg.reply(reply);
-              db.saveMessage(senderPhone, 'user', '[imagen enviada]');
+
+              // Generar descripción breve de la imagen para el historial
+              let imageDescription = '[imagen enviada]';
+              try {
+                const descResult = await geminiGenerate('gemini-2.5-flash', [
+                  imagePart,
+                  'Describe esta imagen en UNA línea breve en español para guardar en el historial del cliente. Ejemplos: "Foto de cédula por ambas caras", "Selfie del cliente", "Captura de pantalla de chat", "Foto de un producto arma traumática". Solo la descripción, sin explicaciones.'
+                ]);
+                imageDescription = `[IMAGEN: ${descResult.response.text().trim()}]`;
+              } catch (descErr) {
+                console.log(`[IMG] No se pudo generar descripción: ${descErr.message}`);
+              }
+
+              // Guardar la imagen como archivo del cliente
+              try {
+                db.saveClientFile(senderPhone, 'imagen', imageDescription.replace(/^\[IMAGEN: |\]$/g, ''), media.data, mediaType, 'cliente');
+              } catch (fileErr) {
+                console.log(`[IMG] Error guardando client_file: ${fileErr.message}`);
+              }
+
+              db.saveMessage(senderPhone, 'user', imageDescription);
               db.saveMessage(senderPhone, 'assistant', reply);
               db.upsertClient(senderPhone, {});
             }
@@ -979,9 +1004,10 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
           console.log(`[AUDIO] 🎙️ Procesando audio de ${senderPhone}, mime: ${audioMime}`);
 
-          const history = db.getConversationHistory(senderPhone, 10);
+          const history = db.getConversationHistory(senderPhone, 30);
           const clientMemory = db.getClientMemory(senderPhone);
-          const systemPrompt = buildSystemPrompt('El cliente envió un mensaje de voz. Continúa la conversación con el contexto previo.', clientMemory);
+          const documentSummary = db.buildDocumentSummary(senderPhone);
+          const systemPrompt = buildSystemPrompt('El cliente envió un mensaje de voz. Continúa la conversación con el contexto previo.', clientMemory, null, documentSummary);
 
           // Historial previo para mantener contexto
           const geminiHistoryAudio = history
@@ -1035,9 +1061,10 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
           console.log(`[PDF] 📄 Procesando PDF de ${senderPhone}: ${media.filename || 'sin nombre'}`);
 
-          const history = db.getConversationHistory(senderPhone, 10);
+          const history = db.getConversationHistory(senderPhone, 30);
           const clientMemory = db.getClientMemory(senderPhone);
-          const systemPrompt = buildSystemPrompt('El cliente envió un PDF. Continúa la conversación con el contexto previo.', clientMemory);
+          const documentSummary = db.buildDocumentSummary(senderPhone);
+          const systemPrompt = buildSystemPrompt('El cliente envió un PDF. Continúa la conversación con el contexto previo.', clientMemory, null, documentSummary);
 
           // Historial previo para mantener contexto
           const geminiHistoryPdf = history
@@ -1169,7 +1196,7 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
   db.saveMessage(senderPhone, 'user', messageBody);
 
   // 4. Obtener historial para contexto
-  const history = db.getConversationHistory(senderPhone, 10);
+  const history = db.getConversationHistory(senderPhone, 30);
 
   // 5. Simular escritura
   await chat.sendStateTyping();
@@ -1369,33 +1396,35 @@ async function updateClientMemory(clientPhone, userMessage, botResponse, history
     const clientInfo = db.getClient(clientPhone);
 
     // Construir prompt para que Claude genere la memoria actualizada
-    const memoryPrompt = `Eres un sistema de CRM para Zona Traumática, tienda de armas traumáticas legales en Colombia. Tu tarea es mantener una ficha breve del cliente.
+    const memoryPrompt = `Eres un sistema de CRM para Zona Traumática, tienda de armas traumáticas legales en Colombia. Tu tarea es mantener una ficha COMPLETA del cliente.
 
 ⚠️ REGLA CRÍTICA — NOMBRES:
 - "Álvaro" es el director de Zona Traumática, NO el nombre del cliente.
 - NUNCA registres "Álvaro" como nombre del cliente aunque aparezca en el mensaje.
 - Solo registra el nombre del cliente si él mismo lo dijo explícitamente ("me llamo X", "soy X", "mi nombre es X").
-- Si el cliente saluda a alguien llamado "Álvaro" o menciona ese nombre en otro contexto, ignóralo para el campo nombre.
 
 MEMORIA ACTUAL DEL CLIENTE:
 ${currentMemory || '(Cliente nuevo, sin memoria previa)'}
 
 ÚLTIMA INTERACCIÓN:
 - Cliente dijo: "${userMessage}"
-- Bot respondió: "${botResponse.substring(0, 300)}"
+- Bot respondió: "${botResponse.substring(0, 500)}"
 
 INSTRUCCIONES:
-Genera una ficha actualizada del cliente en máximo 6 líneas. Incluye SOLO datos útiles para ventas:
-- Nombre del cliente (SOLO si él mismo lo dijo explícitamente: "me llamo X", "soy X". NUNCA si solo saludó a alguien)
-- Ciudad o departamento (si lo mencionó)
-- Referencia o modelo de interés (si mencionó alguno)
-- Plan preferido (Plus o Pro, si lo indicó)
-- Motivo de compra (defensa personal, colección, regalo, etc.)
-- Intención (solo consultando, interesado, listo para comprar)
-- Objeciones detectadas (duda del pago virtual, no tiene presupuesto, etc.)
-- Si ya compró: qué compró y si tiene carnet pendiente o dispositivo pendiente
+Genera una ficha actualizada del cliente en máximo 15 líneas. Usa estas CATEGORÍAS:
 
-Si la conversación fue solo un saludo sin info útil, devuelve la memoria actual sin cambios.
+👤 DATOS PERSONALES: (nombre, cédula, ciudad, dirección, profesión — SOLO si los dijo explícitamente)
+🛝️ HISTORIAL COMERCIAL: (qué compró, plan elegido, fecha aprox de compra, arma adquirida)
+📄 DOCUMENTOS RECIBIDOS: (comprobantes enviados, fotos de cédula, selfie, datos de envío, datos de carnet — lo que haya enviado)
+📌 ESTADO ACTUAL: (esperando carnet, despacho pendiente, activo, etc.)
+💬 CONTEXTO DE VENTA: (modelo de interés, motivo de compra, objeciones, intención actual)
+
+⚠️ REGLAS DE PRESERVACIÓN (OBLIGATORIAS):
+- NUNCA borres datos de documentos recibidos, compras realizadas ni datos personales ya registrados.
+- Si la memoria actual ya tiene info de compra, comprobantes o datos personales, SIEMPRE consérvalos.
+- Solo agrega o actualiza info, NUNCA elimines lo que ya existe a menos que sea explícitamente incorrecto.
+- Si la conversación fue solo un saludo sin info útil, devuelve la memoria actual SIN CAMBIOS.
+
 NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
@@ -1407,6 +1436,11 @@ Responde SOLO con la ficha, sin explicaciones.`;
     if (newMemory && newMemory !== currentMemory) {
       db.updateClientMemory(clientPhone, newMemory);
       if (CONFIG.debug) console.log(`[MEMORY] ✅ Memoria actualizada para ${clientPhone}`);
+
+      // Auto-llenar campos CRM si están vacíos
+      autoFillCRM(clientPhone, newMemory).catch(e => {
+        if (CONFIG.debug) console.error('[CRM-AUTO] Error:', e.message);
+      });
     }
   } catch (error) {
     try {
@@ -1462,6 +1496,60 @@ function generateSimpleMemory(currentMemory, message) {
   }
 
   return notes.join('\n');
+}
+
+// ============================================
+// AUTO-FILL CRM — Extrae datos estructurados de la memoria
+// y llena campos vacíos del CRM automáticamente
+// ============================================
+async function autoFillCRM(clientPhone, memory) {
+  try {
+    const client = db.getClient(clientPhone);
+    if (!client) return;
+
+    // Solo intentar si hay campos vacíos que llenar
+    const emptyFields = [];
+    if (!client.name) emptyFields.push('name');
+    if (!client.cedula) emptyFields.push('cedula');
+    if (!client.ciudad) emptyFields.push('ciudad');
+    if (!client.direccion) emptyFields.push('direccion');
+    if (!client.profesion) emptyFields.push('profesion');
+
+    if (emptyFields.length === 0) return; // Todos los campos ya están llenos
+
+    const extractPrompt = `Extrae datos del cliente de esta memoria del CRM. Solo extrae lo que esté EXPLÍCITAMENTE mencionado.
+
+MEMORIA:
+${memory}
+
+CAMPOS A BUSCAR: ${emptyFields.join(', ')}
+
+Responde SOLO con JSON válido. Si un campo no se encuentra en la memoria, pon null.
+Ejemplo: {"name": "Carlos Pérez", "cedula": null, "ciudad": "Bogotá", "direccion": null, "profesion": null}
+Solo el JSON, sin explicaciones ni markdown.`;
+
+    const result = await geminiGenerate('gemini-2.5-flash', extractPrompt);
+    const text = result.response.text().trim().replace(/```json|```/g, '').trim();
+    const data = JSON.parse(text);
+
+    // Solo actualizar campos que estaban vacíos y ahora tienen valor
+    const updateData = {};
+    let updated = false;
+    for (const field of emptyFields) {
+      if (data[field] && data[field] !== null && data[field].trim() !== '') {
+        updateData[field] = data[field].trim();
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      db.upsertClient(clientPhone, updateData);
+      console.log(`[CRM-AUTO] ✅ Campos auto-llenados para ${clientPhone}: ${Object.keys(updateData).join(', ')}`);
+    }
+  } catch (e) {
+    // Silencioso — autoFillCRM es best-effort
+    if (CONFIG.debug) console.log(`[CRM-AUTO] No pudo extraer datos: ${e.message}`);
+  }
 }
 
 // ============================================
@@ -1706,12 +1794,14 @@ async function getClaudeResponse(clientPhone, message, history) {
       if (CONFIG.debug) console.log(`[DEBUG] 💬 Conversación general, sin búsqueda de productos`);
     }
 
-    // 2. Obtener memoria y perfil del cliente
+    // 2. Obtener memoria, perfil y expediente de documentos del cliente
     const clientMemory = db.getClientMemory(clientPhone);
     const clientProfile = db.getClient(clientPhone);
+    const documentSummary = db.buildDocumentSummary(clientPhone);
 
-    // 3. Construir system prompt con ficha estructurada
-    let systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile);
+    // 3. Construir system prompt con ficha estructurada + expediente de documentos
+    const catalogSent = db.isCatalogSent(clientPhone);
+    let systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile, documentSummary, catalogSent);
 
     // --- MANEJO ESPECIAL PARA JONATHAN CORTEZ ---
     if (clientPhone === '17607908733') {
@@ -2013,20 +2103,20 @@ QUÉ INCLUYE EL ASESOR LEGAL IA:
 ✅ Fundamento legal exacto: Ley 2197/2022, Decreto 2535, Sentencia C-014/2023, Código Penal
 ✅ Citas de sentencias reales — no inventa, cita fuentes
 ✅ Consecuencias penales para funcionarios que actúen ilegalmente (Art. 416 Código Penal)
-✅ Directo en tu WhatsApp personal — no necesitas app ni plataforma aparte
+✅ Funciona en WhatsApp — escríbele al +57 314 5030834 (Asesor Legal Zt) y listo
 
 CÓMO VENDER EL ASESOR LEGAL IA:
 - Si el cliente ya es afiliado al Club: ofrécelo como el complemento perfecto para tener poder legal en el bolsillo.
 - Si el cliente NO es afiliado: explícale que primero necesita afiliarse al Club (mínimo Plan Plus) y luego puede activar el bot.
 - Si el cliente pregunta por la legalidad, por requisas, o por cómo actuar ante la policía: es el momento PERFECTO para presentar el bot.
 - Frase clave: "Cuando ese policía esté frente a ti... ¿Vas a dudar o vas a citar la ley exacta?"
-- El bot se activa respondiendo "ACTIVAR" al número 3013981979.
+- El bot funciona en un NÚMERO DE WHATSAPP SEPARADO: +57 314 5030834 (Asesor Legal Zt). NUNCA le digas al cliente que escriba "ACTIVAR" aquí. Siempre dile que debe escribirle al número +57 314 5030834.
 
 ACTIVACIÓN DEL ASESOR LEGAL IA — PASOS:
-1️⃣ Ser afiliado activo del Club ZT (Plan Plus o Pro vigente)
-2️⃣ Pagar $50.000 por los medios habituales
-3️⃣ Enviar comprobante por WhatsApp
-4️⃣ Se activa en 24h directo en tu WhatsApp personal por 6 meses
+1️⃣ Pagar $50.000 (cualquier persona puede aprovechar esta promo temporal) o GRATIS si se afilia al Club ZT hoy.
+2️⃣ Enviar comprobante por WhatsApp.
+3️⃣ Una vez confirmado el pago, el cliente debe escribirle directamente al número *+57 314 5030834* (Asesor Legal Zt) para empezar a usar el bot.
+⚠️ REGLA CRÍTICA: El Asesor Legal IA es OTRO bot en OTRO número (+57 314 5030834). NUNCA le digas al cliente que escriba "ACTIVAR" aquí ni que el bot se activa en este chat.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MEDIOS DE PAGO (para cualquier producto):
@@ -3216,6 +3306,78 @@ function startReactivacionServer() {
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
       });
+    } else if (req.url === '/agregar-cliente' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone, name, contexto } = JSON.parse(body);
+          if (!phone) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, msg: 'Falta número de teléfono' }));
+            return;
+          }
+
+          // Normalizar phone
+          let phoneClean = phone.replace(/\D/g, '');
+          // Si empieza por 3 y tiene 10 dígitos, agregar 57 (Colombia)
+          if (phoneClean.length === 10 && phoneClean.startsWith('3')) {
+            phoneClean = '57' + phoneClean;
+          }
+
+          // Registrar en BD (o actualizar si ya existe)
+          const clienteName = name || '';
+          db.upsertClient(phoneClean, {
+            name: clienteName,
+            status: 'new',
+            memory: contexto ? `[PANEL] Álvaro agregó manualmente: ${contexto}` : '[PANEL] Cliente agregado manualmente por Álvaro.'
+          });
+
+          console.log(`[AGREGAR] 📱 Nuevo cliente: ${phoneClean} (${clienteName}) — contexto: "${contexto || 'ninguno'}"`);
+
+          // Generar mensaje personalizado con Gemini
+          const prompt = `Eres el agente experto en armas traumáticas de Zona Traumática. Álvaro (el dueño) conoció a alguien y te pide que le escribas por primera vez.
+
+Datos:
+- Nombre: ${clienteName || 'no proporcionado'}
+- Contexto: ${contexto || 'Álvaro lo conoció y quiere que le mandes información general del negocio'}
+
+Tu tarea: Escribe un PRIMER MENSAJE de WhatsApp para este contacto nuevo.
+
+Reglas:
+- Preséntate brevemente como el asistente de Zona Traumática
+- Menciona que Álvaro te pidió contactarlo
+- Si hay contexto (ej: "le interesa Club Plus"), enfoca el mensaje en eso
+- Si no hay contexto, ofrece información general: catálogo de armas traumáticas, planes Club ZT, y servicio de bot asesor legal
+- Sé amable, profesional y breve (máx 4-5 líneas)
+- Usa emojis moderadamente
+- NO seas agresivo ni vendedor, solo informativo y servicial
+- Termina con una pregunta abierta
+
+Responde SOLO con el mensaje, sin explicaciones ni prefijos.`;
+
+          const result = await geminiGenerate('gemini-2.5-flash', prompt);
+          const firstMsg = result.response.text().trim();
+
+          if (!firstMsg) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, message: 'Cliente registrado pero no se pudo generar mensaje.' }));
+            return;
+          }
+
+          // Enviar por WhatsApp
+          await safeSend(phoneClean, firstMsg);
+          db.saveMessage(phoneClean, 'assistant', firstMsg);
+          console.log(`[AGREGAR] ✅ Primer mensaje enviado a ${phoneClean}: "${firstMsg.substring(0, 60)}..."`);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, message: 'Cliente agregado y mensaje enviado.', phone: phoneClean }));
+        } catch (e) {
+          console.error('[AGREGAR] Error:', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
     } else if (req.url === '/reatender' && req.method === 'POST') {
       let body = '';
       req.on('data', chunk => body += chunk);
@@ -3667,8 +3829,13 @@ function startReactivacionServer() {
               }
 
               // 3. Enviar imagen de inventario/precios general si existe
-              const inventarioImg = path.join(imagenesDir, 'oferta actual', 'inventario y precios', 'inventario y precios pistolas.png');
-              if (fs.existsSync(inventarioImg)) {
+              const inventarioDir = path.join(imagenesDir, 'oferta actual', 'inventario y precios');
+              let inventarioImg = null;
+              if (fs.existsSync(inventarioDir)) {
+                const invFiles = fs.readdirSync(inventarioDir).filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
+                if (invFiles.length > 0) inventarioImg = path.join(inventarioDir, invFiles[0]);
+              }
+              if (inventarioImg && fs.existsSync(inventarioImg)) {
                 const media = MessageMedia.fromFilePath(inventarioImg);
                 await client.sendMessage(chatId, media, { caption: '📊 *Tabla oficial de precios — Zona Traumática*' });
                 await new Promise(r => setTimeout(r, 2000));
@@ -3686,6 +3853,10 @@ function startReactivacionServer() {
               await client.sendMessage(chatId, cierre);
               db.saveMessage(phone, 'assistant', `[📋 Catálogo completo enviado: ${totalEnviados} productos con fotos]`);
               console.log(`[CATÁLOGO] ✅ Catálogo enviado a ${phone}: ${totalEnviados} productos`);
+
+              // Marcar catálogo como enviado para este cliente
+              db.markCatalogSent(phone);
+              console.log(`[CATÁLOGO] 📌 Catálogo marcado como enviado para ${phone}`);
 
             } catch (bgErr) {
               console.error(`[CATÁLOGO] ❌ Error enviando catálogo a ${phone}:`, bgErr.message);
@@ -3817,6 +3988,160 @@ Solo escribe el mensaje, sin explicaciones.`;
           }
         } catch (e) {
           console.error('[PANEL] Error devolver-bot:', e.message);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+
+      // POST /enviar-carnet-whatsapp — panel envía carnet como imagen al cliente
+    } else if (req.url === '/enviar-carnet-whatsapp' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone, imagenBase64, imagenMime, caption, carnetData } = JSON.parse(body);
+          if (!phone || !imagenBase64) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'phone e imagenBase64 son requeridos' }));
+            return;
+          }
+
+          let phoneClean = phone.replace(/@.*/g, '').replace(/\D/g, '');
+          if (phoneClean.length === 10 && phoneClean.startsWith('3')) {
+            phoneClean = '57' + phoneClean;
+          }
+
+          const data = carnetData || {};
+          const planTipo = data.plan_tipo || 'Plan Plus';
+          const nombre = data.nombre || '';
+          const cedula = data.cedula || '';
+          const vigente_hasta = data.vigente_hasta || '';
+          const marca_arma = data.marca_arma || '';
+          const modelo_arma = data.modelo_arma || '';
+          const serial = data.serial || '';
+
+          // 1. Guardar carnet en la tabla carnets
+          db.saveCarnetFromPanel(phoneClean, nombre, imagenBase64, imagenMime || 'image/jpeg', {
+            nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial, plan_tipo: planTipo
+          });
+
+          // 2. Guardar imagen en client_files
+          db.saveClientFile(phoneClean, 'carnet', `Carnet ${planTipo} enviado desde panel`, imagenBase64, imagenMime || 'image/jpeg', 'panel');
+
+          // 3. Actualizar ficha CRM del cliente
+          const clientUpdate = {
+            name: nombre || undefined,
+            cedula: cedula || undefined,
+            club_plan: planTipo,
+            club_vigente_hasta: vigente_hasta || undefined,
+            serial_arma: serial || undefined,
+            modelo_arma: modelo_arma || undefined,
+            status: 'afiliado'
+          };
+          db.upsertClient(phoneClean, clientUpdate);
+
+          // 4. Activar flags de bóveda
+          if (planTipo === 'Plan Pro') {
+            db.updateClientFlag(phoneClean, 'is_club_pro', 1);
+          } else {
+            db.updateClientFlag(phoneClean, 'is_club_plus', 1);
+          }
+
+          // 5. Actualizar memoria
+          const memoriaActual = db.getClientMemory(phoneClean) || '';
+          const vigenciaTag = vigente_hasta ? ` (Vigente hasta: ${vigente_hasta})` : '';
+          const tagAfiliado = `✅ CARNET ${planTipo.toUpperCase()} ENVIADO${vigenciaTag}. Afiliado activo al Club ZT.`;
+          if (!memoriaActual.includes('CARNET') || !memoriaActual.includes(planTipo.toUpperCase())) {
+            db.updateClientMemory(phoneClean, memoriaActual ? memoriaActual + '\n' + tagAfiliado : tagAfiliado);
+          }
+
+          // 6. Enviar imagen por WhatsApp
+          let waSent = true;
+          let waError = null;
+          try {
+            const media = new MessageMedia(imagenMime || 'image/jpeg', imagenBase64);
+            const chatId = db.getClientChatId(phoneClean);
+            const captionText = caption || `🪪 *¡Tu Carnet del Club Zona Traumática está listo!*\n\n` +
+              `📋 Plan: *${planTipo}*\n` +
+              (vigente_hasta ? `📅 Vigente hasta: *${vigente_hasta}*\n` : '') +
+              `\n¡Bienvenido al Club ZT! 🛡️ Guarda esta imagen como tu carnet digital.`;
+            await client.sendMessage(chatId, media, { caption: captionText });
+            db.saveMessage(phoneClean, 'assistant', `[🪪 Carnet ${planTipo} enviado al cliente]`);
+            console.log(`[CARNET-ENVÍO] ✅ Carnet ${planTipo} enviado a ${phoneClean}`);
+          } catch (waErr) {
+            waSent = false;
+            waError = waErr.message;
+            console.error(`[CARNET-ENVÍO] ⚠️ No se pudo enviar carnet a ${phoneClean}: ${waErr.message}`);
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, waSent, waWarning: waError }));
+        } catch (e) {
+          console.error('[CARNET-ENVÍO] Error:', e.message);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+
+      // POST /enviar-guia-whatsapp — panel envía guía de envío al cliente
+    } else if (req.url === '/enviar-guia-whatsapp' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone, transportadora, numeroGuia, producto, caption, imagenBase64, imagenMime } = JSON.parse(body);
+          if (!phone || !numeroGuia) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'phone y numeroGuia son requeridos' }));
+            return;
+          }
+
+          let phoneClean = phone.replace(/@.*/g, '').replace(/\D/g, '');
+          if (phoneClean.length === 10 && phoneClean.startsWith('3')) {
+            phoneClean = '57' + phoneClean;
+          }
+
+          const transport = transportadora || 'Servientrega';
+          const prod = producto || '';
+
+          // 1. Construir mensaje
+          const defaultCaption = `📦 *¡Tu pedido va en camino!*\n\n` +
+            `🚚 *Transportadora:* ${transport}\n` +
+            `📋 *Número de guía:* ${numeroGuia}\n` +
+            (prod ? `📦 *Producto:* ${prod}\n` : '') +
+            `\n¡Apenas te llegue nos cuentas para dejarte todo listo! 🙌`;
+          const captionText = caption || defaultCaption;
+
+          // 2. Guardar nota en memoria del cliente
+          const memoriaActual = db.getClientMemory(phoneClean) || '';
+          const guiaTag = `📦 GUÍA ENVIADA — ${transport} #${numeroGuia}${prod ? ' (' + prod + ')' : ''} — ${new Date().toLocaleDateString('es-CO')}`;
+          db.updateClientMemory(phoneClean, memoriaActual ? memoriaActual + '\n' + guiaTag : guiaTag);
+
+          // 3. Enviar por WhatsApp
+          let waSent = true;
+          let waError = null;
+          try {
+            const chatId = db.getClientChatId(phoneClean);
+            if (imagenBase64) {
+              // Con imagen adjunta
+              const media = new MessageMedia(imagenMime || 'image/jpeg', imagenBase64);
+              await client.sendMessage(chatId, media, { caption: captionText });
+            } else {
+              // Solo texto
+              await client.sendMessage(chatId, captionText);
+            }
+            db.saveMessage(phoneClean, 'assistant', `[📦 Guía ${transport} #${numeroGuia} enviada al cliente]`);
+            console.log(`[GUÍA-ENVÍO] ✅ Guía ${transport} #${numeroGuia} enviada a ${phoneClean}`);
+          } catch (waErr) {
+            waSent = false;
+            waError = waErr.message;
+            console.error(`[GUÍA-ENVÍO] ⚠️ No se pudo enviar guía a ${phoneClean}: ${waErr.message}`);
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, waSent, waWarning: waError }));
+        } catch (e) {
+          console.error('[GUÍA-ENVÍO] Error:', e.message);
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }

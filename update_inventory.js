@@ -11,7 +11,16 @@ if (GEMINI_KEYS.length === 0) {
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEYS[0]);
 
-const IMAGE_PATH = path.join(__dirname, 'imagenes', 'oferta actual', 'inventario y precios pistolas.png');
+// Buscar dinámicamente la primera imagen en la carpeta de inventario
+const INVENTARIO_DIR = path.join(__dirname, 'imagenes', 'oferta actual', 'inventario y precios');
+let IMAGE_PATH = '';
+if (fs.existsSync(INVENTARIO_DIR)) {
+  const files = fs.readdirSync(INVENTARIO_DIR).filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
+  if (files.length > 0) {
+    IMAGE_PATH = path.join(INVENTARIO_DIR, files[0]);
+    console.log(`📸 Imagen encontrada: ${files[0]}`);
+  }
+}
 const CATALOG_PATH = path.join(__dirname, 'catalogo_contexto.json');
 
 // Función auxiliar para convertir la imagen local a la estructura que requiere Gemini
@@ -48,60 +57,100 @@ async function updateInventory() {
 
     const prompt = `
 Eres un asistente experto en extracción de datos de inventario.
-A continuación te presento una imagen que es el afiche oficial de precios y disponibilidad de armas traumáticas de la tienda Zona Traumática.
+A continuación te presento una imagen que es un PANTALLAZO DE UNA TABLA EXCEL con el inventario y precios BASE (costo) de armas traumáticas y munición de la tienda Zona Traumática.
 
-Tu trabajo es leer DETENIDAMENTE la imagen y extraer el catálogo de productos disponible en formato JSON estricto.
+Tu trabajo es leer DETENIDAMENTE la tabla y extraer TODOS los productos, aplicando los siguientes MARKUPS de precio:
 
-Reglas CRÍTICAS de extracción:
-1. Agrupa los productos por Marca (ej. "RETAY", "EKOL", "BLOW").
-2. Por cada producto, debes identificar y extraer:
-   - "titulo": El nombre completo (ej. "RETAY S2022")
-   - "descripcion": Una descripción corta del producto extraída o inferida.
-   - "color": Los colores disponibles mencionados en la imagen (ej. "Negro / Fume / Cromado")
-   - "precio_plus": El precio exacto asignado al "Plan Plus" formateado (ej. "$1.150.000")
-   - "precio_pro": El precio exacto asignado al "Plan Pro" formateado (ej. "$1.250.000"). Si no lo tiene, usa null.
-   - "precio": Un texto unificado como "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)"
-   - "disponible": true (ya que están en la imagen actual)
-   - "marca": La marca general (ej. "EKOL")
-   - "modelo": El modelo específico (ej. "Firat Magnum")
-   - "url": Un string o una URL base como "https://zonatraumatica.club/tienda/"
+═══════════════════════════════════════════
+REGLA DE PRECIOS — ARMAS TRAUMÁTICAS:
+═══════════════════════════════════════════
+Las armas son filas que tienen columnas MARCA, MODELO, COLOR y PRECIO.
+A cada arma debes SUMARLE al precio base de la tabla:
+  - Plan Plus = precio_base + $300.000
+  - Plan Pro  = precio_base + $400.000
+Ejemplo: Si la tabla dice $850.000 → Plan Plus = $1.150.000, Plan Pro = $1.250.000
 
-3. Preserva EXACTAMENTE la estructura de este esquema JSON:
+═══════════════════════════════════════════
+REGLA DE PRECIOS — MUNICIÓN:
+═══════════════════════════════════════════
+La munición se identifica porque su MODELO o descripción dice "MUNICION" o "MUNICIÓN".
+Las marcas típicas de munición son: OZKURSAN, RUBBER BALL, KAISER (pero puede haber otras).
+La munición NO tiene colores.
+A cada munición debes SUMARLE al precio base:
+  - Precio público     = precio_base + $60.000
+  - Precio afiliado    = precio_base + $30.000
+Ejemplo: Si la tabla dice $110.000 → Público = $170.000, Afiliado = $140.000
+
+═══════════════════════════════════════════
+ESTRUCTURA JSON DE SALIDA:
+═══════════════════════════════════════════
 {
   "metadata": {
-    "fuente": "Generado autom\u00e1ticamente desde imagen",
+    "fuente": "Generado automáticamente desde imagen de tabla Excel",
     "fecha_generacion": "YYYY-MM-DD",
-    "total_productos": 10,
-    "categorias": 3,
-    "nota_precios": "Precios extraidos de afiche oficial"
+    "total_productos": N,
+    "categorias": N,
+    "nota_precios": "Precios calculados con markup sobre costo base"
   },
   "categorias": {
-     "MARCA_1": [ { ...producto1 }, { ...producto2 } ],
-     "MARCA_2": [ ... ]
+    "MARCA_1": [
+      {
+        "titulo": "MARCA MODELO",
+        "descripcion": "Pistola traumática MARCA MODELO",
+        "color": "Negro / Fume",
+        "precio_base": "$850.000",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "MARCA",
+        "modelo": "MODELO",
+        "tipo": "arma",
+        "url": "https://zonatraumatica.club/tienda/"
+      }
+    ],
+    "MUNICION": [
+      {
+        "titulo": "MARCA - Descripción",
+        "descripcion": "Descripción completa de la munición",
+        "precio_base": "$110.000",
+        "precio_publico": "$170.000",
+        "precio_afiliado": "$140.000",
+        "precio": "$170.000 (Público) / $140.000 (Afiliado Club ZT)",
+        "disponible": true,
+        "marca": "OZKURSAN",
+        "modelo": "Munición Original Cal. 9mm",
+        "tipo": "municion"
+      }
+    ],
+    "SERVICIOS": [
+      {
+        "titulo": "Afiliación Club Zona Traumática",
+        "descripcion": "Membresía al Club ZT — la comunidad de portadores legales más grande de Colombia. Incluye: carnet de miembro activo, Plan de Respaldo Jurídico Plus por 1 año, acceso a capacitaciones y red de portadores.",
+        "precio": "$150.000 (anual)",
+        "precio_anual": "$150.000",
+        "disponible": true,
+        "categoria": "Servicio / Membresía"
+      },
+      {
+        "titulo": "Asesor Legal IA — Zona Traumática",
+        "descripcion": "Acceso por 6 meses al Asesor Legal IA. Responde en 10 segundos, citas legales de sentencias reales para defensa inmediata.",
+        "precio": "$50.000 (6 meses)",
+        "precio_semestral": "$50.000",
+        "disponible": true,
+        "categoria": "Servicio / IA Legal"
+      }
+    ]
   }
 }
 
-4. Además de las armas extraídas de la imagen, debes SIEMPRE incluir esta categoría adicional al final del JSON llamada "SERVICIOS" de forma hardcodeada:
-"SERVICIOS": [
-  {
-    "titulo": "Afiliación Club Zona Traumática",
-    "descripcion": "Membresía al Club ZT — la comunidad de portadores legales más grande de Colombia. Incluye: carnet de miembro activo, Plan de Respaldo Jurídico Plus por 1 año, acceso a capacitaciones y red de portadores.",
-    "precio": "$150.000 (anual)",
-    "precio_anual": "$150.000",
-    "disponible": true,
-    "categoria": "Servicio / Membresía"
-  },
-  {
-    "titulo": "Asesor Legal IA — Zona Traumática",
-    "descripcion": "Acceso por 6 meses al Asesor Legal IA. Responde en 10 segundos, citas legales de sentencias reales para defensa inmediata.",
-    "precio": "$50.000 (6 meses)",
-    "precio_semestral": "$50.000",
-    "disponible": true,
-    "categoria": "Servicio / IA Legal"
-  }
-]
-
-5. Tu respuesta debe ser EXCLUSIVAMENTE el JSON. No incluyas marcadores de Markdown (como \`\`\`json) ni texto explicativo, solo el objeto JSON crudo para que pueda ser parseado directamente.
+REGLAS ADICIONALES:
+1. Agrupa las ARMAS por su marca (BLOW, EKOL, RETAY, etc.) — cada marca es una categoría.
+2. TODA la munición va en UNA SOLA categoría llamada "MUNICION".
+3. La categoría "SERVICIOS" SIEMPRE se incluye hardcodeada al final (exactamente como aparece arriba).
+4. Usa "disponible": true para todos los productos que aparezcan en la tabla.
+5. El campo "tipo" debe ser "arma" o "municion" según corresponda.
+6. Tu respuesta debe ser EXCLUSIVAMENTE el JSON. No incluyas marcadores de Markdown (como \`\`\`json) ni texto explicativo, solo el objeto JSON crudo.
 `;
 
     const result = await model.generateContent([prompt, imagePart]);

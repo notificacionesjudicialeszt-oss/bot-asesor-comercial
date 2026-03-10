@@ -116,6 +116,18 @@ function initDatabase() {
     console.log('[DB] Columna carnet_qr_url agregada');
   } catch (e) { /* ya existe */ }
 
+  // Flag: catálogo de fotos ya enviado al cliente
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN catalogo_enviado INTEGER DEFAULT 0`);
+    console.log('[DB] Columna catalogo_enviado agregada');
+  } catch (e) { /* ya existe */ }
+
+  // Migración: agregar plan_tipo a carnets
+  try {
+    db.exec(`ALTER TABLE carnets ADD COLUMN plan_tipo TEXT DEFAULT ''`);
+    console.log('[DB] Columna plan_tipo agregada a carnets');
+  } catch (e) { /* ya existe */ }
+
   // Tabla de empleados
   db.exec(`
     CREATE TABLE IF NOT EXISTS employees (
@@ -423,6 +435,48 @@ function updateCarnetEstado(id, estado, verificadoPor = '') {
   db.prepare(`UPDATE carnets SET estado = ?, verificado_por = ?, verified_at = CURRENT_TIMESTAMP WHERE id = ?`).run(estado, verificadoPor, id);
 }
 
+// Obtener todos los carnets de un cliente
+function getCarnetsByClient(phone) {
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  return db.prepare(`
+    SELECT id, client_phone, client_name, nombre, cedula, vigente_hasta,
+           marca_arma, modelo_arma, serial, plan_tipo, estado, imagen_mime,
+           created_at, verified_at
+    FROM carnets WHERE client_phone = ? ORDER BY created_at DESC
+  `).all(phone);
+}
+
+// Guardar un carnet enviado/creado desde el panel
+function saveCarnetFromPanel(clientPhone, clientName, imagenBase64, imagenMime, datos = {}) {
+  return db.prepare(`
+    INSERT INTO carnets (client_phone, client_name, imagen_base64, imagen_mime, qr_contenido, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial, plan_tipo, estado)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'enviado')
+  `).run(
+    clientPhone,
+    clientName || '',
+    imagenBase64 || '',
+    imagenMime || 'image/jpeg',
+    datos.qr_contenido || '',
+    datos.nombre || '',
+    datos.cedula || '',
+    datos.vigente_hasta || '',
+    datos.marca_arma || '',
+    datos.modelo_arma || '',
+    datos.serial || '',
+    datos.plan_tipo || ''
+  );
+}
+
+// Obtener todos los carnets (no solo pendientes)
+function getAllCarnets() {
+  return db.prepare(`
+    SELECT id, client_phone, client_name, nombre, cedula, vigente_hasta,
+           marca_arma, modelo_arma, serial, plan_tipo, estado, imagen_mime,
+           created_at, verified_at
+    FROM carnets ORDER BY created_at DESC
+  `).all();
+}
+
 // ============================================
 // ESTADÍSTICAS
 // ============================================
@@ -706,12 +760,125 @@ function getClientFile(id) {
 }
 
 // ============================================
+// DOSSIER COMPLETO DEL CLIENTE (Agent System)
+// Consulta TODAS las tablas para dar contexto total al modelo de IA
+// ============================================
+function getClientAllComprobantes(phone) {
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  return db.prepare(`
+    SELECT id, tipo, estado, info, created_at, verified_at
+    FROM comprobantes WHERE client_phone = ? ORDER BY created_at DESC
+  `).all(phone);
+}
+
+function getClientAllCarnets(phone) {
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  return db.prepare(`
+    SELECT id, estado, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial, created_at, verified_at
+    FROM carnets WHERE client_phone = ? ORDER BY created_at DESC
+  `).all(phone);
+}
+
+function buildClientDossier(phone) {
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  const profile = getClient(phone);
+  if (!profile) return null;
+
+  const memory = profile.memory || '';
+  const comprobantes = getClientAllComprobantes(phone);
+  const carnets = getClientAllCarnets(phone);
+  const files = getClientFiles(phone);
+  const history = getConversationHistory(phone, 30);
+  const assignment = getActiveAssignment(phone);
+
+  // Estadísticas
+  const totalMessages = db.prepare(
+    'SELECT COUNT(*) as count FROM conversations WHERE client_phone = ?'
+  ).get(phone).count;
+  const firstMsg = db.prepare(
+    'SELECT MIN(created_at) as first FROM conversations WHERE client_phone = ?'
+  ).get(phone).first;
+
+  return {
+    profile,
+    memory,
+    documents: {
+      comprobantes,
+      carnets,
+      files
+    },
+    history,
+    assignment: assignment ? { employee: assignment.employee_name, since: assignment.assigned_at } : null,
+    stats: {
+      totalMessages,
+      firstContact: firstMsg || profile.created_at,
+      lastContact: profile.updated_at,
+      interactionCount: profile.interaction_count
+    }
+  };
+}
+
+// Generar resumen de documentos en texto (para inyectar en prompt de IA)
+function buildDocumentSummary(phone) {
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  const comprobantes = getClientAllComprobantes(phone);
+  const carnets = getClientAllCarnets(phone);
+  const files = getClientFiles(phone);
+
+  const lines = [];
+
+  if (comprobantes.length > 0) {
+    lines.push('📄 COMPROBANTES DE PAGO:');
+    comprobantes.forEach(c => {
+      const fecha = c.created_at ? new Date(c.created_at).toLocaleDateString('es-CO') : '?';
+      const estado = c.estado === 'pendiente' ? '⏳ PENDIENTE DE VERIFICAR' :
+        c.estado === 'verificado' ? '✅ VERIFICADO' : `❌ ${c.estado.toUpperCase()}`;
+      lines.push(`  - ${fecha}: ${c.info || 'sin detalle'} | Tipo: ${c.tipo} | Estado: ${estado}`);
+    });
+  }
+
+  if (carnets.length > 0) {
+    lines.push('🪪 CARNETS:');
+    carnets.forEach(c => {
+      const fecha = c.created_at ? new Date(c.created_at).toLocaleDateString('es-CO') : '?';
+      const estado = c.estado === 'pendiente' ? '⏳ PENDIENTE' :
+        c.estado === 'verificado' ? '✅ VERIFICADO' : `❌ ${c.estado.toUpperCase()}`;
+      lines.push(`  - ${fecha}: ${c.nombre || '?'} (CC: ${c.cedula || '?'}) | Vigente hasta: ${c.vigente_hasta || '?'} | Estado: ${estado}`);
+    });
+  }
+
+  if (files.length > 0) {
+    lines.push('📎 ARCHIVOS RECIBIDOS:');
+    files.forEach(f => {
+      const fecha = f.created_at ? new Date(f.created_at).toLocaleDateString('es-CO') : '?';
+      lines.push(`  - ${fecha}: [${f.tipo}] ${f.descripcion || 'sin descripción'} (enviado por: ${f.subido_por})`);
+    });
+  }
+
+  if (lines.length === 0) return '';
+  return lines.join('\n');
+}
+
+// ============================================
 // HELPER: actualizar flag booleano de cliente
 // ============================================
 function updateClientFlag(phone, flagName, value) {
-  const allowed = ['has_bought_gun', 'is_club_plus', 'is_club_pro', 'has_ai_bot', 'ignored', 'spam_flag'];
+  const allowed = ['has_bought_gun', 'is_club_plus', 'is_club_pro', 'has_ai_bot', 'ignored', 'spam_flag', 'catalogo_enviado'];
   if (!allowed.includes(flagName)) return;
   db.prepare(`UPDATE clients SET ${flagName} = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?`).run(value ? 1 : 0, phone);
+}
+
+// Marcar que ya se le enviaron fotos del catálogo a un cliente
+function markCatalogSent(phone) {
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  db.prepare('UPDATE clients SET catalogo_enviado = 1, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phone);
+}
+
+// Verificar si ya se le enviaron fotos del catálogo
+function isCatalogSent(phone) {
+  phone = phone.replace(/@.*/, '').replace(/\D/g, '');
+  const client = db.prepare('SELECT catalogo_enviado FROM clients WHERE phone = ?').get(phone);
+  return client ? client.catalogo_enviado === 1 : false;
 }
 
 module.exports = {
@@ -760,11 +927,22 @@ module.exports = {
   saveCarnet,
   getCarnetsPendientes,
   updateCarnetEstado,
+  getCarnetsByClient,
+  saveCarnetFromPanel,
+  getAllCarnets,
   // Archivos del cliente
   saveClientFile,
   getClientFiles,
   getClientFilesByTipo,
   getClientFile,
+  // Dossier / Agent System
+  buildClientDossier,
+  buildDocumentSummary,
+  getClientAllComprobantes,
+  getClientAllCarnets,
+  // Catálogo enviado
+  markCatalogSent,
+  isCatalogSent,
 };
 
 // ============================================

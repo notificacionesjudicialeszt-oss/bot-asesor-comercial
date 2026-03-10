@@ -1,0 +1,239 @@
+{
+  "metadata": {
+    "fuente": "Generado automáticamente desde imagen",
+    "fecha_generacion": "2024-05-21",
+    "total_productos": 19,
+    "categorias": 4,
+    "nota_precios": "Precios extraidos de afiche oficial"
+  },
+  "categorias": {
+    "RETAY": [
+      {
+        "titulo": "RETAY S2022",
+        "descripcion": "Pistola traumática RETAY S2022",
+        "color": "Negro",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "RETAY",
+        "modelo": "S2022",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "RETAY G17",
+        "descripcion": "Pistola traumática RETAY G17",
+        "color": "Negro",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "RETAY",
+        "modelo": "G17",
+        "url": "https://zonatraumatica.club/tienda/"
+      }
+    ],
+    "BLOW": [
+      {
+        "titulo": "BLOW Mini 9",
+        "descripcion": "Pistola traumática BLOW Mini 9",
+        "color": "Negro",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "BLOW",
+        "modelo": "Mini 9",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "BLOW F92",
+        "descripcion": "Pistola traumática BLOW F92",
+        "color": "Negro / Cromado / Fume",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "BLOW",
+        "modelo": "F92",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "BLOW TR 92",
+        "descripcion": "Pistola traumática BLOW TR 92",
+        "color": "Negro / Fume",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "BLOW",
+        "modelo": "TR 92",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "BLOW TR 92D",
+        "descripcion": "Pistola traumática BLOW TR 92D",
+        "color": "Fume",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "BLOW",
+        "modelo": "TR 92D",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "BLOW TR 92K",
+        "descripcion": "Pistola traumática BLOW TR 92K",
+        "color": "Fume",
+        "precio_plus": "$1.150.000",
+        "precio_pro": "$1.250.000",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "BLOW",
+        "modelo": "TR 92K",
+        "url": "https://zonatraumatica.club/tienda/"
+      }
+    ],
+    "EKOL": [
+      {
+        "titulo": "EKOL Volga",
+        "descripcion": "Pistola traumática EKOL Volga",
+        "color": "Negro",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Volga",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Botan",
+        "descripcion": "Pistola traumática EKOL Botan",
+        "color": "Fume",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Botan",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Dicle",
+        "descripcion": "Pistola traumática EKOL Dicle",
+        "color": "Negro",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Dicle",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Firat Compact",
+        "descripcion": "Pistola traumática EKOL Firat Compact",
+        "color": "Negro",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Firat Compact",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Firat Magnum",
+        "descripcion": "Pistola traumática EKOL Firat Magnum",
+        "color": "Negro / Fume",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Firat Magnum",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Revolver 2.5",
+        "descripcion": "Revolver traumático EKOL Revolver 2.5",
+        "color": "Negro",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Revolver 2.5",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Revolver 4.5",
+        "descripcion": "Revolver traumático EKOL Revolver 4.5",
+        "color": "Negro / Fume",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Revolver 4.5",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Jackal Dual Compact",
+        "descripcion": "Pistola traumática EKOL Jackal Dual Compact",
+        "color": "Negro",
+        "precio_plus": "$1.300.000",
+        "precio_pro": "$1.400.000",
+        "precio": "$1.300.000 (Plan Plus) / $1.400.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Jackal Dual Compact",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL Jackal Dual Magnum",
+        "descripcion": "Pistola traumática EKOL Jackal Dual Magnum",
+        "color": "Negro / Fume",
+        "precio_plus": "$1.400.000",
+        "precio_pro": "$1.500.000",
+        "precio": "$1.400.000 (Plan Plus) / $1.500.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "Jackal Dual Magnum",
+        "url": "https://zonatraumatica.club/tienda/"
+      },
+      {
+        "titulo": "EKOL P92 Auto",
+        "descripcion": "Pistola traumática EKOL P92 Auto",
+        "color": "Negro",
+        "precio_plus": "$1.400.000",
+        "precio_pro": "$1.500.000",
+        "precio": "$1.400.000 (Plan Plus) / $1.500.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "P92 Auto",
+        "url": "https://zonatraumatica.club/tienda/"
+      }
+    ],
+    "SERVICIOS": [
+      {
+        "titulo": "Afiliación Club Zona Traumática",
+        "descripcion": "Membresía al Club ZT — la comunidad de portadores legales más grande de Colombia. Incluye: carnet de miembro activo, Plan de Respaldo Jurídico Plus por 1 año, acceso a capacitaciones y red de portadores.",
+        "precio": "$150.000 (anual)",
+        "precio_anual": "$150.000",
+        "disponible": true,
+        "categoria": "Servicio / Membresía"
+      },
+      {
+        "titulo": "Asesor Legal IA — Zona Traumática",
+        "descripcion": "Acceso por 6 meses al Asesor Legal IA. Responde en 10 segundos, citas legales de sentencias reales para defensa inmediata.",
+        "precio": "$50.000 (6 meses)",
+        "precio_semestral": "$50.000",
+        "disponible": true,
+        "categoria": "Servicio / IA Legal"
+      }
+    ]
+  }
+}
