@@ -11,6 +11,22 @@ const path = require('path');
 // CARGAR CATÁLOGO
 // ============================================
 let catalogo = [];
+let lastModified = 0;
+
+function checkCatalogUpdate() {
+  try {
+    const stat = fs.statSync(path.join(__dirname, 'catalogo_contexto.json'));
+    if (stat.mtimeMs > lastModified) {
+      if (lastModified !== 0) {
+        console.log('[SEARCH] 🔄 El catálogo JSON fue modificado externamente. Recargando memoria del bot...');
+      }
+      loadCatalog();
+      lastModified = stat.mtimeMs;
+    }
+  } catch (e) {
+    console.error('[SEARCH] Error revisando si el catálogo se actualizó:', e.message);
+  }
+}
 
 function loadCatalog() {
   try {
@@ -130,6 +146,7 @@ function extractKeywords(message) {
 // BUSCAR PRODUCTOS
 // ============================================
 function searchProducts(message, maxResults = 6) {
+  checkCatalogUpdate();
   if (catalogo.length === 0) {
     console.warn('[SEARCH] Catálogo vacío, recargando...');
     loadCatalog();
@@ -269,6 +286,7 @@ function formatForPrompt(searchResult) {
 // RESUMEN DEL CATÁLOGO
 // ============================================
 function getCatalogSummary() {
+  checkCatalogUpdate();
   const marcas = {};
   catalogo.forEach(p => {
     if (!marcas[p.categoria]) marcas[p.categoria] = 0;
