@@ -11,7 +11,7 @@ if (GEMINI_KEYS.length === 0) {
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEYS[0]);
 
-const IMAGE_PATH = path.join(__dirname, 'imagenes', 'oferta actual', 'inventario y precios pistolas.png');
+const IMAGE_PATH = path.join(__dirname, 'imagenes', 'oferta actual', 'inventario y precios', 'tabla excel.png');
 const CATALOG_PATH = path.join(__dirname, 'catalogo_contexto.json');
 
 // Función auxiliar para convertir la imagen local a la estructura que requiere Gemini
@@ -48,44 +48,52 @@ async function updateInventory() {
 
     const prompt = `
 Eres un asistente experto en extracción de datos de inventario.
-A continuación te presento una imagen que es el afiche oficial de precios y disponibilidad de armas traumáticas de la tienda Zona Traumática.
+A continuación te presento una imagen ("tabla excel") que es el listado base de precios de la tienda Zona Traumática.
 
 Tu trabajo es leer DETENIDAMENTE la imagen y extraer el catálogo de productos disponible en formato JSON estricto.
 
-Reglas CRÍTICAS de extracción:
-1. Agrupa los productos por Marca (ej. "RETAY", "EKOL", "BLOW").
-2. Por cada producto, debes identificar y extraer:
-   - "titulo": El nombre completo (ej. "RETAY S2022")
-   - "descripcion": Una descripción corta del producto extraída o inferida.
-   - "color": Los colores disponibles mencionados en la imagen (ej. "Negro / Fume / Cromado")
-   - "precio_plus": El precio exacto asignado al "Plan Plus" formateado (ej. "$1.150.000")
-   - "precio_pro": El precio exacto asignado al "Plan Pro" formateado (ej. "$1.250.000"). Si no lo tiene, usa null.
-   - "precio": Un texto unificado como "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)"
-   - "disponible": true (ya que están en la imagen actual)
-   - "marca": La marca general (ej. "EKOL")
-   - "modelo": El modelo específico (ej. "Firat Magnum")
-   - "url": Un string o una URL base como "https://zonatraumatica.club/tienda/"
+Reglas CRÍTICAS de extracción MATEMÁTICA:
+1. Agrupa los productos por Marca (ej. "RETAY", "EKOL", "BLOW"). Si encuentras cajas de munición, agrúpalas bajo la marca "MUNICIÓN".
+2. LOS PRECIOS EN LA IMAGEN SON PRECIOS BASE MAYORISTAS. TÚ DEBES CALCULAR Y ESCRIBIR EL PRECIO FINAL DE VENTA usando exactamente estas fórmulas matemáticas:
+   - Para ARMAS (Pistolas/Revólveres/Fusiles):
+     * Precio Plan Plus = Precio Base de la imagen + 300.000 pesos.
+     * Precio Plan Pro = Precio Base de la imagen + 400.000 pesos.
+   - Para MUNICIÓN (cajas de balas traumáticas):
+     * Precio Afiliado (Plan Plus/Pro) = Precio Base de la imagen + 20.000 pesos.
+     * Precio Público = Precio Base de la imagen + 60.000 pesos.
+     
+3. Por cada producto extraído de la foto, genera esta estructura:
+   - "titulo": El nombre completo (ej. "RETAY S2022" o "Caja Munición Traumática X")
+   - "descripcion": Una descripción corta del producto.
+   - "color": Los colores disponibles mencionados (o "N/A" para munición).
+   - "precio_plus": El precio final calculado para Plan Plus/Afiliados formateado con signo de dólar y puntos (ej. Si el base es 850.000, entonces "$1.150.000"). ¡RECUERDA SUMARLE AL PRECIO BASE!
+   - "precio_pro": El precio final calculado para Plan Pro/Público formateado con separación de miles (ej. "$1.250.000"). ¡RECUERDA SUMARLE AL PRECIO BASE!
+   - "precio": Un texto unificado resumen como "$1.150.000 (Plan Plus / Afiliado) / $1.250.000 (Plan Pro / Público)".
+   - "disponible": true
+   - "marca": La marca general (ej. "EKOL" o "MUNICIÓN")
+   - "modelo": El modelo específico (ej. "Firat Magnum" o "Caja 50 unds")
+   - "url": Un string genérico como "https://zonatraumatica.club/tienda/"
 
-3. Preserva EXACTAMENTE la estructura de este esquema JSON:
+4. Preserva EXACTAMENTE la estructura de este esquema JSON base:
 {
   "metadata": {
-    "fuente": "Generado autom\u00e1ticamente desde imagen",
+    "fuente": "Generado automáticamente desde imagen tabla excel",
     "fecha_generacion": "YYYY-MM-DD",
     "total_productos": 10,
     "categorias": 3,
-    "nota_precios": "Precios extraidos de afiche oficial"
+    "nota_precios": "Precios finales al cliente (Base + 300k/400k armas, Base + 20k/60k municion)"
   },
   "categorias": {
      "MARCA_1": [ { ...producto1 }, { ...producto2 } ],
-     "MARCA_2": [ ... ]
+     "MUNICIÓN": [ { ...municion1 } ]
   }
 }
 
-4. Además de las armas extraídas de la imagen, debes SIEMPRE incluir esta categoría adicional al final del JSON llamada "SERVICIOS" de forma hardcodeada:
+5. Además de todo lo que extraigas de la imagen, debes SIEMPRE anexar esta categoría adicional de servicios al final de tu JSON (cópiala textual):
 "SERVICIOS": [
   {
     "titulo": "Afiliación Club Zona Traumática",
-    "descripcion": "Membresía al Club ZT — la comunidad de portadores legales más grande de Colombia. Incluye: carnet de miembro activo, Plan de Respaldo Jurídico Plus por 1 año, acceso a capacitaciones y red de portadores.",
+    "descripcion": "Membresía al Club ZT. Incluye: carnet de miembro activo al Plan Plus.",
     "precio": "$150.000 (anual)",
     "precio_anual": "$150.000",
     "disponible": true,
@@ -93,7 +101,7 @@ Reglas CRÍTICAS de extracción:
   },
   {
     "titulo": "Asesor Legal IA — Zona Traumática",
-    "descripcion": "Acceso por 6 meses al Asesor Legal IA. Responde en 10 segundos, citas legales de sentencias reales para defensa inmediata.",
+    "descripcion": "Acceso por 6 meses al Asesor Legal IA. Responde en segundos sobre artículos jurídicos.",
     "precio": "$50.000 (6 meses)",
     "precio_semestral": "$50.000",
     "disponible": true,
@@ -101,7 +109,7 @@ Reglas CRÍTICAS de extracción:
   }
 ]
 
-5. Tu respuesta debe ser EXCLUSIVAMENTE el JSON. No incluyas marcadores de Markdown (como \`\`\`json) ni texto explicativo, solo el objeto JSON crudo para que pueda ser parseado directamente.
+6. Tu respuesta debe ser EXCLUSIVAMENTE el JSON. No incluyas marcadores de Markdown (como \`\`\`json) ni texto introductorio, solo el objeto JSON crudo, que la llave "metadata" sea la primera y termine con el cierre general de las llaves. ¡Sigue instrucciones, nada de markdown, texto puro válido JSON!
 `;
 
     const result = await model.generateContent([prompt, imagePart]);
