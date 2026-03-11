@@ -364,18 +364,22 @@ client.on('ready', async () => {
   // setTimeout(() => recuperarChatsViejos(), 8000);
 
   // Iniciar broadcaster de imágenes a grupos (esperar 30s para que todo esté listo)
+  /* Ocultado por peticion
   setTimeout(() => {
     if (typeof startGroupBroadcaster === 'function') {
       startGroupBroadcaster();
     }
   }, 30000);
+  */
 
   // Iniciar publicación automática de Estados (esperar 45s)
+  /* Ocultado por peticion
   setTimeout(() => {
     if (typeof startStatusBroadcaster === 'function') {
       startStatusBroadcaster();
     }
   }, 45000);
+  */
 
   // Iniciar servidor interno para recibir comandos del panel
   if (!serverStarted) {
@@ -3283,16 +3287,27 @@ function startReactivacionServer() {
             let nuevoStatus;
             let memoriaTags = [];
 
+            const clienteInfo = db.getClient(phoneClean) || {};
+
             if (tieneClub) {
-              partes.push(
-                `🛡️ *Afiliación Club ZT (${planNombre}):* ¡Bienvenido!\n\n` +
-                `Para generar tu *Carnet Digital* necesito:\n` +
-                `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
-                `4. Marca del arma\n5. Modelo del arma\n6. Número de serial del arma\n` +
-                `7. 📸 Foto de frente (selfie clara, sin gafas, buena luz)`
-              );
+              let clubMsgs = [];
+              if (!clienteInfo.name || clienteInfo.name.trim().length < 3) clubMsgs.push('Nombre completo');
+              if (!clienteInfo.cedula) clubMsgs.push('Número de cédula');
+              clubMsgs.push('Teléfono de contacto'); // Always ask/confirm phone just in case for club
+              if (!clienteInfo.modelo_arma) clubMsgs.push('Marca y Modelo del arma');
+              if (!clienteInfo.serial_arma) clubMsgs.push('Número de serial del arma');
+              clubMsgs.push('📸 Foto de frente (selfie clara, sin gafas, buena luz)');
+
+              let clubBody = `🛡️ *Afiliación Club ZT (${planNombre}):* ¡Bienvenido!\n\n`;
+              if (clubMsgs.length > 1) {
+                clubBody += `Para generar tu *Carnet Digital* necesito:\n` + clubMsgs.map((req, i) => `${i + 1}. ${req}`).join('\n');
+              } else {
+                clubBody += `Solo necesito 1 cosa para tu carnet:\n1. 📸 Foto de frente (selfie clara, sin gafas, buena luz)`;
+              }
+
+              partes.push(clubBody);
               nuevoStatus = tieneClubPro ? 'carnet_pendiente_pro' : 'carnet_pendiente_plus';
-              memoriaTags.push(`✅ YA AFILIADO AL CLUB ZT (${planNombre}) — comprobante confirmado. NO ofrecer más afiliación.`);
+              memoriaTags.push(`✅ YA AFILIADO AL CLUB ZT (${planNombre}) — comprobante confirmado.`);
             }
 
             if (tieneBot) {
@@ -3301,18 +3316,26 @@ function startReactivacionServer() {
                 `Tu número quedará habilitado en las próximas horas. Podrás consultar sobre normativa, derechos del portador y procedimientos legales.`
               );
               if (!nuevoStatus) nuevoStatus = 'bot_asesor_pendiente';
-              memoriaTags.push('✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado. NO ofrecer más suscripciones.');
+              memoriaTags.push('✅ YA PAGÓ BOT ASESOR LEGAL — comprobante confirmado.');
             }
 
             if (tieneProducto) {
-              partes.push(
-                `📦 *Producto / Arma:* ¡En proceso!\n\n` +
-                `Para el envío necesito:\n` +
-                `1. Nombre completo\n2. Número de cédula\n3. Teléfono de contacto\n` +
-                `4. Dirección completa (calle, número, barrio, apto si aplica)\n` +
-                `5. Ciudad\n6. Departamento\n\n` +
-                `El envío se procesa en 1-2 días hábiles, discreto y seguro 🔒`
-              );
+              let prodMsgs = [];
+              if (!clienteInfo.name || clienteInfo.name.trim().length < 3) prodMsgs.push('Nombre completo');
+              if (!clienteInfo.cedula) prodMsgs.push('Número de cédula');
+              prodMsgs.push('Teléfono de contacto');
+              if (!clienteInfo.direccion) prodMsgs.push('Dirección completa (calle, número, barrio, apto si aplica)');
+              if (!clienteInfo.ciudad) prodMsgs.push('Ciudad y Departamento');
+
+              let prodBody = `📦 *Producto / Arma:* ¡En proceso!\n\n`;
+              if (prodMsgs.length > 1) {
+                prodBody += `Para el envío necesito:\n` + prodMsgs.map((req, i) => `${i + 1}. ${req}`).join('\n');
+              } else {
+                prodBody += `¡Ya contamos con tus datos de envío registrados! 🚚`;
+              }
+              prodBody += `\n\nEl envío se procesa en 1-2 días hábiles, discreto y seguro 🔒`;
+
+              partes.push(prodBody);
               if (!nuevoStatus) nuevoStatus = 'despacho_pendiente';
               memoriaTags.push('✅ YA COMPRÓ PRODUCTO — comprobante confirmado. Está en proceso de envío.');
             }
@@ -3324,7 +3347,15 @@ function startReactivacionServer() {
               memoriaTags.push('✅ PAGO CONFIRMADO — pendiente definir tipo de compra.');
             } else {
               const header = `✅ ¡Confirmamos tu pago! Gracias por tu confianza 🙏\n\n`;
-              const footer = `\n\nEn cuanto me envíes los datos, arrancamos de una 💪`;
+              
+              // Si no se pide nada de datos (por ejemplo, producto completado y sin club o club ya completito excepto foto que siempre se pide un item)
+              let pideAlgo = (tieneClub) || (tieneProducto && (!clienteInfo.direccion || !clienteInfo.ciudad || !clienteInfo.name));
+              let footer = "";
+              if (pideAlgo) {
+                footer = `\n\nEn cuanto me envíes los datos solicitados, arrancamos de una 💪`;
+              } else {
+                footer = `\n\n¡Arrancamos de una con tu proceso! 💪`;
+              }
               msgDatos = header + partes.join('\n\n━━━━━━━━━━━━━━━━━━━━\n\n') + footer;
             }
 
