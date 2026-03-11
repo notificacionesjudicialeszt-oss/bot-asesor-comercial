@@ -59,16 +59,17 @@ Reglas CRÍTICAS de extracción MATEMÁTICA:
      * Precio Plan Plus = Precio Base de la imagen + 300.000 pesos.
      * Precio Plan Pro = Precio Base de la imagen + 400.000 pesos.
    - Para MUNICIÓN (cajas de balas traumáticas):
-     * Precio Afiliado (Plan Plus/Pro) = Precio Base de la imagen + 20.000 pesos.
+     * Precio Plan Plus (Afiliado) = Precio Base de la imagen + 20.000 pesos.
+     * Precio Plan Pro (Afiliado) = Precio Base de la imagen + 20.000 pesos.
      * Precio Público = Precio Base de la imagen + 60.000 pesos.
      
 3. Por cada producto extraído de la foto, genera esta estructura:
    - "titulo": El nombre completo (ej. "RETAY S2022" o "Caja Munición Traumática X")
    - "descripcion": Una descripción corta del producto.
    - "color": Los colores disponibles mencionados (o "N/A" para munición).
-   - "precio_plus": El precio final calculado para Plan Plus/Afiliados formateado con signo de dólar y puntos (ej. Si el base es 850.000, entonces "$1.150.000"). ¡RECUERDA SUMARLE AL PRECIO BASE!
-   - "precio_pro": El precio final calculado para Plan Pro/Público formateado con separación de miles (ej. "$1.250.000"). ¡RECUERDA SUMARLE AL PRECIO BASE!
-   - "precio": Un texto unificado resumen como "$1.150.000 (Plan Plus / Afiliado) / $1.250.000 (Plan Pro / Público)".
+   - "precio_plus": El precio final calculado para Plan Plus formateado con signo de dólar y puntos.
+   - "precio_pro": El precio final calculado para Plan Pro formateado con separación de miles. ¡RECUERDA QUE PARA MUNICIÓN ESTE PRECIO TAMBIÉN LLEVA EL DESCUENTO DE AFILIADO (+20k)!
+   - "precio": Un texto unificado resumen como "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)" o para munición "$130.000 (Afiliados Club) / $170.000 (Público General)".
    - "disponible": true
    - "marca": La marca general (ej. "EKOL" o "MUNICIÓN")
    - "modelo": El modelo específico (ej. "Firat Magnum" o "Caja 50 unds")
