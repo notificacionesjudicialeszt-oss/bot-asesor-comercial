@@ -302,9 +302,22 @@ const server = http.createServer((req, res) => {
         if (!validFlags.includes(flag)) {
           throw new Error('Flag de servicio inválido');
         }
-
         db.prepare(`UPDATE clients SET ${flag} = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?`).run(val, phone);
         console.log(`[PANEL] 🔒 Bóveda de Servicios: ${phone} → ${flag} = ${val}`);
+        
+        // Actualizar la memoria si se está activando el Bot Asesor para registrar la 'entrega'
+        if (flag === 'has_ai_bot' && val === 1) {
+          const client = db.prepare('SELECT memory FROM clients WHERE phone = ?').get(phone);
+          const memoriaActual = client ? (client.memory || '') : '';
+          let nuevaMemoria = '';
+          if (memoriaActual.includes('N/A (Es un servicio digital activo)')) {
+            nuevaMemoria = memoriaActual.replace('N/A (Es un servicio digital activo)', 'SÍ (Bot Activado)');
+          } else {
+             nuevaMemoria = memoriaActual ? memoriaActual + `\n🤖 ESTADO DE ENTREGA: Bot Activado` : `🤖 ESTADO DE ENTREGA: Bot Activado`;
+          }
+          db.prepare('UPDATE clients SET memory = ? WHERE phone = ?').run(nuevaMemoria, phone);
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, flag, val }));
       } catch (e) {
@@ -464,6 +477,31 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: e.message }));
       }
     });
+    return;
+  }
+
+  // Reatender mensajes no leídos — llama directo al bot por HTTP (puerto 3001)
+  if (url.pathname === '/api/reatender-no-leidos' && req.method === 'POST') {
+    const botReq = http.request({
+      hostname: 'localhost',
+      port: 3001,
+      path: '/reatender-no-leidos',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': 0 }
+    }, botRes => {
+      let data = '';
+      botRes.on('data', chunk => data += chunk);
+      botRes.on('end', () => {
+        console.log(`[PANEL] 📬 Reatender no leídos: ${data}`);
+        res.writeHead(botRes.statusCode, { 'Content-Type': 'application/json' });
+        res.end(data);
+      });
+    });
+    botReq.on('error', () => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, msg: '❌ No se pudo conectar con el bot. ¿Está corriendo?' }));
+    });
+    botReq.end();
     return;
   }
 
@@ -1242,6 +1280,7 @@ function getHTML() {
       <option value="inventario">🧠 Actualizar Inventario IA</option>
       <option value="reactivar_normal">🔥 Reactivar Calientes</option>
       <option value="reactivar_ultra">💎 Reactivar Ultra (Todo)</option>
+      <option value="reatender_no_leidos">📬 Reatender Mensajes No Leídos</option>
       <option value="migrar">🔄 Migrar Asignados → Calientes</option>
       <option value="resolver_lids">🔍 Resolver LIDs</option>
     </select>
@@ -1407,6 +1446,38 @@ function getHTML() {
         <button onclick="cerrarModalCarnet()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:12px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
       </div>
       <div id="carnetFeedback" style="font-size:12px;min-height:18px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Enviar Factura -->
+<div id="modalFactura" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:25px;width:480px;max-width:95%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <h3 style="margin:0 0 5px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">🧾 Enviar Factura por WhatsApp</h3>
+    <p id="facturaModalPhone" style="color:#8b949e;font-size:12px;margin:0 0 15px;"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <!-- Upload imagen factura -->
+      <div style="background:#0d1117;border:2px dashed #30363d;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;" onclick="document.getElementById('facturaFileInput').click()" id="facturaDropZone">
+        <input type="file" id="facturaFileInput" accept="image/*" style="display:none;" onchange="previewFacturaImage(this)">
+        <div id="facturaPreview" style="display:none;margin-bottom:10px;"><img id="facturaPreviewImg" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid #30363d;"></div>
+        <div id="facturaUploadText" style="color:#8b949e;font-size:13px;">📸 Click para adjuntar foto/captura de la factura<br><span style="font-size:11px;color:#484f58;">JPG, PNG — máx 10MB</span></div>
+      </div>
+      <!-- Valor (Opcional) -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;font-weight:bold;">💰 Valor de la factura</label>
+        <input type="text" id="facturaValor" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;" placeholder="Ej: $150.000">
+      </div>
+      <!-- Caption personalizable -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📝 Caption (mensaje que acompaña la factura)</label>
+        <textarea id="facturaCaption" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:12px;margin-top:4px;resize:none;height:50px;box-sizing:border-box;" placeholder="Dejar vacío para caption automático"></textarea>
+      </div>
+      <!-- Botones -->
+      <div style="display:flex;gap:10px;margin-top:5px;">
+        <button id="btnEnviarFactura" onclick="enviarFacturaWhatsApp()" style="flex:1;background:linear-gradient(135deg, #1f6feb, #388bfd);color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-size:14px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Enviar Factura por WhatsApp</button>
+        <button onclick="cerrarModalFactura()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:12px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="facturaFeedback" style="font-size:12px;min-height:18px;text-align:center;"></div>
     </div>
   </div>
 </div>
@@ -1631,6 +1702,7 @@ function ejecutarHeaderAccion() {
     case 'inventario': actualizarInventario(); break;
     case 'reactivar_normal': reactivarCalientes('normal'); break;
     case 'reactivar_ultra': reactivarCalientes('ultra'); break;
+    case 'reatender_no_leidos': reatenderNoLeidos(); break;
     case 'migrar': migrarAssigned(); break;
     case 'resolver_lids': resolverLids(); break;
   }
@@ -1672,6 +1744,23 @@ async function resolverLids() {
       }
     } else {
       alert('⚠️ ' + (data.msg || data.error || 'Error'));
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+  }
+}
+
+async function reatenderNoLeidos() {
+  const confirmacion = confirm('📬 ¿Reatender todos los clientes con mensajes no leídos?\\n\\nEl bot responderá automáticamente a los chats pendientes (ignorando los que estés atendiendo manualmente).');
+  if (!confirmacion) return;
+
+  try {
+    const res = await fetch('/api/reatender-no-leidos', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      alert('✅ Procesando ' + data.total + ' chats en background. El bot responderá a cada uno con delay anti-ban. Ver consola.');
+    } else {
+      alert('⚠️ ' + (data.msg || data.error || 'No hay chats con mensajes sin leer'));
     }
   } catch (e) {
     alert('❌ Error conectando con el servidor');
@@ -1826,7 +1915,21 @@ async function selectClient(phone, isAutoRefresh = false) {
     document.getElementById('clientDetail').innerHTML = \`
       <!-- CRM HEADER BAR -->
       <div class="crm-header-bar" id="comHeaderBar">
-        <h3>\${client.name || 'Sin nombre'} <span class="client-status status-\${client.status}">\${client.status}</span></h3>
+        <h3>\${client.name || 'Sin nombre'} 
+          <select class="client-status status-\${client.status}" onchange="changeStatus('\${client.phone}', this.value)" style="background:none; color:inherit; border:none; outline:none; cursor:pointer; font-weight:inherit; font-family:inherit; font-size:inherit; padding:0 4px; appearance:auto;">
+            <option value="new" \${client.status==='new'?'selected':''} style="color:black;">new</option>
+            <option value="hot" \${client.status==='hot'?'selected':''} style="color:black;">hot</option>
+            <option value="warm" \${client.status==='warm'?'selected':''} style="color:black;">warm</option>
+            <option value="completed" \${client.status==='completed'?'selected':''} style="color:black;">completed</option>
+            <option value="postventa" \${client.status==='postventa'?'selected':''} style="color:black;">postventa</option>
+            <option value="carnet_pendiente_plus" \${client.status==='carnet_pendiente_plus'?'selected':''} style="color:black;">🟢 Carnet Plus</option>
+            <option value="carnet_pendiente_pro" \${client.status==='carnet_pendiente_pro'?'selected':''} style="color:black;">🔴 Carnet Pro</option>
+            <option value="despacho_pendiente" \${client.status==='despacho_pendiente'?'selected':''} style="color:black;">📦 Dispositivo</option>
+            <option value="municion_pendiente" \${client.status==='municion_pendiente'?'selected':''} style="color:black;">🔫 Munición</option>
+            <option value="recuperacion_pendiente" \${client.status==='recuperacion_pendiente'?'selected':''} style="color:black;">🔧 Recuperación</option>
+            <option value="bot_asesor_pendiente" \${client.status==='bot_asesor_pendiente'?'selected':''} style="color:black;">🤖 Bot Asesor</option>
+          </select>
+        </h3>
         <div class="crm-meta">
           <span>\${isLid(client.phone) ? '🔒 ' + client.phone : '📱 ' + client.phone}</span>
           <span id="comMsgCount">💬 \${client.interaction_count || 0} msgs</span>
@@ -1944,6 +2047,7 @@ async function selectClient(phone, isAutoRefresh = false) {
         <select id="quickAction_\${client.phone}">
           <option value="">Seleccionar acción...</option>
           <option value="carnet">🪪 Enviar Carnet por WhatsApp</option>
+          <option value="factura">🧾 Enviar Factura por WhatsApp</option>
           <option value="catalogo">📋 Enviar Catálogo</option>
           <option value="guia">📦 Enviar Guía de Envío</option>
           <option value="reatender">🔄 Reatender (Último Msj)</option>
@@ -2325,6 +2429,7 @@ function ejecutarAccion(phone, action, btn) {
   const sel = document.getElementById('quickAction_' + phone);
   switch(action) {
     case 'carnet': abrirModalCarnet(phone); break;
+    case 'factura': abrirModalFactura(phone); break;
     case 'catalogo': enviarCatalogo(phone, btn); break;
     case 'guia': abrirModalGuia(phone); break;
     case 'reatender': reatenderCliente(phone, btn); break;
@@ -2345,6 +2450,7 @@ function ejecutarAccionPv(phone, action, btn) {
   const sel = document.getElementById('quickActionPv_' + phone);
   switch(action) {
     case 'carnet': abrirModalCarnet(phone); break;
+    case 'factura': abrirModalFactura(phone); break;
     case 'catalogo': enviarCatalogo(phone, btn); break;
     case 'guia': abrirModalGuia(phone); break;
     case 'reatender': reatenderCliente(phone, btn); break;
@@ -2594,7 +2700,17 @@ async function selectClientPv(phone, isAutoRefresh = false) {
     document.getElementById('clientDetailPv').innerHTML = \`
       <div class="client-detail">
         <div class="crm-header-bar" id="pvHeaderBar">
-          <h3>\${client.name || 'Sin nombre'} <span class="client-status \${statusClass}">\${statusLabel}</span></h3>
+          <h3>\${client.name || 'Sin nombre'} 
+            <select class="client-status \${statusClass}" onchange="changeStatusPv('\${client.phone}', this.value)" style="background:none; color:inherit; border:none; outline:none; cursor:pointer; font-weight:inherit; font-family:inherit; font-size:inherit; padding:0 4px; appearance:auto;">
+              <option value="postventa" \${(client.status||'postventa')==='postventa'?'selected':''} style="color:black;">Post-venta</option>
+              <option value="carnet_pendiente_plus" \${client.status==='carnet_pendiente_plus'?'selected':''} style="color:black;">🟢 Carnet Plus</option>
+              <option value="carnet_pendiente_pro" \${client.status==='carnet_pendiente_pro'?'selected':''} style="color:black;">🔴 Carnet Pro</option>
+              <option value="despacho_pendiente" \${client.status==='despacho_pendiente'?'selected':''} style="color:black;">📦 Dispositivo</option>
+              <option value="municion_pendiente" \${client.status==='municion_pendiente'?'selected':''} style="color:black;">🔫 Munición</option>
+              <option value="recuperacion_pendiente" \${client.status==='recuperacion_pendiente'?'selected':''} style="color:black;">🔧 Recuperación</option>
+              <option value="bot_asesor_pendiente" \${client.status==='bot_asesor_pendiente'?'selected':''} style="color:black;">🤖 Bot Asesor</option>
+            </select>
+          </h3>
           <div class="crm-meta">
             <span>\${isLid(client.phone) ? '🔒 ' + client.phone : '📱 ' + client.phone}</span>
             <span id="pvMsgCount">💬 \${client.interaction_count || 0} msgs</span>
@@ -2705,6 +2821,7 @@ async function selectClientPv(phone, isAutoRefresh = false) {
           <select id="quickActionPv_\${client.phone}">
             <option value="">⚡ Acción...</option>
             <option value="carnet">🪪 Enviar Carnet por WhatsApp</option>
+            <option value="factura">🧾 Enviar Factura por WhatsApp</option>
             <option value="catalogo">📋 Enviar Catálogo</option>
             <option value="guia">📦 Enviar Guía de Envío</option>
             <option value="reatender">🔄 Reatender (Último Msj)</option>
@@ -3431,6 +3548,12 @@ async function enviarGuiaWhatsApp() {
   }
 }
 
+function toggleCarnetSection(el) {
+  var next = el.nextElementSibling;
+  next.style.display = next.style.display === 'none' ? 'block' : 'none';
+  el.querySelector('.toggle-arrow').textContent = next.style.display === 'none' ? '▶' : '▼';
+}
+
 async function loadCarnetHistory(phone) {
   var container = document.getElementById('carnetHistory_' + phone);
   if (!container) return;
@@ -3441,7 +3564,7 @@ async function loadCarnetHistory(phone) {
     var estadoColors = { enviado: '#3fb950', confirmado: '#3fb950', pendiente: '#d29922', rechazado: '#f85149' };
     var estadoIcons = { enviado: '📨', confirmado: '✅', pendiente: '⏳', rechazado: '❌' };
     var html = '<div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">';
-    html += "<div onclick=\\"this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';\\" style=\\"padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;\\">";
+    html += '<div onclick="toggleCarnetSection(this)" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;">';
     html += '<span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>';
     html += '<span style="color:#d4a0ff;font-weight:700;font-size:13px;">🪪 Historial de Carnets (' + carnets.length + ')</span></div>';
     html += '<div style="display:none;padding:10px;">';
