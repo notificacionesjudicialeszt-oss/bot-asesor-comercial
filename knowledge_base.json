@@ -33,6 +33,7 @@
     "titulo": "Lo que incluye tu compra",
     "items": [
       "1 Pistola Traumática de la referencia seleccionada",
+      "2 Proveedores (cargadores) incluidos con cada pistola — EXCEPTO los revólveres que no usan proveedor/cargador",
       "50 Cartuchos traumáticos de goma calibre 9×22mm",
       "Comprobante digital de compra (respaldo de transacción)",
       "Caja táctica de almacenamiento seguro",
@@ -65,7 +66,7 @@
       "incluye": [
         "Todo lo del Plan Plus",
         "BONUS: Asesor Legal IA (Chatbot) por 6 meses totalmente GRATIS",
-        "Defensa jurídica 100% GRATIS si te incautan ilegalmente",
+        "Respaldo jurídico 100% GRATIS si te incautan ilegalmente",
         "Primera instancia ante Policía (valor comercial $800.000)",
         "Tutela para obligar respuesta (valor comercial $600.000)",
         "Nulidad del acto administrativo (valor comercial $1.200.000)",
@@ -224,7 +225,7 @@
     "pago_anticipado": "Manejamos pago anticipado con todas las garantías: comprobante digital inmediato, seguimiento del envío y respaldo jurídico de la transacción. Además puedes pagar por link seguro BOLD vía PSE desde tu cuenta de banco si prefieres mayor seguridad.",
     "manifiesto_aduana": "El manifiesto de aduana es un documento del IMPORTADOR, no del comprador. Ningún vendedor serio lo entrega porque legalmente no le corresponde — solo la DIAN y la POLFA fiscalizan al importador (Decreto 1165/2019, Ley 2197/2022). Lo que SÍ recibes con tu compra es: factura con NIT, asesoría jurídica permanente y respaldo legal incluido. OJO: si alguien te ofrece 'manifiesto de aduana', es una señal de alarma — puede ser un documento falso. Otros indicadores de fraude: vender sin factura y precios sospechosamente bajos. Tu mejor protección es FACTURA + ASESORÍA LEGAL, que es exactamente lo que Zona Traumática te garantiza.",
     "marco_legal_general": "Las armas traumáticas en Colombia están reguladas principalmente por la Ley 2197/2022 (Ley de Seguridad Ciudadana), que las define como dispositivos menos letales con categoría jurídica autónoma — completamente distintas a las armas de fuego. El Artículo 223 de la Constitución habla de 'municiones de guerra', lo que NO aplica a los proyectiles de goma de las traumáticas. Adicionalmente, la Sentencia C-014/2023 y múltiples precedentes del Tribunal Superior de Bogotá han reconocido la atipicidad penal del porte de estas armas.",
-    "preguntas_legales_profundas": "Para consultas legales detalladas — jurisprudencia específica, procedimientos de defensa ante incautación, análisis de la Sentencia C-014/2023, Resolución 01840/2025, comparativa técnica balística y más — contamos con la Biblioteca Legal de Zona Traumática: la biblia de la legalidad de las armas traumáticas en Colombia, construida íntegramente por nuestro equipo. Puedes consultarla en: https://www.zonatraumatica.club/portelegal/biblioteca — Es gratuita y cubre desde la Constitución hasta los casos reales ganados. Para asesoría jurídica personalizada y defensa ante incautaciones, te recomendamos afiliarte al Club Zona Traumática (Plan Pro)."
+    "preguntas_legales_profundas": "Para consultas legales detalladas — jurisprudencia específica, procedimientos de defensa ante incautación, análisis de la Sentencia C-014/2023, Resolución 01840/2025, comparativa técnica balística y más — contamos con la Biblioteca Legal de Zona Traumática: la biblia de la legalidad de las armas traumáticas en Colombia, construida íntegramente por nuestro equipo. Puedes consultarla en: https://www.zonatraumatica.club/portelegal/biblioteca.html — Es gratuita y cubre desde la Constitución hasta los casos reales ganados. Para asesoría jurídica personalizada y defensa ante incautaciones, te recomendamos afiliarte al Club Zona Traumática (Plan Pro)."
   },
   "carnet": {
     "descripcion": "Carnet digital de portador con QR de validación",
