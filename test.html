@@ -1,0 +1,2634 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel ZT — Zona Traumática</title>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Rajdhani', sans-serif; background: #0a0e13; color: #e6edf3; font-weight: 500; letter-spacing: 0.3px; }
+  h1, h2, h3, .stat .num, .panel-header, .tab, .refresh-btn { font-family: 'Chakra Petch', sans-serif; }
+  .client-phone, .chat-time, .memory-box, code { font-family: 'Share Tech Mono', monospace; }
+  .header { background: linear-gradient(180deg, #131920 0%, #0d1117 100%); border-bottom: 1px solid #f8514944; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 22px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+  .header h1 span { color: #f85149; }
+  .refresh-btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+  .refresh-btn:hover { background: #2ea043; }
+  .reactivar-btn { background: linear-gradient(135deg, #f85149, #c0392b); color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; margin-right: 8px; }
+  .reactivar-btn:hover { background: linear-gradient(135deg, #ff6b6b, #e74c3c); }
+  .reactivar-btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+  .stats { display: flex; gap: 15px; padding: 20px 25px; flex-wrap: wrap; }
+  .stat { background: #111820; border: 1px solid #1c2733; border-radius: 6px; padding: 15px 20px; flex: 1; min-width: 140px; border-left: 3px solid #30363d; }
+  .stat .num { font-size: 34px; font-weight: 700; letter-spacing: 1px; }
+  .stat .label { font-size: 12px; color: #8b949e; margin-top: 2px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+  .stat.green .num { color: #3fb950; }
+  .stat.green { border-left-color: #3fb950; }
+  .stat.blue .num { color: #58a6ff; }
+  .stat.blue { border-left-color: #58a6ff; }
+  .stat.orange .num { color: #d29922; }
+  .stat.orange { border-left-color: #d29922; }
+  .stat.red .num { color: #f85149; }
+  .stat.red { border-left-color: #f85149; }
+  .stat.purple .num { color: #bc8cff; }
+  .stat.purple { border-left-color: #bc8cff; }
+  /* Alertas de spam/bot */
+  #spamAlerts { padding: 0 25px; }
+  .spam-alert-box { background: #2d1b1b; border: 1px solid #f85149; border-left: 4px solid #f85149; border-radius: 6px; padding: 12px 18px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .spam-alert-box .spam-info { flex: 1; }
+  .spam-alert-box .spam-title { color: #f85149; font-weight: 700; font-size: 14px; }
+  .spam-alert-box .spam-sub { color: #8b949e; font-size: 12px; margin-top: 2px; }
+  .spam-alert-box .spam-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .btn-spam-bot { background: #f85149; color: #fff; border: none; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .btn-spam-bot:hover { background: #da3633; }
+  .btn-spam-ok { background: #238636; color: #fff; border: none; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .btn-spam-ok:hover { background: #2ea043; }
+  .btn-spam-ver { background: #1c2733; color: #58a6ff; border: 1px solid #1c6fb5; border-radius: 4px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .btn-spam-ver:hover { background: #0d1117; }
+  .container { display: flex; gap: 20px; padding: 0 25px 25px; height: calc(100vh - 130px); }
+  .panel { background: #111820; border: 1px solid #1c2733; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; height: 100%; }
+  .panel-left { flex: 1; min-width: 400px; }
+  .panel-right { flex: 1.4; min-width: 400px; display: flex; flex-direction: column; }
+  .panel-right-detail { flex: 0 0 auto; overflow-y: auto; border-bottom: 2px solid #f8514944; display: none; }
+  .panel-right-detail.open { display: block; }
+  .panel-right-detail::-webkit-scrollbar { width: 4px; }
+  .panel-right-detail::-webkit-scrollbar-track { background: #0a0e13; }
+  .panel-right-detail::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 3px; }
+  .panel-right-chat { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+  .panel-right-chat::-webkit-scrollbar { width: 6px; }
+  .panel-right-chat::-webkit-scrollbar-track { background: #0a0e13; }
+  .panel-right-chat::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 3px; }
+  .btn-toggle-detail { background: #1c2733; color: #8b949e; border: 1px solid #30363d; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer; font-family: 'Chakra Petch', sans-serif; font-weight: 600; transition: all 0.2s; }
+  .btn-toggle-detail:hover { background: #222e3c; color: #e6edf3; }
+  .btn-toggle-detail.active { background: #f8514922; color: #f85149; border-color: #f8514944; }
+  .panel-header { padding: 12px 15px; border-bottom: 1px solid #1c2733; font-size: 15px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+  .panel-header input { background: #0a0e13; border: 1px solid #1c2733; color: #e6edf3; padding: 8px 14px; border-radius: 4px; font-size: 14px; width: 220px; font-family: 'Rajdhani', sans-serif; }
+  .panel-header input:focus { border-color: #f85149; outline: none; }
+  .panel-body { overflow-y: auto; flex: 1; }
+  .panel-body::-webkit-scrollbar { width: 6px; }
+  .panel-body::-webkit-scrollbar-track { background: #0a0e13; }
+  .panel-body::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 3px; }
+  .client-row { padding: 10px 15px; border-bottom: 1px solid #151c25; cursor: pointer; display: flex; align-items: center; gap: 12px; transition: all 0.15s; }
+  .client-row:hover { background: #151c25; border-left: 3px solid #f8514966; }
+  .client-row.active { background: #151c25; border-left: 3px solid #f85149; }
+  .client-avatar { width: 38px; height: 38px; border-radius: 4px; background: #1c2733; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; font-family: 'Chakra Petch', sans-serif; font-weight: 700; color: #f85149; }
+  .client-info { flex: 1; min-width: 0; }
+  .client-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .client-phone { font-size: 12px; color: #586776; }
+  .client-meta { text-align: right; flex-shrink: 0; }
+  .client-status { font-size: 10px; padding: 2px 8px; border-radius: 3px; display: inline-block; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; }
+  .status-new { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb44; }
+  .status-assigned { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
+  .status-completed { background: #23863622; color: #3fb950; border: 1px solid #23863644; }
+  .status-postventa { background: #3fb95022; color: #3fb950; border: 1px solid #3fb95044; }
+  .status-carnet_pendiente_plus, .status-carnet-pendiente-plus { background: #bc8cff22; color: #bc8cff; border: 1px solid #bc8cff44; }
+  .status-carnet_pendiente_pro, .status-carnet-pendiente-pro { background: #f0883e22; color: #f0883e; border: 1px solid #f0883e44; }
+  .status-despacho_pendiente, .status-despacho-pendiente { background: #f0883e22; color: #f0883e; border: 1px solid #f0883e44; }
+  .status-municion_pendiente, .status-municion-pendiente { background: #f8514922; color: #f85149; border: 1px solid #f8514944; }
+  .status-recuperacion_pendiente, .status-recuperacion-pendiente { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
+  .status-bot_asesor_pendiente, .status-bot-asesor-pendiente { background: #58a6ff22; color: #58a6ff; border: 1px solid #58a6ff44; }
+  .client-count { font-size: 11px; color: #3d4f5f; font-family: 'Share Tech Mono', monospace; }
+  .client-memory { font-size: 12px; color: #586776; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+  .chat-container { padding: 15px; display: flex; flex-direction: column; gap: 8px; }
+  .chat-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #3d4f5f; font-size: 15px; text-transform: uppercase; letter-spacing: 2px; font-family: 'Chakra Petch', sans-serif; }
+  .chat-bubble { max-width: 80%; padding: 10px 14px; border-radius: 6px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+  .chat-user { background: #1a3a5c; align-self: flex-start; border-left: 3px solid #58a6ff; }
+  .chat-assistant { background: #1c2733; align-self: flex-end; border-right: 3px solid #f85149; }
+  .chat-time { font-size: 10px; color: #3d4f5f; margin-top: 2px; }
+  .client-detail { padding: 15px; border-bottom: 1px solid #1c2733; background: #0d1219; }
+  .client-detail h3 { font-size: 18px; margin-bottom: 10px; font-family: 'Chakra Petch', sans-serif; font-weight: 700; letter-spacing: 1px; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .detail-item { font-size: 13px; }
+  .detail-item .dl { color: #586776; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+  .detail-item .dv { color: #e6edf3; font-weight: 600; display: block; margin-top: 2px; }
+  .memory-box { background: #0a0e13; border: 1px solid #1c2733; border-left: 3px solid #bc8cff; border-radius: 4px; padding: 12px; margin-top: 12px; font-size: 12px; color: #8b949e; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+  .hot-badge { background: #f8514933; color: #f85149; font-size: 10px; padding: 2px 8px; border-radius: 3px; margin-left: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; }
+  .crm-actions { margin-top: 12px; border-top: 1px solid #1c2733; padding-top: 12px; }
+  .crm-actions-title { font-size: 11px; color: #586776; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; font-family: 'Chakra Petch', sans-serif; }
+  .crm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .crm-chip { background: #1c2733; border: 1px solid #30363d; color: #8b949e; font-size: 11px; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-family: 'Chakra Petch', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; transition: all 0.15s; }
+  .crm-chip:hover { background: #238636; border-color: #3fb950; color: #fff; }
+  .crm-chip.danger:hover { background: #b91c1c; border-color: #f85149; color: #fff; }
+  .crm-note-row { display: flex; gap: 6px; }
+  .crm-note-input { flex: 1; background: #0a0e13; border: 1px solid #1c2733; color: #e6edf3; padding: 7px 10px; border-radius: 4px; font-size: 13px; font-family: 'Rajdhani', sans-serif; }
+  .crm-note-input:focus { border-color: #f85149; outline: none; }
+  .crm-note-btn { background: #1f6feb; border: none; color: #fff; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: 'Chakra Petch', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; white-space: nowrap; }
+  .crm-note-btn:hover { background: #388bfd; }
+  .crm-feedback { font-size: 11px; color: #3fb950; margin-top: 5px; height: 14px; font-family: 'Share Tech Mono', monospace; }
+  .tabs { display: flex; border-bottom: 1px solid #1c2733; }
+  .tab { padding: 10px 18px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: #586776; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; transition: all 0.15s; }
+  .tab.active { color: #e6edf3; border-bottom-color: #f85149; }
+  .tab:hover { color: #e6edf3; }
+  /* Tabs de vista principal */
+  .main-tabs { display: flex; border-bottom: 2px solid #1c2733; padding: 0 25px; background: #0d1117; gap: 0; }
+  .main-tab { padding: 12px 22px; font-size: 14px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; color: #586776; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; transition: all 0.15s; font-family: 'Chakra Petch', sans-serif; }
+  .main-tab.active { color: #e6edf3; border-bottom-color: #f85149; }
+  .main-tab:hover { color: #e6edf3; }
+  .main-tab .badge { background: #f85149; color: #fff; border-radius: 10px; font-size: 10px; padding: 1px 6px; margin-left: 6px; font-weight: 700; }
+  /* Vista comprobantes */
+  #viewClientes, #viewComprobantes, #viewCarnets, #viewPostventa { display: none; }
+  #viewClientes.active, #viewPostventa.active { display: flex; }
+  #viewComprobantes.active, #viewCarnets.active { display: flex; flex-direction: column; padding: 20px 25px; gap: 15px; overflow-y: auto; height: calc(100vh - 130px); }
+  .comprobante-card { background: #111820; border: 1px solid #1c2733; border-left: 4px solid #d29922; border-radius: 6px; padding: 18px; display: flex; gap: 18px; align-items: flex-start; }
+  .comprobante-img { width: 120px; height: 120px; object-fit: cover; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; flex-shrink: 0; background: #0a0e13; }
+  .comprobante-img-placeholder { width: 120px; height: 120px; border-radius: 4px; border: 1px solid #30363d; background: #0a0e13; display: flex; align-items: center; justify-content: center; color: #3d4f5f; font-size: 12px; flex-shrink: 0; text-align: center; }
+  .comprobante-info { flex: 1; min-width: 0; }
+  .comprobante-name { font-size: 17px; font-weight: 700; font-family: 'Chakra Petch', sans-serif; letter-spacing: 0.5px; }
+  .comprobante-phone { font-size: 12px; color: #586776; font-family: 'Share Tech Mono', monospace; margin-top: 2px; }
+  .comprobante-detail { font-size: 13px; color: #8b949e; margin-top: 8px; line-height: 1.6; }
+  .comprobante-detail strong { color: #d29922; }
+  .comprobante-tipo { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; margin-top: 6px; }
+  .tipo-club { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb44; }
+  .tipo-producto { background: #23863622; color: #3fb950; border: 1px solid #23863644; }
+  .tipo-bot { background: #bc8cff22; color: #bc8cff; border: 1px solid #bc8cff44; }
+  .tipo-desconocido { background: #d2992222; color: #d29922; border: 1px solid #d2992244; }
+  .comprobante-time { font-size: 11px; color: #3d4f5f; font-family: 'Share Tech Mono', monospace; margin-top: 4px; }
+  .comprobante-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; align-self: center; }
+  .btn-confirmar { background: linear-gradient(135deg, #238636, #2ea043); color: #fff; border: none; border-radius: 4px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Chakra Petch', sans-serif; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .btn-confirmar:hover { background: linear-gradient(135deg, #2ea043, #3fb950); }
+  .btn-confirmar:disabled { background: #1a4a1a; color: #3fb950; cursor: not-allowed; }
+  .btn-rechazar { background: linear-gradient(135deg, #6e1313, #9b1c1c); color: #fff; border: none; border-radius: 4px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Chakra Petch', sans-serif; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .btn-rechazar:hover { background: linear-gradient(135deg, #9b1c1c, #b91c1c); }
+  .btn-rechazar:disabled { background: #3a1010; color: #f85149; cursor: not-allowed; }
+  .comprobante-empty { display: flex; align-items: center; justify-content: center; height: 200px; color: #3d4f5f; font-size: 15px; text-transform: uppercase; letter-spacing: 2px; font-family: 'Chakra Petch', sans-serif; }
+  /* Lightbox para ver imagen completa */
+  #imgLightbox { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#000000cc; z-index:9999; align-items:center; justify-content:center; cursor:zoom-out; }
+  #imgLightbox.open { display:flex; }
+  #imgLightbox img { max-width: 90%; max-height: 90%; border-radius: 6px; border: 2px solid #30363d; }
+  /* Botones Toggle Bóveda Servicios */
+  .btn-toggle { background: #1c2733; color: #8b949e; border: 1px solid #30363d; border-radius: 4px; padding: 6px 12px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-family: 'Chakra Petch', sans-serif; transition: all 0.2s; white-space: nowrap; }
+  .btn-toggle:hover { background: #222e3c; }
+  .btn-toggle.on { background: #23863622; color: #3fb950; border-color: #238636; }
+  /* CRM Professional Tabs */
+  .crm-tabs { display: flex; border-bottom: 2px solid #1c2733; background: #0d1117; }
+  .crm-tab { padding: 8px 16px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; color: #586776; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; font-family: 'Chakra Petch', sans-serif; transition: all 0.15s; }
+  .crm-tab.active { color: #e6edf3; border-bottom-color: #f85149; }
+  .crm-tab:hover { color: #e6edf3; }
+  .crm-tab-content { display: none; padding: 12px; }
+  .crm-tab-content.active { display: block; }
+  .crm-header-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #0d1117; border-bottom: 1px solid #1c2733; flex-wrap: wrap; }
+  .crm-header-bar h3 { font-size: 16px; font-family: 'Chakra Petch', sans-serif; font-weight: 700; margin: 0; flex-shrink: 0; }
+  .crm-header-bar .crm-meta { display: flex; gap: 12px; font-size: 11px; color: #586776; font-family: 'Share Tech Mono', monospace; flex-wrap: wrap; align-items: center; }
+  .crm-field { display: flex; flex-direction: column; gap: 2px; }
+  .crm-field label { color: #586776; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; font-family: 'Chakra Petch', sans-serif; }
+  .crm-field input, .crm-field select { background: #0d1117; border: 1px solid #1c2733; color: #e6edf3; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-family: 'Rajdhani', sans-serif; box-sizing: border-box; width: 100%; }
+  .crm-field input:focus, .crm-field select:focus { border-color: #f85149; outline: none; }
+  .crm-field input[readonly] { color: #586776; cursor: default; }
+  .crm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .crm-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .crm-toggles { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 0; }
+  .crm-toggle-chip { display: flex; align-items: center; gap: 4px; background: #111820; border: 1px solid #1c2733; padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; color: #8b949e; font-family: 'Chakra Petch', sans-serif; font-weight: 600; transition: all 0.15s; user-select: none; }
+  .crm-toggle-chip:has(input:checked) { border-color: #3fb950; color: #3fb950; background: #23863615; }
+  .crm-toggle-chip input { accent-color: #3fb950; cursor: pointer; }
+  .crm-save-row { display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid #1c2733; margin-top: 8px; }
+  .crm-save-btn { background: linear-gradient(135deg, #238636, #2ea043); color: white; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 12px; font-family: 'Chakra Petch', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .crm-save-btn:hover { filter: brightness(1.15); }
+  .crm-section-title { font-size: 11px; color: #586776; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; font-family: 'Chakra Petch', sans-serif; padding-bottom: 6px; border-bottom: 1px solid #1c2733; margin-bottom: 8px; }
+  .crm-wa-link { display: inline-flex; align-items: center; gap: 5px; color: #3fb950; font-size: 12px; text-decoration: none; padding: 4px 10px; border: 1px solid #23863644; border-radius: 4px; background: #23863611; }
+  .crm-wa-link:hover { background: #23863633; }
+  .crm-action-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .crm-action-row select { flex: 1; background: #0d1117; border: 1px solid #1c2733; color: #e6edf3; padding: 8px 10px; border-radius: 6px; font-size: 12px; font-family: 'Chakra Petch', sans-serif; }
+  .crm-action-row button { background: #1f6feb; border: none; color: white; padding: 8px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: 'Chakra Petch', sans-serif; font-weight: 600; white-space: nowrap; }
+  .crm-action-row button:hover { filter: brightness(1.15); }
+  .crm-action-row button.green { background: #238636; }
+  .crm-memory-textarea { width: 100%; background: #0d1117; border: 1px solid #1c2733; border-radius: 6px; padding: 10px; font-size: 12px; color: #8b949e; white-space: pre-wrap; min-height: 80px; max-height: 200px; resize: vertical; font-family: 'Share Tech Mono', monospace; box-sizing: border-box; }
+  .crm-memory-textarea:focus { border-color: #bc8cff; outline: none; color: #e6edf3; }
+  .crm-carnet-warn { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; background: #f8514915; border: 1px solid #f8514944; border-radius: 6px; margin: 6px 12px; font-size: 11px; color: #f85149; font-family: 'Chakra Petch', sans-serif; }
+  .crm-carnet-warn .warn-icon { font-size: 14px; flex-shrink: 0; }
+  .crm-carnet-warn .warn-text { line-height: 1.4; }
+  .crm-carnet-warn .warn-fields { color: #d29922; font-weight: 700; }
+  .crm-carnet-ok { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: #23863615; border: 1px solid #23863644; border-radius: 6px; margin: 6px 12px; font-size: 11px; color: #3fb950; font-family: 'Chakra Petch', sans-serif; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🔫 Panel <span>Zona Traumática</span></h1>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span id="lastUpdate" style="color:#484f58;font-size:12px;"></span>
+    <select id="headerActionSelect" style="background:#111820;border:1px solid #30363d;color:#e6edf3;padding:8px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;min-width:220px;">
+      <option value="">🛠️ Herramientas...</option>
+      <option value="inventario">🧠 Actualizar Inventario IA</option>
+      <option value="reactivar_normal">🔥 Reactivar Calientes</option>
+      <option value="reactivar_ultra">💎 Reactivar Ultra (Todo)</option>
+      <option value="migrar">🔄 Migrar Asignados → Calientes</option>
+      <option value="resolver_lids">🔍 Resolver LIDs</option>
+    </select>
+    <button onclick="ejecutarHeaderAccion()" style="background:#1f6feb;border:none;color:white;padding:8px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Chakra Petch',sans-serif;font-weight:700;white-space:nowrap;">▶ Ejecutar</button>
+    <button class="refresh-btn" onclick="refreshAll()">🔄 Actualizar</button>
+    <button onclick="mostrarModalAgregar()" style="background:linear-gradient(135deg, #238636, #1a6b2d);color:white;border:none;padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:'Chakra Petch',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:1px;" title="Agregar un contacto nuevo y enviar primer mensaje del bot">➕ Agregar Cliente</button>
+  </div>
+</div>
+
+<div id="spamAlerts"></div>
+
+<!-- Tabs de vista principal -->
+<div class="main-tabs">
+  <div class="main-tab active" id="mainTabComercial" onclick="switchMainTab('comercial')">💼 Comercial</div>
+  <div class="main-tab" id="mainTabComprobantes" onclick="switchMainTab('comprobantes')">💰 Por Verificar <span class="badge" id="comprobanteBadge" style="display:none">0</span></div>
+  <div class="main-tab" id="mainTabCarnets" onclick="switchMainTab('carnets')">🪪 Carnets <span class="badge" id="carnetsBadge" style="display:none">0</span></div>
+  <div class="main-tab" id="mainTabPostventa" onclick="switchMainTab('postventa')">🛠️ Post-venta <span class="badge" id="postventaBadge" style="display:none">0</span></div>
+</div>
+
+<!-- Vista: Comercial -->
+<div id="viewClientes" class="container active">
+  <div class="panel panel-left">
+    <div class="panel-header">
+      <span>💼 Comercial (<span id="clientCount">0</span>)</span>
+      <input type="text" id="searchInput" placeholder="🔍 Buscar..." oninput="filterClients()">
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-filter="all" onclick="setFilter('all',this)">Todos</div>
+      <div class="tab" data-filter="new" onclick="setFilter('new',this)">Nuevos</div>
+      <div class="tab" data-filter="hot" onclick="setFilter('hot',this)">🔥 Calientes</div>
+    </div>
+    <div class="panel-body" id="clientList"></div>
+  </div>
+  <div class="panel panel-right">
+    <div class="panel-header">
+      <span id="chatTitle">💬 Selecciona un cliente</span>
+      <button class="btn-toggle-detail" id="btnToggleDetail" onclick="toggleDetailPanel()" style="display:none;">📋 Info</button>
+    </div>
+    <div class="panel-right-detail" id="clientDetail"></div>
+    <div class="panel-right-chat" id="chatArea"><div class="chat-empty">Selecciona un cliente para ver su conversación</div></div>
+  </div>
+</div>
+
+<!-- Vista: Comprobantes por verificar -->
+<div id="viewComprobantes">
+  <div id="comprobantesList"></div>
+</div>
+
+<!-- Vista: Carnets por verificar -->
+<div id="viewCarnets">
+  <div id="carnetsList"></div>
+</div>
+
+<!-- Vista: Post-venta -->
+<div id="viewPostventa" class="container">
+  <div class="panel panel-left">
+    <div class="panel-header">
+      <span>🛠️ Post-venta (<span id="postventaCount">0</span>)</span>
+      <input type="text" id="searchPostventa" placeholder="🔍 Buscar..." oninput="filterPostventa()">
+    </div>
+    <div class="tabs" style="flex-wrap:wrap;">
+      <div class="tab active" data-pvfilter="all" onclick="setPvFilter('all',this)">Todos</div>
+      <div class="tab" data-pvfilter="carnet_pendiente_plus" onclick="setPvFilter('carnet_pendiente_plus',this)">🟢 Carnet Plus</div>
+      <div class="tab" data-pvfilter="carnet_pendiente_pro" onclick="setPvFilter('carnet_pendiente_pro',this)">🔴 Carnet Pro</div>
+      <div class="tab" data-pvfilter="despacho_pendiente" onclick="setPvFilter('despacho_pendiente',this)">📦 Dispositivo</div>
+      <div class="tab" data-pvfilter="municion_pendiente" onclick="setPvFilter('municion_pendiente',this)">🔫 Munición</div>
+      <div class="tab" data-pvfilter="recuperacion_pendiente" onclick="setPvFilter('recuperacion_pendiente',this)">🔧 Recuperación</div>
+      <div class="tab" data-pvfilter="bot_asesor_pendiente" onclick="setPvFilter('bot_asesor_pendiente',this)">🤖 Bot Asesor</div>
+    </div>
+    <div class="panel-body" id="postventaList"></div>
+  </div>
+  <div class="panel panel-right">
+    <div class="panel-header">
+      <span id="chatTitlePv">💬 Selecciona un cliente</span>
+      <button class="btn-toggle-detail" id="btnToggleDetailPv" onclick="toggleDetailPanelPv()" style="display:none;">📋 Info</button>
+    </div>
+    <div class="panel-right-detail" id="clientDetailPv"></div>
+    <div class="panel-right-chat" id="chatAreaPv"><div class="chat-empty">Selecciona un cliente para ver su conversación</div></div>
+  </div>
+</div>
+
+<!-- Lightbox imagen -->
+<div id="imgLightbox" onclick="closeLightbox()"><img id="imgLightboxImg" src="" alt="comprobante"></div>
+
+<!-- Modal Agregar Cliente -->
+<div id="modalAgregar" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:none;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:25px;width:420px;max-width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <h3 style="margin:0 0 15px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">➕ Agregar Cliente Nuevo</h3>
+    <p style="color:#8b949e;font-size:12px;margin:0 0 15px;">El bot le enviará un primer mensaje personalizado por WhatsApp.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <input id="agregarPhone" type="text" placeholder="Número (ej: 3001234567)" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px 14px;border-radius:6px;font-size:14px;font-family:'Rajdhani',sans-serif;">
+      <input id="agregarName" type="text" placeholder="Nombre (opcional)" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px 14px;border-radius:6px;font-size:14px;font-family:'Rajdhani',sans-serif;">
+      <textarea id="agregarContexto" placeholder="Contexto (ej: le interesa Club Plus, quiere ver armas compactas...)" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px 14px;border-radius:6px;font-size:13px;font-family:'Rajdhani',sans-serif;resize:none;height:60px;"></textarea>
+      <div style="display:flex;gap:10px;margin-top:5px;">
+        <button id="btnAgregarEnviar" onclick="agregarCliente()" style="flex:1;background:#238636;color:white;border:none;padding:10px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Agregar y Enviar Mensaje</button>
+        <button onclick="cerrarModalAgregar()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:10px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="agregarFeedback" style="font-size:12px;color:#3fb950;min-height:18px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Enviar Carnet -->
+<div id="modalCarnet" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:25px;width:500px;max-width:95%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <h3 style="margin:0 0 5px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">🪪 Enviar Carnet por WhatsApp</h3>
+    <p id="carnetModalPhone" style="color:#8b949e;font-size:12px;margin:0 0 15px;"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <!-- Upload imagen -->
+      <div style="background:#0d1117;border:2px dashed #30363d;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;" onclick="document.getElementById('carnetFileInput').click()" id="carnetDropZone">
+        <input type="file" id="carnetFileInput" accept="image/*" style="display:none;" onchange="previewCarnetImage(this)">
+        <div id="carnetPreview" style="display:none;margin-bottom:10px;"><img id="carnetPreviewImg" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid #30363d;"></div>
+        <div id="carnetUploadText" style="color:#8b949e;font-size:13px;">📸 Click para seleccionar la imagen del carnet<br><span style="font-size:11px;color:#484f58;">JPG, PNG — máx 10MB</span></div>
+      </div>
+      <!-- Plan -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">📋 Plan</label>
+          <select id="carnetPlan" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;">
+            <option value="Plan Plus">🟡 Plan Plus ($100k)</option>
+            <option value="Plan Pro">🔴 Plan Pro ($150k)</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">📅 Vigente hasta</label>
+          <input type="date" id="carnetVigencia" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <!-- Datos del titular -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Nombre completo</label>
+          <input id="carnetNombre" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Cédula</label>
+          <input id="carnetCedula" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <!-- Datos del arma -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Marca arma</label>
+          <input id="carnetMarcaArma" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;">Modelo arma</label>
+          <input id="carnetModeloArma" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <div>
+        <label style="color:#8b949e;font-size:11px;">Serial del arma</label>
+        <input id="carnetSerial" type="text" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+      </div>
+      <!-- Caption personalizable -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📝 Caption (mensaje que acompaña el carnet)</label>
+        <textarea id="carnetCaption" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:12px;margin-top:4px;resize:none;height:50px;box-sizing:border-box;" placeholder="Dejar vacío para caption automático"></textarea>
+      </div>
+      <!-- Botones -->
+      <div style="display:flex;gap:10px;margin-top:5px;">
+        <button id="btnEnviarCarnet" onclick="enviarCarnetWhatsApp()" style="flex:1;background:linear-gradient(135deg, #238636, #2ea043);color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-size:14px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Enviar Carnet por WhatsApp</button>
+        <button onclick="cerrarModalCarnet()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:12px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="carnetFeedback" style="font-size:12px;min-height:18px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Enviar Factura -->
+<div id="modalFactura" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:25px;width:480px;max-width:95%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <h3 style="margin:0 0 5px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">🧾 Enviar Factura por WhatsApp</h3>
+    <p id="facturaModalPhone" style="color:#8b949e;font-size:12px;margin:0 0 15px;"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <!-- Upload imagen factura -->
+      <div style="background:#0d1117;border:2px dashed #30363d;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;" onclick="document.getElementById('facturaFileInput').click()" id="facturaDropZone">
+        <input type="file" id="facturaFileInput" accept="image/*,application/pdf" style="display:none;" onchange="previewFacturaImage(this)">
+        <div id="facturaPreview" style="display:none;margin-bottom:10px;"><img id="facturaPreviewImg" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid #30363d;"></div>
+        <div id="facturaUploadText" style="color:#8b949e;font-size:13px;">📸 Click para adjuntar foto/captura de la factura<br><span style="font-size:11px;color:#484f58;">JPG, PNG — máx 10MB</span></div>
+      </div>
+      <!-- Detalles opcionales -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;font-weight:bold;"># Número de Factura (Referencia)</label>
+        <input type="text" id="facturaNumero" placeholder="Ej: FAC-10294" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+      </div>
+      <!-- Caption opcional -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📝 Mensaje (opcional)</label>
+        <textarea id="facturaCaption" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:12px;margin-top:4px;resize:none;height:60px;box-sizing:border-box;" placeholder="Déjalo vacío para usar el mensaje estándar automático de gracias por la compra..."></textarea>
+      </div>
+      <!-- Botones -->
+      <div style="display:flex;gap:10px;margin-top:10px;">
+        <button id="btnEnviarFactura" onclick="enviarFacturaWhatsApp()" style="flex:1;background:linear-gradient(135deg, #238636, #2ea043);color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-size:14px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Enviar Factura por WhatsApp</button>
+        <button onclick="cerrarModalFactura()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:12px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="facturaFeedback" style="font-size:12px;min-height:18px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
+<div id="modalGuia" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:25px;width:480px;max-width:95%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <h3 style="margin:0 0 5px;color:#e6edf3;font-family:'Chakra Petch',sans-serif;font-size:18px;">📦 Enviar Guía de Envío por WhatsApp</h3>
+    <p id="guiaModalPhone" style="color:#8b949e;font-size:12px;margin:0 0 15px;"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <!-- Upload imagen guía -->
+      <div style="background:#0d1117;border:2px dashed #30363d;border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s;" onclick="document.getElementById('guiaFileInput').click()" id="guiaDropZone">
+        <input type="file" id="guiaFileInput" accept="image/*" style="display:none;" onchange="previewGuiaImage(this)">
+        <div id="guiaPreview" style="display:none;margin-bottom:10px;"><img id="guiaPreviewImg" style="max-width:100%;max-height:200px;border-radius:6px;border:1px solid #30363d;"></div>
+        <div id="guiaUploadText" style="color:#8b949e;font-size:13px;">📸 Click para adjuntar foto/captura de la guía<br><span style="font-size:11px;color:#484f58;">JPG, PNG — máx 10MB (opcional)</span></div>
+      </div>
+      <!-- Transportadora -->
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">🚚 Transportadora</label>
+          <select id="guiaTransportadora" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;">
+            <option value="Servientrega">Servientrega</option>
+            <option value="Interrapidísimo">Interrapidísimo</option>
+            <option value="Coordinadora">Coordinadora</option>
+            <option value="Envía">Envía</option>
+            <option value="TCC">TCC</option>
+            <option value="Deprisa">Deprisa</option>
+            <option value="otra">Otra...</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <label style="color:#8b949e;font-size:11px;font-weight:bold;">📋 Número de guía</label>
+          <input id="guiaNumero" type="text" placeholder="Ej: 123456789" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </div>
+      </div>
+      <!-- Producto enviado -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📦 Producto(s) enviado(s)</label>
+        <input id="guiaProducto" type="text" placeholder="Ej: Retay S22 negra + 50 municiones" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+      </div>
+      <!-- Caption personalizable -->
+      <div>
+        <label style="color:#8b949e;font-size:11px;">📝 Mensaje personalizado (opcional)</label>
+        <textarea id="guiaCaption" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px;border-radius:6px;font-size:12px;margin-top:4px;resize:none;height:50px;box-sizing:border-box;" placeholder="Dejar vacío para mensaje automático"></textarea>
+      </div>
+      <!-- Botones -->
+      <div style="display:flex;gap:10px;margin-top:5px;">
+        <button id="btnEnviarGuia" onclick="enviarGuiaWhatsApp()" style="flex:1;background:linear-gradient(135deg, #1f6feb, #388bfd);color:white;border:none;padding:12px;border-radius:6px;cursor:pointer;font-size:14px;font-family:'Chakra Petch',sans-serif;font-weight:700;">📨 Enviar Guía por WhatsApp</button>
+        <button onclick="cerrarModalGuia()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:12px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-family:'Chakra Petch',sans-serif;">Cancelar</button>
+      </div>
+      <div id="guiaFeedback" style="font-size:12px;min-height:18px;text-align:center;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let allData = null;
+let currentFilter = 'all';
+let selectedPhone = null;
+
+function mostrarModalAgregar() {
+  const modal = document.getElementById('modalAgregar');
+  modal.style.display = 'flex';
+  document.getElementById('agregarPhone').value = '';
+  document.getElementById('agregarName').value = '';
+  document.getElementById('agregarContexto').value = '';
+  document.getElementById('agregarFeedback').textContent = '';
+  document.getElementById('btnAgregarEnviar').disabled = false;
+  document.getElementById('btnAgregarEnviar').textContent = '📨 Agregar y Enviar Mensaje';
+  setTimeout(() => document.getElementById('agregarPhone').focus(), 100);
+}
+
+function cerrarModalAgregar() {
+  document.getElementById('modalAgregar').style.display = 'none';
+}
+
+async function agregarCliente() {
+  const phone = document.getElementById('agregarPhone').value.trim();
+  const name = document.getElementById('agregarName').value.trim();
+  const contexto = document.getElementById('agregarContexto').value.trim();
+  const fb = document.getElementById('agregarFeedback');
+  const btn = document.getElementById('btnAgregarEnviar');
+
+  if (!phone || phone.length < 7) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ Ingresa un número válido (mínimo 7 dígitos)';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando...';
+  fb.style.color = '#d29922';
+  fb.textContent = 'Registrando cliente y generando mensaje con IA...';
+
+  try {
+    const res = await fetch('/api/agregar-cliente', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, name, contexto })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      fb.style.color = '#3fb950';
+      fb.textContent = '✅ ' + (data.message || 'Cliente agregado y mensaje enviado');
+      btn.textContent = '✅ Enviado';
+      // Refrescar datos del panel
+      await loadData();
+      renderClients();
+      // Cerrar modal después de 2s
+      setTimeout(() => cerrarModalAgregar(), 2500);
+    } else {
+      fb.style.color = '#f85149';
+      fb.textContent = '❌ ' + (data.message || data.error || data.msg || 'Error desconocido');
+      btn.disabled = false;
+      btn.textContent = '📨 Agregar y Enviar Mensaje';
+    }
+  } catch(e) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ No se pudo conectar con el servidor';
+    btn.disabled = false;
+    btn.textContent = '📨 Agregar y Enviar Mensaje';
+  }
+}
+
+async function reactivarCalientes(mode = 'normal') {
+  const btn = mode === 'ultra' ? document.getElementById('btnReactivarUltra') : document.getElementById('btnReactivar');
+  const orgText = btn.textContent;
+  const orgBg = btn.style.background;
+  
+  btn.disabled = true;
+  btn.textContent = '⏳ Procesando...';
+  try {
+    const res = await fetch('/api/reactivar-calientes', { 
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ ' + data.msg;
+      btn.style.background = '#238636';
+      setTimeout(() => {
+        btn.textContent = orgText;
+        btn.style.background = orgBg;
+        btn.disabled = false;
+      }, 5000);
+    } else {
+      alert('⚠️ ' + (data.msg || data.error || 'Error desconocido'));
+      btn.textContent = orgText;
+      btn.disabled = false;
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+    btn.textContent = orgText;
+    btn.disabled = false;
+  }
+}
+
+async function reactivarIndividual(phone, btnElement, mode = 'normal') {
+  const oldText = btnElement.innerHTML;
+  btnElement.innerHTML = '⏳ Reactivando...';
+  btnElement.style.pointerEvents = 'none';
+  
+  try {
+    const res = await fetch('/api/reactivar-individual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, mode })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btnElement.innerHTML = '✅ Reactivado IA';
+      btnElement.style.background = '#2ea043';
+      btnElement.style.borderColor = '#3fb950';
+      btnElement.style.color = '#fff';
+    } else {
+      alert('⚠️ ' + (data.msg || data.error || 'Error'));
+      btnElement.innerHTML = oldText;
+      btnElement.style.pointerEvents = 'auto';
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+    btnElement.innerHTML = oldText;
+    btnElement.style.pointerEvents = 'auto';
+  }
+}
+
+async function reatenderCliente(phone, btnElement) {
+  const oldText = btnElement.innerHTML;
+  btnElement.innerHTML = '⏳ Procesando...';
+  btnElement.style.pointerEvents = 'none';
+
+  try {
+    const res = await fetch('/api/reatender', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      btnElement.innerHTML = '✅ Reatendido';
+      btnElement.style.background = '#2ea043';
+      btnElement.style.borderColor = '#3fb950';
+      btnElement.style.color = '#fff';
+    } else {
+      alert('⚠️ ' + (data.message || data.error || 'Error'));
+      btnElement.innerHTML = oldText;
+      btnElement.style.pointerEvents = 'auto';
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+    btnElement.innerHTML = oldText;
+    btnElement.style.pointerEvents = 'auto';
+  }
+}
+
+// Dispatcher para dropdown de herramientas del header
+function ejecutarHeaderAccion() {
+  const sel = document.getElementById('headerActionSelect');
+  if (!sel.value) return;
+  switch(sel.value) {
+    case 'inventario': actualizarInventario(); break;
+    case 'reactivar_normal': reactivarCalientes('normal'); break;
+    case 'reactivar_ultra': reactivarCalientes('ultra'); break;
+    case 'migrar': migrarAssigned(); break;
+    case 'resolver_lids': resolverLids(); break;
+  }
+  sel.selectedIndex = 0;
+}
+
+async function actualizarInventario() {
+  const btn = document.getElementById('btnUpdateInventory');
+  const confirmacion = confirm("¿Estás seguro de querer actualizar el inventario con IA basándose en la imagen maestra? Esto podría tomar unos 30 segundos.");
+  if (!confirmacion) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = '🧠 Procesando IA... (Unos 30s)'; }
+  try {
+    const res = await fetch('/api/update-inventory', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      alert('✅ ' + data.msg);
+      if (btn) { btn.textContent = '✅ Completado'; btn.style.background = '#238636'; setTimeout(() => { btn.textContent = '🧠 Actualizar Inventario IA'; btn.style.background = 'linear-gradient(135deg, #8a2be2, #4b0082)'; btn.disabled = false; }, 5000); }
+    } else {
+      alert('⚠️ ' + (data.error || 'Error desconocido'));
+      if (btn) { btn.textContent = '🧠 Actualizar Inventario IA'; btn.disabled = false; }
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor para actualizar inventario');
+    if (btn) { btn.textContent = '🧠 Actualizar Inventario IA'; btn.disabled = false; }
+  }
+}
+
+async function resolverLids() {
+  try {
+    const res = await fetch('/api/resolver-lids', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.total === 0) {
+        alert('✅ Sin LIDs pendientes');
+      } else {
+        alert('⏳ Procesando ' + data.total + ' LIDs en background... la data se recargará automáticamente.');
+        setTimeout(() => loadData(), Math.min(data.total * 1200, 30000));
+      }
+    } else {
+      alert('⚠️ ' + (data.msg || data.error || 'Error'));
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el servidor');
+  }
+}
+
+// Auto-resolver LIDs silenciosamente — se ejecuta después de cada loadData
+let _autoLidRunning = false;
+let _autoLidLastRun = 0;
+const _AUTO_LID_COOLDOWN = 5 * 60 * 1000; // 5 minutos de cooldown si no resolvió nada
+async function autoResolverLids() {
+  if (_autoLidRunning) return;
+  // Cooldown: no repetir si ya corrió recientemente sin éxito
+  if (Date.now() - _autoLidLastRun < _AUTO_LID_COOLDOWN) return;
+  _autoLidRunning = true;
+  try {
+    const res = await fetch('/api/resolver-lids', { method: 'POST' });
+    const data = await res.json();
+    _autoLidLastRun = Date.now();
+    if (data.ok && data.total > 0) {
+      console.log('[AUTO-LID] ⏳ Procesando ' + data.total + ' en background...');
+      setTimeout(() => { _autoLidRunning = false; loadData(); }, Math.min(data.total * 1200, 30000));
+      return;
+    }
+    // total === 0 → cooldown se activa, no vuelve a intentar por 5 min
+  } catch(e) { console.error('[AUTO-LID] Error:', e.message); }
+  _autoLidRunning = false;
+}
+
+async function loadData() {
+  const res = await fetch('/api/data');
+  allData = await res.json();
+  renderStats();
+  renderSpamAlerts();
+  renderClients();
+  document.getElementById('lastUpdate').textContent = 'Actualizado: ' + new Date().toLocaleTimeString();
+  // Auto-resolver LIDs si hay pendientes
+  autoResolverLids();
+}
+
+function renderSpamAlerts() {
+  const container = document.getElementById('spamAlerts');
+  const flagged = allData.spamFlagged || [];
+  if (flagged.length === 0) { container.innerHTML = ''; return; }
+  container.innerHTML = flagged.map(function(c) {
+    return '<div class="spam-alert-box" id="spam_' + c.phone + '">' +
+      '<div class="spam-info">' +
+        '<div class="spam-title">🚨 Posible BOT / Spam detectado</div>' +
+        '<div class="spam-sub">📱 ' + c.phone + ' &nbsp;|&nbsp; ' + (c.name || 'Sin nombre') + ' &nbsp;|&nbsp; Demasiados mensajes por minuto — pendiente tu revisión</div>' +
+      '</div>' +
+      '<div class="spam-actions">' +
+        '<button class="btn-spam-ver" onclick="selectClient(\'' + c.phone + '\')">👁️ Ver chat</button>' +
+        '<button class="btn-spam-ok" onclick="resolveSpam(\'' + c.phone + '\', false)">✅ Es cliente real — reactivar</button>' +
+        '<button class="btn-spam-bot" onclick="resolveSpam(\'' + c.phone + '\', true)">🤖 Es bot — silenciar</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+async function resolveSpam(phone, isBot) {
+  // Quitar el spam_flag siempre
+  await fetch('/api/set-spam-flag', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, flagged: false })
+  });
+  // Si es bot, además ignorarlo
+  if (isBot) {
+    await fetch('/api/set-ignored', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, ignored: true })
+    });
+  }
+  await loadData();
+  if (!isBot) selectClient(phone); // si es cliente real, abrirlo para atenderlo
+}
+
+function renderStats() {
+  // Stats container removed — no-op
+}
+
+function renderClients() {
+  const PV_ST = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+  const rawSearch = document.getElementById('searchInput').value.toLowerCase().trim();
+  const searchDigits = rawSearch.replace(/[^0-9]/g, '');
+  const search = rawSearch;
+
+  // Si no hay búsqueda de texto, ocultamos post-venta, pero si el asesor busca a alguien, lo debe encontrar sin importar el estado.
+  let clients = allData.clients;
+  if (!search) {
+    clients = clients.filter(c => !PV_ST.includes(c.status));
+  }
+
+  if (currentFilter === 'new') clients = clients.filter(c => c.status === 'new');
+  else if (currentFilter === 'hot') clients = clients.filter(c =>
+    c.memory && (c.memory.toLowerCase().includes('comprar') || c.memory.toLowerCase().includes('interesado') ||
+    c.memory.toLowerCase().includes('listo') || c.memory.toLowerCase().includes('precio'))
+  );
+
+  if (search) {
+    clients = clients.filter(c =>
+      (c.name||'').toLowerCase().includes(search) ||
+      (searchDigits && c.phone.includes(searchDigits)) ||
+      (c.memory||'').toLowerCase().includes(search)
+    );
+  }
+
+  document.getElementById('clientCount').textContent = clients.length;
+
+  const html = clients.map(c => {
+    const isHot = c.memory && (c.memory.toLowerCase().includes('comprar') || c.memory.toLowerCase().includes('interesado') || c.memory.toLowerCase().includes('listo') || c.memory.toLowerCase().includes('precio'));
+    const initial = c.name ? c.name.charAt(0).toUpperCase() : '👤';
+    return '<div class="client-row ' + (selectedPhone === c.phone ? 'active' : '') + '" onclick="selectClient(\'' + c.phone + '\')">' +
+      '<div class="client-avatar">' + initial + '</div>' +
+      '<div class="client-info">' +
+        '<div class="client-name">' + (c.name || 'Sin nombre') + (isHot ? '<span class="hot-badge">🔥 HOT</span>' : '') + '</div>' +
+        '<div class="client-phone">' + (isLid(c.phone) ? '🔒 ID privado' : c.phone) + '</div>' +
+        (c.memory ? '<div class="client-memory">💭 ' + c.memory.substring(0, 80) + '</div>' : '') +
+      '</div>' +
+      '<div class="client-meta">' +
+        '<div class="client-status status-' + c.status + '">' + c.status + '</div>' +
+        '<div class="client-count">' + (c.interaction_count || 0) + ' msgs</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  document.getElementById('clientList').innerHTML = html || '<div class="chat-empty">No hay clientes</div>';
+}
+
+async function selectClient(phone, isAutoRefresh = false) {
+  selectedPhone = phone;
+  renderClients();
+
+  const client = allData.clients.find(c => c.phone === phone);
+  const assignment = allData.assignments.find(a => a.client_phone === phone && a.status === 'active');
+
+  document.getElementById('chatTitle').textContent = '💬 ' + (client.name || phone);
+
+  if (!isAutoRefresh) {
+    // Show toggle button & open detail panel
+    const toggleBtn = document.getElementById('btnToggleDetail');
+    toggleBtn.style.display = 'inline-block';
+    const detailEl = document.getElementById('clientDetail');
+    detailEl.classList.add('open');
+    toggleBtn.classList.add('active');
+    toggleBtn.textContent = 'Ocultar Info';
+  }
+
+  if (!isAutoRefresh) {
+    document.getElementById('clientDetail').innerHTML = '<!-- CRM HEADER BAR -->' +
+      '<div class="crm-header-bar" id="comHeaderBar">' +
+        '<h3>' + (client.name || 'Sin nombre') + 
+          ' <select class="client-status status-' + client.status + '" onchange="changeStatus(\'' + client.phone + '\', this.value)" style="background:none; color:inherit; border:none; outline:none; cursor:pointer; font-weight:inherit; font-family:inherit; font-size:inherit; padding:0 4px; appearance:auto;">' +
+            '<option value="new" ' + (client.status==='new'?'selected':'') + ' style="color:black;">new</option>' +
+            '<option value="hot" ' + (client.status==='hot'?'selected':'') + ' style="color:black;">hot</option>' +
+            '<option value="warm" ' + (client.status==='warm'?'selected':'') + ' style="color:black;">warm</option>' +
+            '<option value="completed" ' + (client.status==='completed'?'selected':'') + ' style="color:black;">completed</option>' +
+            '<option value="postventa" ' + (client.status==='postventa'?'selected':'') + ' style="color:black;">postventa</option>' +
+            '<option value="carnet_pendiente_plus" ' + (client.status==='carnet_pendiente_plus'?'selected':'') + ' style="color:black;">🟢 Carnet Plus</option>' +
+            '<option value="carnet_pendiente_pro" ' + (client.status==='carnet_pendiente_pro'?'selected':'') + ' style="color:black;">🔴 Carnet Pro</option>' +
+            '<option value="despacho_pendiente" ' + (client.status==='despacho_pendiente'?'selected':'') + ' style="color:black;">📦 Dispositivo</option>' +
+            '<option value="municion_pendiente" ' + (client.status==='municion_pendiente'?'selected':'') + ' style="color:black;">🔫 Munición</option>' +
+            '<option value="recuperacion_pendiente" ' + (client.status==='recuperacion_pendiente'?'selected':'') + ' style="color:black;">🔧 Recuperación</option>' +
+            '<option value="bot_asesor_pendiente" ' + (client.status==='bot_asesor_pendiente'?'selected':'') + ' style="color:black;">🤖 Bot Asesor</option>' +
+          '</select>' +
+        '</h3>' +
+        '<div class="crm-meta">' +
+          '<span>' + (isLid(client.phone) ? '🔒 ' + client.phone : '📱 ' + client.phone) + '</span>' +
+          '<span id="comMsgCount">💬 ' + (client.interaction_count || 0) + ' msgs</span>' +
+          '<span>📅 ' + new Date(client.created_at).toLocaleDateString() + '</span>' +
+        (assignment ? '<span>👔 ' + assignment.employee_name + '</span>' : '') +
+      '</div>' +
+      '<div style="margin-left:auto;display:flex;gap:6px;">' +
+        waLink(client.phone) +
+      '</div>' +
+    '</div>' +
+
+    '<!-- CARNET DATA COMPLETENESS CHECK -->' +
+    (function() {
+      const missing = [];
+      if (!client.name || client.name.trim().length < 3) missing.push('Nombre completo');
+      if (!client.cedula) missing.push('Cédula');
+      if (!client.modelo_arma) missing.push('Modelo arma');
+      if (!client.serial_arma) missing.push('Serial arma');
+      if (!client.club_plan) missing.push('Plan Club');
+      if (missing.length === 0) {
+        return '<div class="crm-carnet-ok">✅ Datos completos para carnet</div>';
+      }
+      return '<div class="crm-carnet-warn"><span class="warn-icon">⚠️</span><div class="warn-text">Faltan datos para generar carnet: <span class="warn-fields">' + missing.join(' · ') + '</span></div></div>';
+    })() +
+
+      '<div class="crm-section-title" style="margin-top:12px;">⚡ Acción Rápida</div>' +
+      '<div class="crm-action-row">' +
+        '<select id="quickAction_' + client.phone + '">' +
+          '<option value="reactivar_normal">🔥 Reactivar (Caliente)</option>' +
+          '<option value="reenviar_catalogo">📖 Reenviar Catálogo PDF</option>' +
+          '<option value="completado">✅ Marcar Completado</option>' +
+        '</select>' +
+        '<button onclick="ejecutarAccion(\'' + client.phone + '\', document.getElementById(\'quickAction_' + client.phone + '\').value, this)">▶ Ejecutar</button>' +
+      '</div>' +
+
+      '<div class="crm-section-title">📦 Mover a Post-venta</div>' +
+      '<div class="crm-action-row">' +
+        '<select id="pvSelect_' + client.phone + '">' +
+          '<option value="">Seleccionar destino...</option>' +
+          '<option value="carnet_pendiente_plus">🟢 Pendiente Carnet Club Plus</option>' +
+          '<option value="carnet_pendiente_pro">🔴 Pendiente Carnet Club Pro</option>' +
+          '<option value="despacho_pendiente">📦 Pendiente Envío Dispositivo</option>' +
+          '<option value="municion_pendiente">🔫 Pendiente Envío Munición</option>' +
+          '<option value="recuperacion_pendiente">🔧 Pendiente Recuperación</option>' +
+          '<option value="bot_asesor_pendiente">🤖 Pendiente Bot Asesor</option>' +
+          '<option value="postventa">📋 Post-venta general</option>' +
+        '</select>' +
+        '<button class="green" onclick="moverPostventa(\'' + client.phone + '\')">✅ Mover</button>' +
+      '</div>' +
+
+      '<div class="crm-section-title" style="margin-top:8px;">📂 Historial de Documentos</div>' +
+      '<div id="documentHistory_' + client.phone + '"></div>' +
+    '</div>';
+  } else {
+    const msgCountEl = document.getElementById('comMsgCount');
+    if (msgCountEl) msgCountEl.textContent = '💬 ' + (client.interaction_count || 0) + ' msgs';
+  }
+
+  // Chat
+  const res = await fetch('/api/chat?phone=' + phone);
+  const messages = await res.json();
+
+  const chatHtml = messages.map(m => 
+    '<div style="display:flex;flex-direction:column;align-items:' + (m.role === 'user' ? 'flex-start' : 'flex-end') + ';">' +
+      '<div class="chat-bubble chat-' + m.role + '" ' + (m.role === 'admin' ? 'style="background:#1a5276;border:1px solid #2980b9;"' : '') + '>' + (m.role === 'admin' ? '👤 ' : '') + m.message + '</div>' +
+      '<div class="chat-time">' + (m.role === 'admin' ? 'Álvaro • ' : '') + new Date(m.created_at).toLocaleString() + '</div>' +
+    '</div>'
+  ).join('');
+
+  const chatArea = document.getElementById('chatArea');
+  const prevAdminText = document.getElementById('adminReplyInput') ? document.getElementById('adminReplyInput').value : '';
+
+  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:10px;padding:10px;background:#161b22;border-radius:8px;border:1px solid #30363d;">' +
+      '<textarea id="adminReplyInput" placeholder="Escribir como Álvaro..." style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:8px;resize:none;height:40px;font-family:inherit;font-size:13px;"></textarea>' +
+      '<button onclick="enviarMensajeAdmin()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
+    '</div>';
+    
+  if (prevAdminText) document.getElementById('adminReplyInput').value = prevAdminText;
+
+  if (!isAutoRefresh) {
+    // Esperar a que el DOM renderice antes de hacer scroll
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        chatArea.scrollTop = chatArea.scrollHeight;
+      });
+    });
+    // Restore active CRM tab after re-render
+    if (activeCrmTab && activeCrmTab !== 'perfil') {
+      const tabContent = document.getElementById('crmTab_' + activeCrmTab + '_' + phone);
+      if (tabContent) {
+        document.querySelectorAll('.crm-tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.crm-tab').forEach(t => t.classList.remove('active'));
+        tabContent.classList.add('active');
+        // Highlight the correct tab
+        const tabs = document.querySelectorAll('.crm-tab');
+        tabs.forEach(t => { if (t.textContent.toLowerCase().includes(activeCrmTab === 'notas' ? 'notas' : activeCrmTab === 'acciones' ? 'acciones' : 'perfil')) t.classList.add('active'); });
+      }
+    }
+
+    }
+
+    // Cargar historial de documentos del cliente
+    loadDocumentHistory(phone);
+  }
+}
+
+function toggleDetailPanel() {
+  const detail = document.getElementById('clientDetail');
+  const btn = document.getElementById('btnToggleDetail');
+  const isOpen = detail.classList.toggle('open');
+  btn.classList.toggle('active', isOpen);
+  btn.textContent = isOpen ? '📋 Ocultar Info' : '📋 Info';
+}
+
+function toggleDetailPanelPv() {
+  const detail = document.getElementById('clientDetailPv');
+  const btn = document.getElementById('btnToggleDetailPv');
+  const isOpen = detail.classList.toggle('open');
+  btn.classList.toggle('active', isOpen);
+  btn.textContent = isOpen ? 'Ocultar Info' : 'Info';
+}
+
+let activeCrmTab = 'perfil'; // Remember active tab across re-renders
+let activeCrmTabPv = 'perfil'; // Remember active tab across re-renders for PV
+
+function switchCrmTab(phone, tab, el) {
+  activeCrmTab = tab;
+  document.querySelectorAll('.crm-tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.crm-tab').forEach(t => t.classList.remove('active'));
+  const target = document.getElementById('crmTab_' + tab + '_' + phone);
+  if (target) target.classList.add('active');
+  if (el) el.classList.add('active');
+}
+
+function switchCrmTabPv(phone, tab, el) {
+  activeCrmTabPv = tab;
+  const container = document.getElementById('clientDetailPv');
+  if (container) {
+    container.querySelectorAll('.crm-tab-content').forEach(c => c.classList.remove('active'));
+    container.querySelectorAll('.crm-tab').forEach(t => t.classList.remove('active'));
+  }
+  const target = document.getElementById('crmTabPv_' + tab + '_' + phone);
+  if (target) target.classList.add('active');
+  if (el) el.classList.add('active');
+}
+
+async function cambiarStatusCRM(phone, newStatus) {
+  try {
+    await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, data: { status: newStatus } })
+    });
+    await loadData();
+    selectClient(phone);
+  } catch(e) { console.error(e); }
+}
+
+function setFilter(filter, el) {
+  currentFilter = filter;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderClients();
+}
+
+async function enviarMensajeAdmin() {
+  const input = document.getElementById('adminReplyInput');
+  const message = (input.value || '').trim();
+  if (!message || !selectedPhone) return;
+  input.disabled = true;
+  try {
+    const res = await fetch('/api/enviar-mensaje', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: selectedPhone, message })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      input.value = '';
+      selectClient(selectedPhone); // refrescar chat
+    } else {
+      alert('❌ ' + (data.error || 'Error enviando'));
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el bot');
+  }
+  input.disabled = false;
+}
+
+function filterClients() { renderClients(); }
+
+// Detectar si un phone es LID (ID interno de WA, no número real)
+function isLid(phone) { return phone && phone.length >= 13; }
+// Formatear teléfono legible: 573127983674 → +57 312 798 3674
+function formatPhone(phone) {
+  if (!phone) return '';
+  // Colombiano: 57 + 10 dígitos
+  if (phone.startsWith('57') && phone.length === 12) {
+    return '+57 ' + phone.substring(2, 5) + ' ' + phone.substring(5, 8) + ' ' + phone.substring(8);
+  }
+  return '+' + phone;
+}
+// Mostrar phone legible
+function displayPhone(phone) {
+  if (isLid(phone)) return '<span style="color:#8b949e;font-size:11px;">🔒 ID WhatsApp (privado)</span>';
+  return phone;
+}
+// Enlace wa.me solo si es teléfono real
+function waLink(phone) {
+  if (isLid(phone)) return '<span style="color:#8b949e;font-size:12px;">📵 Sin número real (usuario LID)</span>';
+  return '<a href="https://wa.me/' + phone + '" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir WhatsApp</a>';
+}
+
+async function addNote(phone, note) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note, append: true })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData(); // recargar todo para que hotLeads y listas estén al día
+      selectedPhone = phone;
+      selectClient(phone);
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) { fb.textContent = '✅ Guardado: ' + note; setTimeout(() => { if(fb) fb.textContent = ''; }, 3000); }
+    } else {
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function saveNote(phone) {
+  const input = document.getElementById('noteInput_' + phone);
+  if (!input || !input.value.trim()) return;
+  await addNote(phone, input.value.trim());
+  input.value = '';
+}
+
+async function saveMemory(phone) {
+  // Busca en ambos tabs (Comercial y Postventa)
+  const ta = document.getElementById('memoryEdit_' + phone) || document.getElementById('memoryEditPv_' + phone);
+  if (!ta) return;
+  const newMemory = ta.value.trim();
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note: newMemory, append: false })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      if (selectedPhone === phone) selectClient(phone);
+      if (selectedPhonePv === phone) selectClientPv(phone);
+      alert('✅ Memoria CRM guardada');
+    } else {
+      alert('❌ Error: ' + (data.error || 'desconocido'));
+    }
+  } catch(e) { alert('❌ Error de conexión'); }
+}
+
+async function saveProfile(phone) {
+  const btn = document.querySelector(`button[onclick="saveProfile('${phone}')"]`);
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
+  
+  const profileData = {
+    name: document.getElementById('prof_name_' + phone)?.value.trim() || '',
+    cedula: document.getElementById('prof_cedula_' + phone)?.value.trim() || '',
+    ciudad: document.getElementById('prof_ciudad_' + phone)?.value.trim() || '',
+    direccion: document.getElementById('prof_direccion_' + phone)?.value.trim() || '',
+    profesion: document.getElementById('prof_profesion_' + phone)?.value.trim() || '',
+    club_plan: document.getElementById('prof_club_plan_' + phone)?.value || '',
+    club_vigente_hasta: document.getElementById('prof_club_vigente_hasta_' + phone)?.value || '',
+    modelo_arma: document.getElementById('prof_modelo_arma_' + phone)?.value.trim() || '',
+    serial_arma: document.getElementById('prof_serial_arma_' + phone)?.value.trim() || ''
+  };
+
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, profileData })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const fb = document.getElementById('prof_feedback_' + phone);
+      if (fb) {
+        fb.style.display = 'block';
+        setTimeout(() => { if(fb) fb.style.display = 'none'; }, 4000);
+      }
+      await loadData();
+      selectedPhone = phone;
+      // No llamamos selectClient(phone) para no borrar lo que el usuario estaba escribiendo, 
+      // o bien lo llamamos si queremos actualizar los nombres arriba. Arriba se actualizan solos al tipear? No.
+      // Mejor lo llamamos suave.
+      document.getElementById('chatTitle').textContent = '💬 ' + (profileData.name || phone);
+    } else {
+      alert('❌ Error guardando ficha: ' + data.error);
+    }
+  } catch(e) { 
+    console.error(e);
+    alert('❌ Error conectando con el panel');
+  } finally {
+    btn.innerHTML = originalText;
+  }
+}
+
+
+async function toggleFlag(phone, flag, currentValue) {
+  const newValue = currentValue === 1 ? false : true; // boolean
+  try {
+    const res = await fetch('/api/toggle-client-flag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, flag, value: newValue })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      selectClient(phone);
+    } else {
+      alert('❌ Error actualizando flag: ' + data.error);
+    }
+  } catch (e) {
+    alert('❌ Error conectando con servidor local');
+  }
+}
+
+async function toggleIgnored(phone, ignored) {
+  try {
+    const res = await fetch('/api/set-ignored', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, ignored })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData(); // recargar todo
+      selectedPhone = phone;
+      selectClient(phone);
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = ignored ? '🔇 Silenciado — el bot no responderá' : '✅ Reactivado — el bot responderá de nuevo';
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 3000);
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function changeStatus(phone, status) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note: '', append: true, status })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData(); // recargar todo para que los tabs reflejen el nuevo estado
+      selectedPhone = phone;
+      selectClient(phone);
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '✅ Estado actualizado a: ' + status;
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 3000);
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function devolverAlBot(phone) {
+  if (!confirm('¿Devolver este cliente al bot? El bot volverá a responder automáticamente.')) return;
+  try {
+    const res = await fetch('/api/devolver-bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '🤖 Cliente devuelto al bot — responderá automáticamente';
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 4000);
+      }
+    } else {
+      alert('❌ ' + (data.error || 'Error devolviendo al bot'));
+    }
+  } catch(e) {
+    alert('❌ Error conectando con el bot. ¿Está corriendo?');
+  }
+}
+
+// Dispatcher para dropdown de acciones — Comercial
+function ejecutarAccion(phone, action, btn) {
+  if (!action) return;
+  const sel = document.getElementById('quickAction_' + phone);
+  switch(action) {
+    case 'carnet': abrirModalCarnet(phone); break;
+    case 'factura': abrirModalFactura(phone); break;
+    case 'catalogo': enviarCatalogo(phone, btn); break;
+    case 'guia': abrirModalGuia(phone); break;
+    case 'reatender': reatenderCliente(phone, btn); break;
+    case 'devolver_bot': devolverAlBot(phone); break;
+    case 'reactivar_normal': reactivarIndividual(phone, btn, 'normal'); break;
+    case 'reactivar_ultra': reactivarIndividual(phone, btn, 'ultra'); break;
+    case 'ignorar': { const c = allData.clients.find(c => c.phone === phone); toggleIgnored(phone, c && c.ignored ? 0 : 1); break; }
+    case 'resetear': changeStatus(phone, 'new'); break;
+    case 'completado': changeStatus(phone, 'completed'); break;
+    default: break;
+  }
+  if (sel) sel.selectedIndex = 0;
+}
+
+// Dispatcher para dropdown de acciones — Post-venta
+function ejecutarAccionPv(phone, action, btn) {
+  if (!action) return;
+  const sel = document.getElementById('quickActionPv_' + phone);
+  switch(action) {
+    case 'carnet': abrirModalCarnet(phone); break;
+    case 'factura': abrirModalFactura(phone); break;
+    case 'catalogo': enviarCatalogo(phone, btn); break;
+    case 'guia': abrirModalGuia(phone); break;
+    case 'reatender': reatenderCliente(phone, btn); break;
+    case 'devolver_bot': devolverAlBot(phone); break;
+    case 'reactivar_normal': reactivarIndividual(phone, btn, 'normal'); break;
+    case 'reactivar_ultra': reactivarIndividual(phone, btn, 'ultra'); break;
+    case 'seguimiento_pv': reatenderPostventaPv(phone, btn); break;
+    case 'devolver_comercial': changeStatusPv(phone, 'new'); break;
+    case 'completado': changeStatusPv(phone, 'completed'); break;
+    default: break;
+  }
+  if (sel) sel.selectedIndex = 0;
+}
+
+async function enviarCatalogo(phone, btn) {
+  if (!confirm('¿Enviar catálogo completo con fotos a este cliente? Se enviarán todas las referencias disponibles.')) return;
+  const originalText = btn.textContent;
+  btn.textContent = '⏳ Enviando...';
+  btn.style.pointerEvents = 'none';
+  btn.style.opacity = '0.6';
+  try {
+    const res = await fetch('/api/enviar-catalogo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ Catálogo enviado';
+      btn.style.background = '#1a3a2a';
+      const fb = document.getElementById('noteFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '📋 Catálogo enviándose en background — puede tardar unos minutos';
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 6000);
+      }
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.pointerEvents = '';
+        btn.style.opacity = '';
+      }, 10000);
+    } else {
+      alert('❌ ' + (data.error || 'Error enviando catálogo'));
+      btn.textContent = originalText;
+      btn.style.pointerEvents = '';
+      btn.style.opacity = '';
+    }
+  } catch(e) {
+    alert('❌ Error conectando con el bot. ¿Está corriendo?');
+    btn.textContent = originalText;
+    btn.style.pointerEvents = '';
+    btn.style.opacity = '';
+  }
+}
+
+async function moverPostventa(phone) {
+  const select = document.getElementById('pvSelect_' + phone);
+  const status = select ? select.value : '';
+  if (!status) { alert('Selecciona una sub-categoría de post-venta'); return; }
+  try {
+    const res = await fetch('/api/cambiar-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, status })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      switchMainTab('postventa');
+    } else { alert('Error: ' + (data.error || 'desconocido')); }
+  } catch(e) { console.error(e); }
+}
+
+async function migrarAssigned() {
+  const btn = document.getElementById('btnMigrar');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Migrando...'; }
+  try {
+    const res = await fetch('/api/migrar-assigned', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      alert(`✅ Migración lista: ${data.migrados} clientes pasados de "asignados" → 🔥 Calientes`);
+      await loadData();
+    } else { alert('Error: ' + (data.error || 'desconocido')); }
+  } catch(e) { alert('Error de conexión'); }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Migrar Asignados → Calientes'; }
+}
+
+async function loadComprobanteBadge(count) {
+  const badge = document.getElementById('comprobanteBadge');
+  if (badge) {
+    if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+    else badge.style.display = 'none';
+  }
+}
+
+async function loadCarnetsBadge(count) {
+  const badge = document.getElementById('carnetsBadge');
+  if (badge) {
+    if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
+    else badge.style.display = 'none';
+  }
+}
+
+// Escuchar Server-Sent Events (SSE) para badges sin hacer pollling
+const eventSource = new EventSource('/api/events');
+eventSource.onmessage = function(event) {
+  try {
+    const data = JSON.parse(event.data);
+    loadComprobanteBadge(data.comprobantesCount);
+    loadCarnetsBadge(data.carnetsCount);
+  } catch(e) {}
+};
+
+async function refreshAll() {
+  await loadData();
+  // Badge post-venta (todos los status del grupo PV)
+  if (allData) {
+    const pvStatuses = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+    const pvCount = allData.clients.filter(c => pvStatuses.includes(c.status)).length;
+    const badge = document.getElementById('postventaBadge');
+    if (badge) { badge.textContent = pvCount; badge.style.display = pvCount > 0 ? 'inline' : 'none'; }
+  }
+  // Si estamos en post-venta, refrescar la lista
+  if (currentMainTab === 'postventa') renderPostventa();
+  if (currentMainTab === 'comprobantes') loadComprobantes();
+  if (currentMainTab === 'carnets') loadCarnets();
+  if (selectedPhone && currentMainTab === 'comercial') selectClient(selectedPhone, true);
+  if (selectedPhonePv && currentMainTab === 'postventa') selectClientPv(selectedPhonePv, true);
+}
+
+// Carga inicial de datos
+refreshAll();
+
+// Auto-refresh cada 10 segundos — sincroniza con WhatsApp en tiempo real
+let _loadingData = false;
+setInterval(async () => {
+  if (_loadingData) return;
+  _loadingData = true;
+  try { await refreshAll(); } catch(e) {}
+  _loadingData = false;
+}, 10000);
+
+// ====== VISTA PRINCIPAL TABS ======
+let currentMainTab = 'comercial';
+
+function switchMainTab(tab) {
+  currentMainTab = tab;
+  document.getElementById('mainTabComercial').classList.toggle('active', tab === 'comercial');
+  document.getElementById('mainTabComprobantes').classList.toggle('active', tab === 'comprobantes');
+  document.getElementById('mainTabCarnets').classList.toggle('active', tab === 'carnets');
+  document.getElementById('mainTabPostventa').classList.toggle('active', tab === 'postventa');
+  document.getElementById('viewClientes').classList.toggle('active', tab === 'comercial');
+  document.getElementById('viewComprobantes').classList.toggle('active', tab === 'comprobantes');
+  document.getElementById('viewCarnets').classList.toggle('active', tab === 'carnets');
+  document.getElementById('viewPostventa').classList.toggle('active', tab === 'postventa');
+  if (tab === 'comprobantes') loadComprobantes();
+  if (tab === 'carnets') loadCarnets();
+  if (tab === 'postventa') renderPostventa();
+}
+
+// ====== POST-VENTA ======
+let selectedPhonePv = null;
+let currentPvFilter = 'all';
+
+// Todos los status que pertenecen a post-venta
+const PV_STATUSES = ['postventa', 'carnet_pendiente_plus', 'carnet_pendiente_pro', 'despacho_pendiente', 'municion_pendiente', 'recuperacion_pendiente', 'bot_asesor_pendiente'];
+
+const PV_LABELS = {
+  'postventa': 'Post-venta',
+  'carnet_pendiente_plus': '🟢 Carnet Plus',
+  'carnet_pendiente_pro': '🔴 Carnet Pro',
+  'despacho_pendiente': '📦 Dispositivo',
+  'municion_pendiente': '🔫 Munición',
+  'recuperacion_pendiente': '🔧 Recuperación',
+  'bot_asesor_pendiente': '🤖 Bot Asesor'
+};
+
+function setPvFilter(filter, el) {
+  currentPvFilter = filter;
+  document.querySelectorAll('[data-pvfilter]').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderPostventa();
+}
+
+function renderPostventa() {
+  if (!allData) return;
+  // Todos los clientes de post-venta = cualquier status del grupo PV
+  let allPv = allData.clients.filter(c => PV_STATUSES.includes(c.status));
+
+  // Aplicar sub-filtro
+  let clients = currentPvFilter === 'all'
+    ? allPv
+    : allPv.filter(c => c.status === currentPvFilter);
+
+  // Búsqueda
+  const rawSearchPv = (document.getElementById('searchPostventa')?.value || '').toLowerCase().trim();
+  const searchPvDigits = rawSearchPv.replace(/[^0-9]/g, '');
+  if (rawSearchPv) clients = clients.filter(c =>
+    (c.name||'').toLowerCase().includes(rawSearchPv) ||
+    (searchPvDigits && c.phone.includes(searchPvDigits))
+  );
+
+  document.getElementById('postventaCount').textContent = allPv.length;
+
+  // Badge en tab principal (total de todos los PV)
+  const badge = document.getElementById('postventaBadge');
+  if (badge) { badge.textContent = allPv.length; badge.style.display = allPv.length > 0 ? 'inline' : 'none'; }
+
+  const html = clients.map(c => {
+    const initial = (c.name || c.phone).charAt(0).toUpperCase();
+    const statusLabel = PV_LABELS[c.status] || c.status;
+    const statusClass = 'status-' + c.status.replace(/_/g, '-');
+    return '<div class="client-row ' + (selectedPhonePv === c.phone ? 'active' : '') + '" onclick="selectClientPv(\'' + c.phone + '\')">' +
+      '<div class="client-avatar" style="color:#3fb950;">' + initial + '</div>' +
+      '<div class="client-info">' +
+        '<div class="client-name">' + (c.name || 'Sin nombre') + '</div>' +
+        '<div class="client-phone">' + (isLid(c.phone) ? '🔒 ID privado' : c.phone) + '</div>' +
+        (c.memory ? '<div class="client-memory">💭 ' + c.memory.substring(0, 80) + '</div>' : '') +
+      '</div>' +
+      '<div class="client-meta">' +
+        '<div class="client-status ' + statusClass + '" style="font-size:9px;">' + statusLabel + '</div>' +
+        '<div class="client-count">' + (c.interaction_count || 0) + ' msgs</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  document.getElementById('postventaList').innerHTML = html || '<div class="chat-empty">Sin clientes en esta categoría</div>';
+}
+
+function filterPostventa() { renderPostventa(); }
+
+async function selectClientPv(phone, isAutoRefresh = false) {
+  selectedPhonePv = phone;
+  renderPostventa();
+  const client = allData.clients.find(c => c.phone === phone);
+  const assignment = allData.assignments.find(a => a.client_phone === phone && a.status === 'active');
+  document.getElementById('chatTitlePv').textContent = '💬 ' + (client.name || phone);
+  if (!isAutoRefresh) {
+    const toggleBtnPv = document.getElementById('btnToggleDetailPv');
+    toggleBtnPv.style.display = 'inline-block';
+    document.getElementById('clientDetailPv').classList.add('open');
+    toggleBtnPv.classList.add('active');
+    toggleBtnPv.textContent = 'Ocultar Info';
+  }
+  const statusClass = 'status-' + (client.status || 'postventa').replace(/_/g, '-');
+  const statusLabel = PV_LABELS[client.status] || client.status || 'postventa';
+  
+  if (!isAutoRefresh) {
+    document.getElementById('clientDetailPv').innerHTML = '<div class="client-detail">' +
+      '<div class="crm-header-bar" id="pvHeaderBar">' +
+        '<h3>' + (client.name || 'Sin nombre') + 
+          ' <select class="client-status ' + statusClass + '" onchange="changeStatusPv(\'' + client.phone + '\', this.value)" style="background:none; color:inherit; border:none; outline:none; cursor:pointer; font-weight:inherit; font-family:inherit; font-size:inherit; padding:0 4px; appearance:auto;">' +
+            '<option value="postventa" ' + ((client.status||'postventa')==='postventa'?'selected':'') + ' style="color:black;">Post-venta</option>' +
+            '<option value="carnet_pendiente_plus" ' + (client.status==='carnet_pendiente_plus'?'selected':'') + ' style="color:black;">🟢 Carnet Plus</option>' +
+            '<option value="carnet_pendiente_pro" ' + (client.status==='carnet_pendiente_pro'?'selected':'') + ' style="color:black;">🔴 Carnet Pro</option>' +
+            '<option value="despacho_pendiente" ' + (client.status==='despacho_pendiente'?'selected':'') + ' style="color:black;">📦 Dispositivo</option>' +
+            '<option value="municion_pendiente" ' + (client.status==='municion_pendiente'?'selected':'') + ' style="color:black;">🔫 Munición</option>' +
+            '<option value="recuperacion_pendiente" ' + (client.status==='recuperacion_pendiente'?'selected':'') + ' style="color:black;">🔧 Recuperación</option>' +
+            '<option value="bot_asesor_pendiente" ' + (client.status==='bot_asesor_pendiente'?'selected':'') + ' style="color:black;">🤖 Bot Asesor</option>' +
+          '</select>' +
+        '</h3>' +
+        '<div class="crm-meta">' +
+          '<span>' + (isLid(client.phone) ? '🔒 ' + client.phone : '📱 ' + client.phone) + '</span>' +
+          '<span id="pvMsgCount">💬 ' + (client.interaction_count || 0) + ' msgs</span>' +
+          '<span>📅 ' + new Date(client.created_at).toLocaleDateString() + '</span>' +
+        (assignment ? '<span>👔 ' + assignment.employee_name + '</span>' : '') +
+      '</div>' +
+      '<div style="margin-left:auto;display:flex;gap:6px;">' +
+        waLink(client.phone) +
+      '</div>' +
+    '</div>' +
+
+    '<!-- CARNET DATA COMPLETENESS CHECK PV -->' +
+    (function() {
+      const missing = [];
+      if (!client.name || client.name.trim().length < 3) missing.push('Nombre completo');
+      if (!client.cedula) missing.push('Cédula');
+      if (!client.modelo_arma) missing.push('Modelo arma');
+      if (!client.serial_arma) missing.push('Serial arma');
+      if (!client.club_plan) missing.push('Plan Club');
+      if (missing.length === 0) {
+        return '<div class="crm-carnet-ok">✅ Datos completos para carnet</div>';
+      }
+      return '<div class="crm-carnet-warn"><span class="warn-icon">⚠️</span><div class="warn-text">Faltan datos para generar carnet: <span class="warn-fields">' + missing.join(' · ') + '</span></div></div>';
+    })() +
+
+    '<!-- CRM TABS PV -->' +
+    '<div class="crm-tabs">' +
+      '<div class="crm-tab active" onclick="switchCrmTabPv(\'' + client.phone + '\',\'perfil\',this)">📋 Perfil</div>' +
+      '<div class="crm-tab" onclick="switchCrmTabPv(\'' + client.phone + '\',\'notas\',this)">🧠 Notas</div>' +
+      '<div class="crm-tab" onclick="switchCrmTabPv(\'' + client.phone + '\',\'acciones\',this)">⚡ Acciones</div>' +
+    '</div>' +
+
+    '<!-- TAB: PERFIL (PV) -->' +
+    '<div class="crm-tab-content active" id="crmTabPv_perfil_' + client.phone + '">' +
+      '<div class="crm-section-title">🔒 Bóveda de Servicios</div>' +
+      '<div class="crm-toggles" style="margin-bottom:12px;">' +
+        '<label class="crm-toggle-chip"><input type="checkbox" ' + (client.has_bought_gun ? 'checked' : '') + ' onchange="toggleFlagPv(\'' + client.phone + '\', \'has_bought_gun\', ' + (client.has_bought_gun || 0) + ')"> 🔫 Compró Arma</label>' +
+        '<label class="crm-toggle-chip"><input type="checkbox" ' + (client.is_club_plus ? 'checked' : '') + ' onchange="toggleFlagPv(\'' + client.phone + '\', \'is_club_plus\', ' + (client.is_club_plus || 0) + ')" style="accent-color:#d29922;"> 🟡 Club Plus</label>' +
+        '<label class="crm-toggle-chip"><input type="checkbox" ' + (client.is_club_pro ? 'checked' : '') + ' onchange="toggleFlagPv(\'' + client.phone + '\', \'is_club_pro\', ' + (client.is_club_pro || 0) + ')" style="accent-color:#f85149;"> 🔴 Club Pro</label>' +
+        '<label class="crm-toggle-chip"><input type="checkbox" ' + (client.has_ai_bot ? 'checked' : '') + ' onchange="toggleFlagPv(\'' + client.phone + '\', \'has_ai_bot\', ' + (client.has_ai_bot || 0) + ')" style="accent-color:#1f6feb;"> 🤖 Bot IA</label>' +
+      '</div>' +
+
+      '<div class="crm-section-title">📋 Ficha CRM Completa — Datos Personales</div>' +
+      '<div class="crm-grid">' +
+        '<div class="crm-field"><label>Nombre</label><input id="prof_name_' + client.phone + '" type="text" value="' + (client.name || '') + '"></div>' +
+        '<div class="crm-field"><label>Cédula</label><input id="prof_cedula_' + client.phone + '" type="text" value="' + (client.cedula || '') + '"></div>' +
+        '<div class="crm-field"><label>Ciudad</label><input id="prof_ciudad_' + client.phone + '" type="text" value="' + (client.ciudad || '') + '"></div>' +
+        '<div class="crm-field"><label>Dirección</label><input id="prof_direccion_' + client.phone + '" type="text" value="' + (client.direccion || '') + '"></div>' +
+        '<div class="crm-field"><label>Profesión</label><input id="prof_profesion_' + client.phone + '" type="text" value="' + (client.profesion || '') + '"></div>' +
+      '</div>' +
+
+      '<div class="crm-section-title" style="margin-top:10px;">Armamento & Club</div>' +
+      '<div class="crm-grid">' +
+        '<div class="crm-field"><label>Plan Club</label>' +
+          '<select id="prof_club_plan_' + client.phone + '">' +
+            '<option value="" ' + (!client.club_plan ? 'selected' : '') + '>— Ninguno —</option>' +
+            '<option value="Plan Plus" ' + (client.club_plan === 'Plan Plus' ? 'selected' : '') + '>🟡 Plan Plus</option>' +
+            '<option value="Plan Pro" ' + (client.club_plan === 'Plan Pro' ? 'selected' : '') + '>🔴 Plan Pro</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="crm-field"><label>Vigente hasta</label><input id="prof_club_vigente_hasta_' + client.phone + '" type="date" value="' + (client.club_vigente_hasta || '') + '"></div>' +
+        '<div class="crm-field"><label>Modelo arma</label><input id="prof_modelo_arma_' + client.phone + '" type="text" value="' + (client.modelo_arma || '') + '"></div>' +
+        '<div class="crm-field"><label>Serial arma</label><input id="prof_serial_arma_' + client.phone + '" type="text" value="' + (client.serial_arma || '') + '"></div>' +
+      '</div>' +
+      '<div class="crm-save-row">' +
+        '<button class="crm-save-btn" onclick="saveProfile(\'' + client.phone + '\')">💾 Guardar Ficha CRM</button>' +
+        '<div id="prof_feedback_' + client.phone + '" style="display:none;color:#3fb950;font-size:12px;">✅ Ficha guardada</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<!-- TAB: NOTAS (PV) -->' +
+    '<div class="crm-tab-content" id="crmTabPv_notas_' + client.phone + '">' +
+      '<div class="crm-section-title">🧠 Memoria CRM</div>' +
+      '<textarea class="crm-memory-textarea" id="memoryEditPv_' + client.phone + '">' + ((client.memory || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')) + '</textarea>' +
+      '<div style="display:flex;gap:8px;margin-top:6px;">' +
+        '<button class="crm-save-btn" onclick="saveMemory(\'' + client.phone + '\')">💾 Guardar Memoria</button>' +
+        '<div id="memoryFeedbackPv_' + client.phone + '" style="display:none;color:#3fb950;font-size:12px;align-self:center;">✅ Memoria guardada</div>' +
+      '</div>' +
+
+      '<div class="crm-section-title" style="margin-top:14px;">📝 Nota rápida</div>' +
+      '<div class="crm-action-row">' +
+        '<select id="quickNotePv_' + client.phone + '">' +
+          '<option value="">📝 Nota rápida...</option>' +
+          '<option value="📦 Dispositivo despachado">📦 Dispositivo despachado</option>' +
+          '<option value="💰 Pago recibido y confirmado">💰 Pago recibido</option>' +
+          '<option value="🏆 Afiliación al club activa">🏆 Afiliación activa</option>' +
+          '<option value="🔫 Munición despachada">🔫 Munición enviada</option>' +
+          '<option value="🔧 Dispositivo en recuperación">🔧 En recuperación</option>' +
+          '<option value="📋 Pendiente: enviar carnet">🕐 Pendiente carnet</option>' +
+          '<option value="📋 Pendiente: despachar dispositivo">🕐 Pendiente despacho</option>' +
+          '<option value="✅ Caso resuelto">✅ Caso resuelto</option>' +
+        '</select>' +
+        '<button class="green" onclick="const s=document.getElementById(\'quickNotePv_' + client.phone + '\');if(s.value){addNotePv(\'' + client.phone + '\',s.value);s.selectedIndex=0;}">✅ Aplicar</button>' +
+      '</div>' +
+
+      '<div class="crm-section-title">✏️ Nota Libre</div>' +
+      '<div class="crm-action-row">' +
+        '<input type="text" class="crm-note-input" id="notePvInput_' + client.phone + '" placeholder="Nota interna libre..." onkeydown="if(event.key===\'Enter\') saveNotePv(\'' + client.phone + '\')" style="flex:1;">' +
+        '<button class="green" onclick="saveNotePv(\'' + client.phone + '\')">📝 Guardar</button>' +
+      '</div>' +
+      '<div class="crm-feedback" id="notePvFeedback_' + client.phone + '" style="font-size:11px;color:#3fb950;height:14px;"></div>' +
+    '</div>' +
+
+    '<!-- TAB: ACCIONES (PV) -->' +
+    '<div class="crm-tab-content" id="crmTabPv_acciones_' + client.phone + '">' +
+      '<div class="crm-section-title">⚡ Acciones Rápidas</div>' +
+      '<div class="crm-action-row">' +
+        '<select id="quickActionPv_' + client.phone + '">' +
+          '<option value="">⚡ Acción...</option>' +
+          '<option value="carnet">🪪 Enviar Carnet por WhatsApp</option>' +
+          '<option value="factura">🧾 Enviar Factura por WhatsApp</option>' +
+          '<option value="catalogo">📋 Enviar Catálogo</option>' +
+          '<option value="guia">📦 Enviar Guía de Envío</option>' +
+          '<option value="reatender">🔄 Reatender (Último Msj)</option>' +
+          '<option value="devolver_bot">🤖 Devolver al Bot</option>' +
+          '<option value="reactivar_normal">🔥 Reactivar Integración IA</option>' +
+          '<option value="reactivar_ultra">💎 Reactivar Ultra (Promos)</option>' +
+          '<option value="seguimiento_pv">📬 Seguimiento Post-venta (IA)</option>' +
+          '<option value="devolver_comercial">↩️ Devolver a Comercial</option>' +
+          '<option value="completado">🏁 Marcar completado</option>' +
+        '</select>' +
+        '<button onclick="ejecutarAccionPv(\'' + client.phone + '\', document.getElementById(\'quickActionPv_' + client.phone + '\').value, this)">▶ Ejecutar</button>' +
+      '</div>' +
+
+      '<div class="crm-section-title">📂 Categorizar Post-venta</div>' +
+      '<div class="crm-action-row">' +
+        '<select id="categorizePv_' + client.phone + '">' +
+          '<option value="">📂 Categorizar...</option>' +
+          '<option value="carnet_pendiente_plus">🟢 Pend. Carnet Plus</option>' +
+          '<option value="carnet_pendiente_pro">🔴 Pend. Carnet Pro</option>' +
+          '<option value="despacho_pendiente">📦 Pend. Dispositivo</option>' +
+          '<option value="municion_pendiente">🔫 Pend. Munición</option>' +
+          '<option value="recuperacion_pendiente">🔧 Pend. Recuperación</option>' +
+          '<option value="bot_asesor_pendiente">🤖 Pend. Bot Asesor</option>' +
+        '</select>' +
+        '<button class="green" onclick="const s=document.getElementById(\'categorizePv_' + client.phone + '\');if(s.value){changeStatusPv(\'' + client.phone + '\',s.value);s.selectedIndex=0;}">✅ Aplicar</button>' +
+      '</div>' +
+
+      '<div class="crm-section-title" style="margin-top:8px;">📂 Historial de Documentos</div>' +
+      '<div id="documentHistory_' + client.phone + '"></div>' +
+    '</div>' +
+  '</div>';
+  } else {
+    const msgCountEl = document.getElementById('pvMsgCount');
+    if (msgCountEl) msgCountEl.textContent = '💬 ' + (client.interaction_count || 0) + ' msgs';
+  }
+  const res = await fetch('/api/chat?phone=' + phone);
+  const messages = await res.json();
+  const chatHtml = messages.map(function(m) {
+    return '<div style="display:flex;flex-direction:column;align-items:' + (m.role === 'user' ? 'flex-start' : 'flex-end') + ';">' +
+      '<div class="chat-bubble chat-' + m.role + '" ' + (m.role === 'admin' ? 'style="background:#1a5276;border:1px solid #2980b9;"' : '') + '>' + (m.role === 'admin' ? '👤 ' : '') + m.message + '</div>' +
+      '<div class="chat-time">' + (m.role === 'admin' ? 'Álvaro • ' : '') + new Date(m.created_at).toLocaleString() + '</div>' +
+    '</div>';
+  }).join('');
+  const chatArea = document.getElementById('chatAreaPv');
+  // Avoid re-rendering the admin reply textarea if not necessary, but since it's mixed with chat messages we have to:
+  const prevAdminTextPv = document.getElementById('adminReplyInputPv') ? document.getElementById('adminReplyInputPv').value : '';
+  
+  chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:10px;padding:10px;background:#161b22;border-radius:8px;border:1px solid #30363d;">' +
+      '<textarea id="adminReplyInputPv" placeholder="Escribir como Álvaro..." style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:8px;resize:none;height:40px;font-family:inherit;font-size:13px;"></textarea>' +
+      '<button onclick="enviarMensajeAdminPv()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
+    '</div>';
+    
+  if (prevAdminTextPv) document.getElementById('adminReplyInputPv').value = prevAdminTextPv;
+
+  if (!isAutoRefresh) {
+    requestAnimationFrame(() => requestAnimationFrame(() => { chatArea.scrollTop = chatArea.scrollHeight; }));
+
+    if (activeCrmTabPv && activeCrmTabPv !== 'perfil') {
+      const tabContentPv = document.getElementById('crmTabPv_' + activeCrmTabPv + '_' + phone);
+      if (tabContentPv) {
+        const pContainer = document.getElementById('clientDetailPv');
+        pContainer.querySelectorAll('.crm-tab-content').forEach(c => c.classList.remove('active'));
+        pContainer.querySelectorAll('.crm-tab').forEach(t => t.classList.remove('active'));
+        tabContentPv.classList.add('active');
+        pContainer.querySelectorAll('.crm-tab').forEach(t => { if (t.textContent.toLowerCase().includes(activeCrmTabPv === 'notas' ? 'notas' : activeCrmTabPv === 'acciones' ? 'acciones' : 'perfil')) t.classList.add('active'); });
+      }
+    }
+
+    loadDocumentHistory(phone);
+  }
+}
+
+// Helpers post-venta — refrescan la vista PV en lugar de la comercial
+async function addNotePv(phone, note) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note, append: true })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      renderPostventa();
+      selectedPhonePv = phone;
+      selectClientPv(phone);
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) { fb.textContent = '✅ Guardado: ' + note; setTimeout(() => { if(fb) fb.textContent = ''; }, 3000); }
+    } else {
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function saveNotePv(phone) {
+  const input = document.getElementById('notePvInput_' + phone);
+  if (!input || !input.value.trim()) return;
+  await addNotePv(phone, input.value.trim());
+  input.value = '';
+}
+
+async function toggleFlagPv(phone, flag, currentValue) {
+  const newValue = currentValue === 1 ? false : true;
+  try {
+    const res = await fetch('/api/toggle-client-flag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, flag, value: newValue })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      selectClientPv(phone);
+    } else {
+      alert('❌ Error actualizando flag: ' + data.error);
+    }
+  } catch (e) {
+    alert('❌ Error conectando con servidor local');
+  }
+}
+
+async function changeStatusPv(phone, status) {
+  try {
+    const res = await fetch('/api/update-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, note: '', append: true, status })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadData();
+      renderPostventa();
+      selectedPhonePv = phone;
+      selectClientPv(phone);
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) {
+        fb.textContent = '✅ Estado actualizado a: ' + (PV_LABELS[status] || status);
+        setTimeout(() => { if(fb) fb.textContent = ''; }, 3000);
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function reatenderPostventaPv(phone, btn) {
+  const original = btn.textContent;
+  btn.textContent = '⏳ Enviando...';
+  btn.style.pointerEvents = 'none';
+  try {
+    const res = await fetch('/api/reatender-postventa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = '✅ Enviado';
+      btn.style.background = '#1a3a2a';
+      btn.style.color = '#3fb950';
+      const fb = document.getElementById('notePvFeedback_' + phone);
+      if (fb) { fb.textContent = '✅ Seguimiento enviado — el bot contactó al cliente'; setTimeout(() => { if(fb) fb.textContent = ''; }, 5000); }
+      // Refrescar chat para ver el mensaje enviado
+      setTimeout(() => selectClientPv(phone), 2000);
+    } else {
+      btn.textContent = '❌ Error';
+      alert('Error: ' + (data.message || data.error || 'desconocido'));
+    }
+  } catch(e) {
+    btn.textContent = '❌ Error';
+    alert('No se pudo conectar con el bot');
+  }
+  setTimeout(() => { btn.textContent = original; btn.style.pointerEvents = ''; btn.style.background = ''; btn.style.color = ''; }, 4000);
+}
+
+async function enviarMensajeAdminPv() {
+  const input = document.getElementById('adminReplyInputPv');
+  const message = (input.value || '').trim();
+  if (!message || !selectedPhonePv) return;
+  input.disabled = true;
+  try {
+    const res = await fetch('/api/enviar-mensaje', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: selectedPhonePv, message })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      input.value = '';
+      selectClientPv(selectedPhonePv); // refrescar chat
+    } else {
+      alert('❌ ' + (data.error || 'Error enviando'));
+    }
+  } catch (e) {
+    alert('❌ Error conectando con el bot');
+  }
+  input.disabled = false;
+}
+
+// ====== COMPROBANTES ======
+async function loadComprobantes() {
+  try {
+    const res = await fetch('/api/comprobantes');
+    const comprobantes = await res.json();
+
+    // Actualizar badge
+    const badge = document.getElementById('comprobanteBadge');
+    if (comprobantes.length > 0) {
+      badge.textContent = comprobantes.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const container = document.getElementById('comprobantesList');
+    if (!comprobantes.length) {
+      container.innerHTML = '<div class="comprobante-empty">✅ No hay comprobantes pendientes de verificar</div>';
+      return;
+    }
+
+    container.innerHTML = comprobantes.map(c => {
+      const tipoClass = (c.tipo === 'club' || c.tipo === 'club_plus' || c.tipo === 'club_pro') ? 'tipo-club' : c.tipo === 'producto' ? 'tipo-producto' : c.tipo === 'bot_asesor' ? 'tipo-bot' : 'tipo-desconocido';
+      const tipoLabel = c.tipo === 'club_plus' ? '🟡 Club Plus' : c.tipo === 'club_pro' ? '🔴 Club Pro' : c.tipo === 'club' ? '🏆 Club ZT' : c.tipo === 'producto' ? '📦 Producto' : c.tipo === 'bot_asesor' ? '🤖 Bot Asesor' : '❓ Desconocido';
+      const fecha = new Date(c.created_at).toLocaleString('es-CO');
+      const imgHtml = c.imagen_base64
+        ? '<img class="comprobante-img" src="data:' + c.imagen_mime + ';base64,' + c.imagen_base64 + '" alt="comprobante" onclick="openLightbox(this.src)" title="Click para ver completo">'
+        : '<div class="comprobante-img-placeholder">📄 Sin imagen</div>';
+
+      return '' +
+        '<div class="comprobante-card" id="comp_' + c.id + '">' +
+          imgHtml +
+          '<div class="comprobante-info">' +
+            '<div class="comprobante-name">' + (c.client_name || 'Sin nombre') + '</div>' +
+            '<div class="comprobante-phone">📱 ' + c.client_phone + '</div>' +
+            '<div class="comprobante-detail">' +
+              (c.info ? c.info.split(',').map(p => '<strong>' + p.trim() + '</strong>').join(' &nbsp;·&nbsp; ') : '<em style="color:#3d4f5f">Sin info detectada</em>') +
+            '</div>' +
+            '<div><span class="comprobante-tipo ' + tipoClass + '">' + tipoLabel + '</span></div>' +
+            '<div class="comprobante-time">📅 ' + fecha + '</div>' +
+            '<div style="margin-top:8px;"><a href="https://wa.me/' + c.client_phone + '" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir en WhatsApp</a></div>' +
+          '</div>' +
+          '<div class="comprobante-actions">' +
+            '<div style="margin-bottom:8px;">' +
+              '<span style="color:#8b949e;font-size:11px;">📋 Tipo(s) de compra:</span>' +
+              '<div id="tipoChecks_' + c.id + '" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">' +
+                '<label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">' +
+                  '<input type="checkbox" value="club_plus" ' + (c.tipo === 'club_plus' || c.tipo === 'club' || c.tipo === 'club_y_bot' ? 'checked' : '') + ' style="accent-color:#d29922;"> 🟡 Club Plus ($100k)' +
+                '</label>' +
+                '<label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">' +
+                  '<input type="checkbox" value="club_pro" ' + (c.tipo === 'club_pro' ? 'checked' : '') + ' style="accent-color:#f85149;"> 🔴 Club Pro ($150k)' +
+                '</label>' +
+                '<label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">' +
+                  '<input type="checkbox" value="bot_asesor" ' + (c.tipo === 'bot_asesor' || c.tipo === 'club_y_bot' ? 'checked' : '') + ' style="accent-color:#1f6feb;"> 🤖 Bot Asesor' +
+                '</label>' +
+                '<label style="display:flex;align-items:center;gap:3px;background:#111820;border:1px solid #30363d;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;color:#e6edf3;">' +
+                  '<input type="checkbox" value="producto" ' + (c.tipo === 'producto' ? 'checked' : '') + ' style="accent-color:#d29922;"> 📦 Producto/Arma' +
+                '</label>' +
+              '</div>' +
+            '</div>' +
+            '<button class="btn-confirmar" id="btn_confirm_' + c.id + '" onclick="confirmarComprobante(' + c.id + ', \'confirmar\', \'' + c.client_phone + '\')">✅ Confirmar pago</button>' +
+            '<button class="btn-rechazar" id="btn_reject_' + c.id + '" onclick="confirmarComprobante(' + c.id + ', \'rechazar\', \'' + c.client_phone + '\')">❌ Rechazar</button>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+  } catch(e) {
+    console.error('Error cargando comprobantes:', e);
+  }
+}
+
+function confirmarComprobante(id, accion, phone) {
+  const container = document.getElementById('tipoChecks_' + id);
+  const checked = container ? Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value) : [];
+  
+  if (accion === 'confirmar' && checked.length === 0) {
+    alert('⚠️ Selecciona al menos un tipo de compra antes de confirmar.');
+    return;
+  }
+  
+  // Enviar como string separado por comas: "club,bot_asesor" o "producto" etc.
+  const tipo = checked.join(',');
+  accionComprobante(id, accion, phone, tipo);
+}
+
+async function accionComprobante(id, accion, phone, tipo) {
+  const btnConfirm = document.getElementById('btn_confirm_' + id);
+  const btnReject = document.getElementById('btn_reject_' + id);
+  if (btnConfirm) btnConfirm.disabled = true;
+  if (btnReject) btnReject.disabled = true;
+  const label = accion === 'confirmar' ? (btnConfirm || {}) : (btnReject || {});
+  if (accion === 'confirmar' && btnConfirm) btnConfirm.textContent = '⏳ Confirmando...';
+  if (accion === 'rechazar' && btnReject) btnReject.textContent = '⏳ Rechazando...';
+
+  try {
+    const res = await fetch('/api/confirmar-comprobante', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, accion, phone, tipo })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const card = document.getElementById('comp_' + id);
+      if (card) {
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+        let status;
+        if (!data.waSent) {
+          // BD actualizada pero el mensaje de WA falló
+          const accionLabel = accion === 'confirmar' ? '✅ BD actualizada' : '❌ BD actualizada';
+          status = '<div style="color:#d29922;font-size:13px;font-weight:700;margin-top:8px;">' + accionLabel + ' — ⚠️ No se pudo notificar al cliente por WhatsApp (' + (data.waWarning || 'error LID') + '). Notifícalo manualmente.</div>';
+        } else {
+          status = accion === 'confirmar'
+            ? '<div style="color:#3fb950;font-size:13px;font-weight:700;margin-top:8px;">✅ Pago confirmado — bot solicitando datos al cliente</div>'
+            : '<div style="color:#f85149;font-size:13px;font-weight:700;margin-top:8px;">❌ Rechazado — bot notificó al cliente</div>';
+        }
+        card.querySelector('.comprobante-actions').innerHTML = status;
+      }
+      // Recargar solo si seguimos en el tab de comprobantes
+      if (currentMainTab === 'comprobantes') setTimeout(loadComprobantes, 2000);
+    } else {
+      alert('❌ Error: ' + (data.error || 'No se pudo conectar con el bot'));
+      if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Confirmar pago'; }
+      if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar'; }
+    }
+  } catch(e) {
+    alert('❌ Error de red. ¿Está corriendo el panel?');
+    if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Confirmar pago'; }
+    if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar'; }
+  }
+}
+
+// ====== CARNETS ======
+async function loadCarnets() {
+  try {
+    const res = await fetch('/api/carnets');
+    const carnets = await res.json();
+
+    const badge = document.getElementById('carnetsBadge');
+    if (carnets.length > 0) {
+      badge.textContent = carnets.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const container = document.getElementById('carnetsList');
+    if (!carnets.length) {
+      container.innerHTML = '<div class="comprobante-empty">✅ No hay carnets pendientes de verificar</div>';
+      return;
+    }
+
+    container.innerHTML = carnets.map(c => {
+      // Re-construir data para la vista compatible
+      let extraData = {
+        nombre: c.nombre,
+        cedula: c.cedula,
+        club: 'Club ZT Plus/Pro', 
+        arma: c.modelo_arma,
+        serial: c.serial
+      };
+      
+      const fecha = new Date(c.created_at).toLocaleString('es-CO');
+      const imgHtml = c.imagen_base64
+        ? `<img class="comprobante-img" src="data:${c.imagen_mime};base64,${c.imagen_base64}" alt="carnet" onclick="openLightbox(this.src)" title="Click para ver completo">`
+        : `<div class="comprobante-img-placeholder">📄 Sin carnet</div>`;
+
+      const safeDataText = encodeURIComponent(JSON.stringify({nombres: c.nombre, cedula: c.cedula, arma: c.modelo_arma, serial: c.serial}));
+
+      return `
+        <div class="comprobante-card" id="carn_${c.id}">
+          ${imgHtml}
+          <div class="comprobante-info">
+            <div class="comprobante-name">${extraData.nombre || 'Nombre no detectado'}</div>
+            <div class="comprobante-phone">📱 ${c.client_phone}</div>
+            <div class="comprobante-detail" style="margin-top: 5px;">
+              <strong>Cédula:</strong> ${extraData.cedula || 'N/A'}<br>
+              <strong>Club:</strong> ${extraData.club || 'N/A'} <br>
+              <strong>Arma:</strong> ${extraData.arma || 'N/A'}<br>
+              <strong>Serial:</strong> ${extraData.serial || 'N/A'}
+            </div>
+            <div><span class="comprobante-tipo tipo-club">🪪 Carnet ZT</span></div>
+            <div class="comprobante-time">📅 ${fecha}</div>
+            <div style="margin-top:8px;"><a href="https://wa.me/${c.client_phone}" target="_blank" style="color:#3fb950;font-size:12px;text-decoration:none;">📲 Abrir en WhatsApp</a></div>
+          <div class="comprobante-actions">
+            <!-- Menú de Plan y Vigencia al Aprobar -->
+            <div style="margin-bottom:8px;background:#0d1117;padding:8px;border-radius:6px;border:1px dashed #30363d;">
+              <div style="margin-bottom:6px;">
+                <span style="color:#3fb950;font-size:11px;font-weight:bold;">✅ Plan a asignar (Aprobar):</span>
+                <select id="plan_carnet_${c.id}" style="width:100%;background:#111820;border:1px solid #3fb950;color:#e6edf3;padding:4px;border-radius:4px;font-size:12px;cursor:pointer;margin-top:4px;">
+                  <option value="Plan Plus">🟡 Plan Plus ($100k) - Default</option>
+                  <option value="Plan Pro">🔴 Plan Pro ($150k)</option>
+                </select>
+              </div>
+              <div>
+                <span style="color:#58a6ff;font-size:11px;font-weight:bold;">📅 Vence el (Leído por IA):</span>
+                <input type="date" id="vigencia_carnet_${c.id}" value="${c.vigencia_hasta || ''}" style="width:100%;background:#111820;border:1px solid #1f6feb;color:#e6edf3;padding:4px;border-radius:4px;font-size:12px;margin-top:4px;">
+              </div>
+            </div>
+            <!-- Botón Aprobar -->
+            <button class="btn-confirmar" id="btn_carn_confirm_${c.id}" onclick="accionCarnet(${c.id}, 'confirmar', '${c.client_phone}', '${safeDataText}')">✅ Aprobar y Actualizar Ficha</button>
+
+            <!-- Menú de Razón al Rechazar -->
+            <div style="margin-top:12px;margin-bottom:8px;">
+              <span style="color:#f85149;font-size:11px;">❌ Razón de rechazo:</span>
+              <select id="razon_rechazo_${c.id}" style="width:100%;background:#111820;border:1px solid #f85149;color:#e6edf3;padding:4px;border-radius:4px;font-size:12px;cursor:pointer;margin-top:4px;">
+                <option value="ilegible">📄 Ilegible o borroso</option>
+                <option value="vencido">⏳ Documento vencido</option>
+                <option value="inconsistencia">🚫 Inconsistencia en datos / Falso</option>
+              </select>
+            </div>
+            <!-- Botón Rechazar -->
+            <button class="btn-rechazar" id="btn_carn_reject_${c.id}" onclick="accionCarnet(${c.id}, 'rechazar', '${c.client_phone}', '')">❌ Notificar Rechazo</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    console.error('Error cargando carnets:', e);
+  }
+}
+
+async function accionCarnet(id, accion, phone, carnetDataEncoded) {
+  const btnConfirm = document.getElementById('btn_carn_confirm_' + id);
+  const btnReject = document.getElementById('btn_carn_reject_' + id);
+  if (btnConfirm) btnConfirm.disabled = true;
+  if (btnReject) btnReject.disabled = true;
+  
+  if (accion === 'confirmar' && btnConfirm) btnConfirm.textContent = '⏳ Aprobando...';
+  if (accion === 'rechazar' && btnReject) btnReject.textContent = '⏳ Rechazando...';
+
+  let carnetData = {};
+  try {
+    if (carnetDataEncoded) {
+      carnetData = JSON.parse(decodeURIComponent(carnetDataEncoded));
+    }
+  } catch(e) {}
+
+  // Extraer plan, vigencia o razón de rechazo de los UI seleccionados
+  let planAprobado = null;
+  let vigenciaAprobada = null;
+  let razonRechazo = null;
+
+  if (accion === 'confirmar') {
+    const selPlan = document.getElementById('plan_carnet_' + id);
+    if (selPlan) planAprobado = selPlan.value;
+    const inputVigencia = document.getElementById('vigencia_carnet_' + id);
+    if (inputVigencia) vigenciaAprobada = inputVigencia.value;
+
+    if (!vigenciaAprobada) {
+      if (!confirm('⚠️ No has ingresado la fecha de vigencia del carnet. ¿Deseas aprobarlo sin fecha de expiración?')) return;
+    }
+  } else if (accion === 'rechazar') {
+    const selRazon = document.getElementById('razon_rechazo_' + id);
+    if (selRazon) razonRechazo = selRazon.value;
+  }
+
+  try {
+    const res = await fetch('/api/confirmar-carnet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, accion, phone, carnetData, planAprobado, vigenciaAprobada, razonRechazo })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const card = document.getElementById('carn_' + id);
+      if (card) {
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+        let status;
+        if (!data.waSent) {
+          status = '<div style="color:#d29922;font-size:13px;font-weight:700;margin-top:8px;">⚠️ BD actualizada pero falló WhatsApp.</div>';
+        } else {
+          status = accion === 'confirmar'
+            ? '<div style="color:#3fb950;font-size:13px;font-weight:700;margin-top:8px;">✅ Carnet Aprobado y Perfil Actualizado</div>'
+            : '<div style="color:#f85149;font-size:13px;font-weight:700;margin-top:8px;">❌ Rechazado — bot notificó al cliente</div>';
+        }
+        card.querySelector('.comprobante-actions').innerHTML = status;
+      }
+      if (currentMainTab === 'carnets') setTimeout(loadCarnets, 2000);
+    } else {
+      alert('❌ Error: ' + (data.error || 'No se pudo conectar con el bot'));
+      if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Aprobar y Actualizar Ficha'; }
+      if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar (Ilegible/Falso)'; }
+    }
+  } catch(e) {
+    alert('❌ Error de red. ¿Está corriendo el panel?');
+    if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✅ Aprobar y Actualizar Ficha'; }
+    if (btnReject) { btnReject.disabled = false; btnReject.textContent = '❌ Rechazar (Ilegible/Falso)'; }
+  }
+}
+
+// ====== CARNETS — MODAL Y ENVÍO ======
+let carnetTargetPhone = null;
+let carnetImageBase64 = null;
+let carnetImageMime = null;
+
+function abrirModalCarnet(phone) {
+  carnetTargetPhone = phone;
+  carnetImageBase64 = null;
+  carnetImageMime = null;
+  
+  // Pre-llenar datos del cliente
+  const client = allData.clients.find(c => c.phone === phone);
+  document.getElementById('carnetModalPhone').textContent = '📱 Cliente: ' + (client?.name || phone) + ' (' + phone + ')';
+  document.getElementById('carnetNombre').value = client?.name || '';
+  document.getElementById('carnetCedula').value = client?.cedula || '';
+  document.getElementById('carnetMarcaArma').value = '';
+  document.getElementById('carnetModeloArma').value = client?.modelo_arma || '';
+  document.getElementById('carnetSerial').value = client?.serial_arma || '';
+  document.getElementById('carnetCaption').value = '';
+  document.getElementById('carnetPreview').style.display = 'none';
+  document.getElementById('carnetUploadText').style.display = 'block';
+  document.getElementById('carnetFileInput').value = '';
+  document.getElementById('carnetFeedback').textContent = '';
+  document.getElementById('carnetFeedback').style.color = '';
+  document.getElementById('btnEnviarCarnet').disabled = false;
+  document.getElementById('btnEnviarCarnet').textContent = '📨 Enviar Carnet por WhatsApp';
+  
+  // Auto-seleccionar plan según bóveda
+  if (client?.is_club_pro) document.getElementById('carnetPlan').value = 'Plan Pro';
+  else document.getElementById('carnetPlan').value = 'Plan Plus';
+  
+  // Default vigencia: 1 año desde hoy
+  const nextYear = new Date();
+  nextYear.setFullYear(nextYear.getFullYear() + 1);
+  document.getElementById('carnetVigencia').value = nextYear.toISOString().split('T')[0];
+  
+  const modal = document.getElementById('modalCarnet');
+  modal.style.display = 'flex';
+}
+
+function cerrarModalCarnet() {
+  document.getElementById('modalCarnet').style.display = 'none';
+  carnetTargetPhone = null;
+  carnetImageBase64 = null;
+  carnetImageMime = null;
+}
+
+function previewCarnetImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) {
+    alert('⚠️ La imagen es demasiado grande (máx 10MB)');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const result = e.target.result;
+    carnetImageMime = file.type || 'image/jpeg';
+    carnetImageBase64 = result.split(',')[1]; // quitar el data:... prefix
+    document.getElementById('carnetPreviewImg').src = result;
+    document.getElementById('carnetPreview').style.display = 'block';
+    document.getElementById('carnetUploadText').style.display = 'none';
+    document.getElementById('carnetDropZone').style.borderColor = '#3fb950';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function enviarCarnetWhatsApp() {
+  if (!carnetTargetPhone) { alert('Error: no hay cliente seleccionado'); return; }
+  if (!carnetImageBase64) { alert('⚠️ Selecciona una imagen del carnet primero'); return; }
+  
+  const btn = document.getElementById('btnEnviarCarnet');
+  const fb = document.getElementById('carnetFeedback');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando carnet...';
+  fb.textContent = '';
+  
+  const payload = {
+    phone: carnetTargetPhone,
+    imagenBase64: carnetImageBase64,
+    imagenMime: carnetImageMime || 'image/jpeg',
+    caption: document.getElementById('carnetCaption').value.trim() || '',
+    carnetData: {
+      nombre: document.getElementById('carnetNombre').value.trim(),
+      cedula: document.getElementById('carnetCedula').value.trim(),
+      vigente_hasta: document.getElementById('carnetVigencia').value,
+      marca_arma: document.getElementById('carnetMarcaArma').value.trim(),
+      modelo_arma: document.getElementById('carnetModeloArma').value.trim(),
+      serial: document.getElementById('carnetSerial').value.trim(),
+      plan_tipo: document.getElementById('carnetPlan').value
+    }
+  };
+  
+  try {
+    const res = await fetch('/api/enviar-carnet-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.waSent) {
+        fb.style.color = '#3fb950';
+        fb.textContent = '✅ Carnet enviado por WhatsApp y guardado en la BD';
+        btn.textContent = '✅ Enviado';
+        btn.style.background = '#238636';
+      } else {
+        fb.style.color = '#d29922';
+        fb.textContent = '⚠️ Carnet guardado en BD pero no se pudo enviar por WhatsApp: ' + (data.waWarning || 'error');
+        btn.textContent = '⚠️ Guardado (WA falló)';
+      }
+      // Recargar datos y refrescar vista
+      await loadData();
+      if (selectedPhone === carnetTargetPhone) selectClient(carnetTargetPhone);
+      if (selectedPhonePv === carnetTargetPhone) selectClientPv(carnetTargetPhone);
+      setTimeout(cerrarModalCarnet, 3000);
+    } else {
+      fb.style.color = '#f85149';
+      fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+      btn.disabled = false;
+      btn.textContent = '📨 Enviar Carnet por WhatsApp';
+    }
+  } catch (e) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ Error de conexión con el servidor';
+    btn.disabled = false;
+    btn.textContent = '📨 Enviar Carnet por WhatsApp';
+  }
+}
+// ====== FACTURAS ======
+let facturaTargetPhone = null;
+let facturaImageBase64 = null;
+let facturaImageMime = null;
+
+function abrirModalFactura(phone) {
+  facturaTargetPhone = phone;
+  facturaImageBase64 = null;
+  facturaImageMime = null;
+
+  const client = allData.clients.find(c => c.phone === phone);
+  document.getElementById('facturaModalPhone').textContent = '📱 Cliente: ' + (client?.name || phone) + ' (' + phone + ')';
+  document.getElementById('facturaNumero').value = '';
+  document.getElementById('facturaCaption').value = '';
+  document.getElementById('facturaPreview').style.display = 'none';
+  document.getElementById('facturaUploadText').style.display = 'block';
+  document.getElementById('facturaFileInput').value = '';
+  document.getElementById('facturaFeedback').textContent = '';
+  document.getElementById('facturaFeedback').style.color = '';
+  document.getElementById('btnEnviarFactura').disabled = false;
+  document.getElementById('btnEnviarFactura').textContent = '📨 Enviar Factura por WhatsApp';
+  document.getElementById('facturaDropZone').style.borderColor = '#30363d';
+
+  document.getElementById('modalFactura').style.display = 'flex';
+}
+
+function cerrarModalFactura() {
+  document.getElementById('modalFactura').style.display = 'none';
+  facturaTargetPhone = null;
+  facturaImageBase64 = null;
+  facturaImageMime = null;
+}
+
+function previewFacturaImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { alert('⚠️ El archivo es demasiado grande (máx 10MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const result = e.target.result;
+    facturaImageMime = file.type || 'image/jpeg';
+    facturaImageBase64 = result.split(',')[1];
+    
+    // Si es un pdf, ponemos un placeholder visual, si no la imagen misma
+    if (facturaImageMime === 'application/pdf') {
+      document.getElementById('facturaPreviewImg').src = 'https://cdn-icons-png.flaticon.com/512/337/337946.png';
+      document.getElementById('facturaPreviewImg').style.maxWidth = '100px';
+    } else {
+      document.getElementById('facturaPreviewImg').src = result;
+      document.getElementById('facturaPreviewImg').style.maxWidth = '100%';
+    }
+    
+    document.getElementById('facturaPreview').style.display = 'block';
+    document.getElementById('facturaUploadText').style.display = 'none';
+    document.getElementById('facturaDropZone').style.borderColor = '#3fb950';
+  };
+  reader.readAsDataURL(file);
+}
+
+// Soporte Drop y Paste para Facturas
+document.getElementById('facturaDropZone')?.addEventListener('dragover', (e) => { e.preventDefault(); e.currentTarget.style.borderColor = '#3fb950'; });
+document.getElementById('facturaDropZone')?.addEventListener('dragleave', (e) => { e.preventDefault(); e.currentTarget.style.borderColor = '#30363d'; });
+document.getElementById('facturaDropZone')?.addEventListener('drop', (e) => {
+  e.preventDefault(); e.currentTarget.style.borderColor = '#3fb950';
+  const file = e.dataTransfer.files[0];
+  if (file && (file.type.startsWith('image/') || file.type === 'application/pdf')) {
+    const dt = new DataTransfer(); dt.items.add(file);
+    document.getElementById('facturaFileInput').files = dt.files;
+    previewFacturaImage(document.getElementById('facturaFileInput'));
+  }
+});
+document.getElementById('modalFactura')?.addEventListener('paste', function(e) {
+  if (this.style.display === 'none') return;
+  const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  for (const item of items) {
+    if (item.type.indexOf('image/') === 0 || item.type === 'application/pdf') {
+      const file = item.getAsFile();
+      const dt = new DataTransfer(); dt.items.add(file);
+      document.getElementById('facturaFileInput').files = dt.files;
+      previewFacturaImage(document.getElementById('facturaFileInput'));
+      break;
+    }
+  }
+});
+
+async function enviarFacturaWhatsApp() {
+  if (!facturaTargetPhone) return;
+  if (!facturaImageBase64) {
+    alert('❌ Debes adjuntar la foto o el PDF de la factura primero.');
+    return;
+  }
+
+  const btn = document.getElementById('btnEnviarFactura');
+  const fb = document.getElementById('facturaFeedback');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando factura...';
+  fb.textContent = '';
+
+  const payload = {
+    phone: facturaTargetPhone,
+    numeroFactura: document.getElementById('facturaNumero').value.trim() || 'N/A',
+    caption: document.getElementById('facturaCaption').value.trim() || '',
+    imagenBase64: facturaImageBase64,
+    imagenMime: facturaImageMime || 'image/jpeg'
+  };
+
+  try {
+    const res = await fetch('/api/enviar-factura-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      fb.style.color = '#3fb950';
+      fb.textContent = '✅ Factura enviada por WhatsApp y registrada.';
+      btn.textContent = '✅ Enviada';
+      btn.style.background = '#238636';
+      await loadData();
+      if (selectedPhone === facturaTargetPhone) selectClient(facturaTargetPhone);
+      if (selectedPhonePv === facturaTargetPhone) selectClientPv(facturaTargetPhone);
+      setTimeout(cerrarModalFactura, 3000);
+    } else {
+      fb.style.color = '#f85149';
+      fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+      btn.disabled = false;
+      btn.textContent = '📨 Enviar Factura por WhatsApp';
+    }
+  } catch (e) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ Error de conexión con el servidor';
+    btn.disabled = false;
+    btn.textContent = '📨 Enviar Factura por WhatsApp';
+  }
+}
+
+// ====== GUÍA DE ENVÍO ======
+let guiaTargetPhone = null;
+let guiaImageBase64 = null;
+let guiaImageMime = null;
+
+function abrirModalGuia(phone) {
+  guiaTargetPhone = phone;
+  guiaImageBase64 = null;
+  guiaImageMime = null;
+  
+  const client = allData.clients.find(c => c.phone === phone);
+  document.getElementById('guiaModalPhone').textContent = '📱 Cliente: ' + (client?.name || phone) + ' (' + phone + ')';
+  document.getElementById('guiaNumero').value = '';
+  document.getElementById('guiaProducto').value = client?.modelo_arma ? client.modelo_arma : '';
+  document.getElementById('guiaCaption').value = '';
+  document.getElementById('guiaPreview').style.display = 'none';
+  document.getElementById('guiaUploadText').style.display = 'block';
+  document.getElementById('guiaFileInput').value = '';
+  document.getElementById('guiaFeedback').textContent = '';
+  document.getElementById('guiaFeedback').style.color = '';
+  document.getElementById('btnEnviarGuia').disabled = false;
+  document.getElementById('btnEnviarGuia').textContent = '📨 Enviar Guía por WhatsApp';
+  document.getElementById('guiaDropZone').style.borderColor = '#30363d';
+  document.getElementById('guiaTransportadora').selectedIndex = 0;
+  
+  document.getElementById('modalGuia').style.display = 'flex';
+}
+
+function cerrarModalGuia() {
+  document.getElementById('modalGuia').style.display = 'none';
+  guiaTargetPhone = null;
+  guiaImageBase64 = null;
+  guiaImageMime = null;
+}
+
+function previewGuiaImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { alert('⚠️ La imagen es demasiado grande (máx 10MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const result = e.target.result;
+    guiaImageMime = file.type || 'image/jpeg';
+    guiaImageBase64 = result.split(',')[1];
+    document.getElementById('guiaPreviewImg').src = result;
+    document.getElementById('guiaPreview').style.display = 'block';
+    document.getElementById('guiaUploadText').style.display = 'none';
+    document.getElementById('guiaDropZone').style.borderColor = '#3fb950';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function enviarGuiaWhatsApp() {
+  if (!guiaTargetPhone) { alert('Error: no hay cliente seleccionado'); return; }
+  const numero = document.getElementById('guiaNumero').value.trim();
+  const transportadora = document.getElementById('guiaTransportadora').value;
+  if (!numero) { alert('⚠️ Ingresa el número de guía'); return; }
+  
+  const btn = document.getElementById('btnEnviarGuia');
+  const fb = document.getElementById('guiaFeedback');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando guía...';
+  fb.textContent = '';
+  
+  const payload = {
+    phone: guiaTargetPhone,
+    transportadora,
+    numeroGuia: numero,
+    producto: document.getElementById('guiaProducto').value.trim() || '',
+    caption: document.getElementById('guiaCaption').value.trim() || '',
+    imagenBase64: guiaImageBase64 || null,
+    imagenMime: guiaImageMime || null
+  };
+  
+  try {
+    const res = await fetch('/api/enviar-guia-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      fb.style.color = '#3fb950';
+      fb.textContent = '✅ Guía enviada por WhatsApp y registrada';
+      btn.textContent = '✅ Enviada';
+      btn.style.background = '#238636';
+      await loadData();
+      if (selectedPhone === guiaTargetPhone) selectClient(guiaTargetPhone);
+      if (selectedPhonePv === guiaTargetPhone) selectClientPv(guiaTargetPhone);
+      setTimeout(cerrarModalGuia, 3000);
+    } else {
+      fb.style.color = '#f85149';
+      fb.textContent = '❌ Error: ' + (data.error || 'desconocido');
+      btn.disabled = false;
+      btn.textContent = '📨 Enviar Guía por WhatsApp';
+    }
+  } catch (e) {
+    fb.style.color = '#f85149';
+    fb.textContent = '❌ Error de conexión con el servidor';
+    btn.disabled = false;
+    btn.textContent = '📨 Enviar Guía por WhatsApp';
+  }
+}
+
+async function loadDocumentHistory(phone) {
+  var container = document.getElementById('documentHistory_' + phone);
+  if (!container) return;
+  try {
+    // Usamos el endpoint del dossier que ya trae todo estructurado
+    var res = await fetch('/api/dossier?phone=' + phone);
+    var target = await res.json();
+    
+    var carnets = target.carnets || [];
+    var files = target.files || [];
+    var items = [];
+    
+    // Mapeamos carnets para unificar formato
+    carnets.forEach(c => {
+      items.push({
+        type: 'carnet',
+        id: c.id,
+        date: new Date(c.created_at),
+        title: '🪪 Carnet Digital',
+        subtitle: (c.plan_tipo || 'Club ZT') + ' - ' + (c.estado || 'Enviado').toUpperCase(),
+        icon: '🪪', color: c.estado === 'rechazado' ? '#f85149' : '#3fb950',
+        detail: (c.nombre || '') + (c.cedula ? ' (CC: ' + c.cedula + ')' : ''),
+        hasImage: !!c.imagen_mime
+      });
+    });
+
+    // Mapeamos los archivos (facturas, guías)
+    files.forEach(f => {
+      let icon = '📄', color = '#58a6ff', title = 'Documento';
+      if (f.tipo.includes('guia') || f.tipo.includes('guía')) { icon = '📦'; color = '#d29922'; title = 'Guía de Envío'; }
+      if (f.tipo.includes('factura')) { icon = '🧾'; color = '#8957e5'; title = 'Factura'; }
+      items.push({
+        type: 'file',
+        id: f.id,
+        date: new Date(f.created_at),
+        title: title,
+        subtitle: f.descripcion || f.tipo,
+        icon: icon, color: color,
+        detail: 'Subido por: ' + (f.subido_por || 'Sistema'),
+        hasImage: !!f.imagen_mime
+      });
+    });
+
+    // Ordenar de más reciente a más antiguo
+    items.sort((a,b) => b.date - a.date);
+
+    if (items.length === 0) { container.innerHTML = '<div style="color:#8b949e;font-size:12px;padding:10px;">No hay documentos registrados.</div>'; return; }
+
+    var html = '<div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;">';
+    html += "<div onclick=\"this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';\" style=\"padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#161b22;border-bottom:1px solid #30363d;\">";
+    html += '<span class="toggle-arrow" style="color:#8b949e;font-size:12px;">▶</span>';
+    html += '<span style="color:#d4a0ff;font-weight:700;font-size:13px;">📂 Documentos y Archivos (' + items.length + ')</span></div>';
+    html += '<div style="display:none;padding:10px;">';
+    
+    items.forEach(function(item) {
+      var dateStr = item.date.toLocaleDateString('es-CO') + ' ' + item.date.toLocaleTimeString('es-CO', {hour: '2-digit', minute:'2-digit'});
+      var clickAction = item.hasImage ? 'onclick="viewDocument(' + item.id + ', \'' + item.type + '\')" style="cursor:pointer;transition:background 0.2s;" onmouseover="this.style.background=\'#1f2937\'" onmouseout="this.style.background=\'#111820\'"' : '';
+
+      html += '<div ' + clickAction + ' style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:#111820;border:1px solid #21262d;border-radius:6px;margin-bottom:8px;font-size:12px;">';
+      html += '<div><span style="color:' + item.color + ';font-weight:700;font-size:14px;margin-right:5px;">' + item.icon + '</span>';
+      html += '<span style="font-weight:bold;color:#e6edf3;">' + item.title + '</span>';
+      html += '<div style="color:#8b949e;margin-top:4px;margin-left:22px;">' + item.subtitle + '</div></div>';
+      html += '<div style="text-align:right;">';
+      html += '<div style="color:#e6edf3;">' + item.detail + '</div>';
+      html += '<div style="color:#8b949e;font-size:11px;margin-top:2px;">📅 ' + dateStr + '</div>';
+      
+      if (item.hasImage) {
+        html += '<div style="margin-top:4px;color:#58a6ff;font-size:11px;">👁️ Ver Archivo</div>';
+      }
+      
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Error cargando documentos:', e);
+  }
+}
+
+async function viewDocument(id, type) {
+  try {
+    let url = type === 'carnet' ? '/api/carnets-cliente?id=' + id : '/api/client-files?id=' + id;
+    let imgPrefix = 'data:image/png;base64,'; // asume png by default si no especificado para carnets legacy
+    
+    const res = await fetch(url);
+    const data = await res.json();
+    
+    // Si viene error
+    if(data.error) {
+       alert("Error abriendo documento: " + data.error);
+       return;
+    }
+    
+    // client-files retorna un {file: {}}
+    // carnets retorna array si no tiene ID (nuestro panel no tiene endpoint directo para carnet por ID con BLOB, pero vamos a ajustar el visor) - Ups, no hay endpoint getById para carnets.
+    // Voy a enviar todo por el Lightbox si la imagen base64 de files la tiene.
+    if(type === 'file') {
+      if(!data.file || !data.file.imagen_base64) {
+         alert("Este archivo técnico no tiene una imagen asociada.");
+         return;
+      }
+      
+      let mime = data.file.imagen_mime || 'image/jpeg';
+      if (mime === 'application/pdf') {
+         // Render as pdf click download fallback
+         // For now we'll create a blob and open in new tab
+         const byteCharacters = atob(data.file.imagen_base64);
+         const byteNumbers = new Array(byteCharacters.length);
+         for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+         const byteArray = new Uint8Array(byteNumbers);
+         const blob = new Blob([byteArray], {type: mime});
+         const blobUrl = URL.createObjectURL(blob);
+         window.open(blobUrl, '_blank');
+         return;
+      }
+      
+      let src = 'data:' + mime + ';base64,' + data.file.imagen_base64;
+      openLightbox(src);
+    } else {
+      alert("Para ver el carnet detallado, solicite enviar una copia fresca vía WhatsApp. (Base64 histórico de carnets no dispo).");
+    }
+
+  } catch (e) {
+    console.error(e);
+    alert('No se pudo visualizar el archivo.');
+  }
+}
+
+// Lightbox para ver comprobante completo
+function openLightbox(src) {
+  document.getElementById('imgLightboxImg').src = src;
+  document.getElementById('imgLightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('imgLightbox').classList.remove('open');
+}
+
+</script>
+</body>
+</html>

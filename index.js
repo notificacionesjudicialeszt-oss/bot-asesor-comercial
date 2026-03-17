@@ -761,7 +761,17 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             const history = db.getConversationHistory(senderPhone, 10);
             const clientMemory = db.getClientMemory(senderPhone);
             const clientProfile = db.getClient(senderPhone);
-            const systemPrompt = buildSystemPrompt('El cliente envió una imagen. Continúa la conversación con el contexto previo que ya tienes.', clientMemory, clientProfile);
+
+            // Inyectar catálogo completo para que Gemini pueda identificar precios específicos de la foto
+            const allProducts = search.getAllProducts();
+            const productContext = search.formatForPrompt({
+              products: allProducts,
+              totalFound: allProducts.length,
+              strategy: 'search',
+              keywords: []
+            });
+
+            const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile);
 
             // Construir historial previo para que Gemini tenga contexto de la conversación
             const geminiHistory = history
@@ -865,7 +875,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               const clientInfo = db.getClient(senderPhone);
               const clientName = clientInfo?.name || senderPhone;
               const memoriaLow = (clientInfo?.memory || '').toLowerCase();
-              const mensajeLow = messageBody.toLowerCase();
+              const mensajeLow = (msg.body || '').toLowerCase();
 
               // Detectar tipo de comprobante usando TODA la conversación reciente:
               // Escanear las últimas 10 mensajes + memoria + mensaje actual
@@ -931,7 +941,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
             } else if (qrTexto) {
               // QR detectado — responder SOLO sobre el contenido del QR
-              ;
+              const qrPrompt = `El cliente envió una imagen con un código QR que contiene el siguiente texto: "${qrTexto}".\n\nTu tarea es informar al cliente sobre el contenido de este QR de forma amable y profesional, o responder a cualquier pregunta que haya hecho relacionada con el QR.\n\nContexto actual del asesor comercial:\n${systemPrompt}`;
               const qrResult = await geminiGenerate('gemini-3.1-pro-preview', qrPrompt);
               reply = qrResult.response.text();
               await msg.reply(reply);
@@ -941,7 +951,9 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
             } else {
               // Imagen normal — flujo con system prompt completo e historial
-              const textPart = msg.body || 'El cliente envió esta imagen.';
+              const textPart = msg.body 
+                ? `El cliente envió esta imagen junto con este mensaje: "${msg.body}".\n\n⚠️ INSTRUCCIÓN CRÍTICA: Si la imagen muestra un arma traumática o producto que vendemos, IDENTIFICA la marca y modelo exacto, búscalo en tus REFERENCIAS RELEVANTES abajo, y dale al cliente el PRECIO ESPECÍFICO y detalles de ESE modelo exacto. NUNCA le des el "rango general de precios" si puedes identificar la pistola en la foto.`
+                : `El cliente envió solo esta imagen sin texto.\n\n⚠️ INSTRUCCIÓN CRÍTICA: Asume que el cliente quiere saber qué arma es o cuánto cuesta. IDENTIFICA la marca y modelo exacto en la imagen, búscalo en tus REFERENCIAS RELEVANTES abajo, y dale al cliente el PRECIO ESPECÍFICO y los detalles de ESE modelo exacto. NUNCA respondas con el "rango general de precios" si puedes identificar la pistola de la foto.`;
               const visionModel = genAI.getGenerativeModel({
                 model: 'gemini-3.1-pro-preview',
                 systemInstruction: systemPrompt,
@@ -1295,7 +1307,16 @@ async function handleClientMessage(msg, senderPhone, messageBody, chat, rawMsg) 
         db.saveMessage(senderPhone, 'assistant', response);
 
         // Enviar respuesta (el texto principal)
-        await rawMsg.reply(response);
+        try {
+          await rawMsg.reply(response);
+        } catch (botErr) {
+          if (botErr.message && (botErr.message.includes('Failed to find row') || botErr.message.includes('Evaluation failed'))) {
+            console.log(`[BOT] ⚠️ rawMsg.reply falló para ${senderPhone} (chat desincronizado), usando safeSend en su lugar.`);
+            await safeSend(senderPhone, response);
+          } else {
+            throw botErr; // Relanzar si es otro tipo de error
+          }
+        }
 
         // Enviar imagen promo del Club ZT SOLO cuando el bot está ofreciendo la afiliación
         // (no en cada mención — solo cuando presenta los planes activamente)
@@ -1698,12 +1719,39 @@ function needsProductSearch(message) {
 // ============================================
 async function getClaudeResponse(clientPhone, message, history) {
   try {
+    // 0. Obtener memoria y perfil del cliente
+    const clientMemory = db.getClientMemory(clientPhone);
+    const clientProfile = db.getClient(clientPhone);
+
     // 1. Detectar si el mensaje necesita búsqueda de productos
     let productContext = '';
 
     if (needsProductSearch(message)) {
       const searchResult = search.searchProducts(message);
-      productContext = search.formatForPrompt(searchResult);
+      
+      // LOGICA DE OFRECIMIENTO COMPLETO:
+      // Si no hubo un match fuerte (ej. Blow TR92 no existe) O si es la primera vez (catalog_sent=0),
+      // enviamos TODO el catálogo como "vanguardia" de venta.
+      const catalogAlreadySent = clientProfile?.catalog_sent === 1;
+      
+      if (!searchResult.hasStrongMatch || !catalogAlreadySent) {
+        if (CONFIG.debug) console.log(`[DEBUG] 🚀 Ofreciendo catálogo completo para ${clientPhone} (StrongMatch=${searchResult.hasStrongMatch}, Sent=${catalogAlreadySent})`);
+        
+        const allProducts = search.getAllProducts();
+        productContext = search.formatForPrompt({
+          products: allProducts,
+          totalFound: allProducts.length,
+          strategy: 'search', // Usamos 'search' para que el header sea "REFERENCIAS RELEVANTES"
+          keywords: searchResult.keywords
+        });
+        
+        // Marcar como enviado en la respuesta (se hará efectivo si Gemini responde OK)
+        // Usamos una variable local para actualizar la BD después del éxito de Gemini
+        global._pendingCatalogSent = clientPhone;
+      } else {
+        productContext = search.formatForPrompt(searchResult);
+      }
+      
       if (CONFIG.debug) console.log(`[DEBUG] 🔍 Búsqueda activada: ${searchResult.keywords.join(', ')} → ${searchResult.products.length} productos`);
     } else {
       // 1.5 Búsqueda secundaria basada en memoria (para evitar ofrecer cosas de memoria que ya no hay)
@@ -1723,9 +1771,6 @@ async function getClaudeResponse(clientPhone, message, history) {
       if (CONFIG.debug) console.log(`[DEBUG] 💬 Conversación general / basada en memoria`);
     }
 
-    // 2. Obtener memoria y perfil del cliente
-    const clientMemory = db.getClientMemory(clientPhone);
-    const clientProfile = db.getClient(clientPhone);
 
     // 3. Construir system prompt con ficha estructurada
     let systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile);
@@ -1781,6 +1826,11 @@ Llévalo sutilmente y con persuasión a que apoye la causa, logrando que haga OT
         const responseText = result.response.text();
         if (!responseText || !responseText.trim()) {
           console.error(`[GEMINI] ⚠️ RESPUESTA VACÍA de Gemini para ${clientPhone}. Mensaje enviado: "${message.substring(0, 60)}". Esto causa que el bot envíe un mensaje sin texto.`);
+        } else if (global._pendingCatalogSent === clientPhone) {
+          // Si llegamos aquí, la respuesta fue exitosa y contenía el catálogo completo
+          db.updateClientFlag(clientPhone, 'catalog_sent', true);
+          delete global._pendingCatalogSent;
+          if (CONFIG.debug) console.log(`[DEBUG] ✅ Catalog marked as sent for ${clientPhone}`);
         }
         return responseText;
       } catch (retryError) {
