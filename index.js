@@ -24,7 +24,7 @@ const router = require('./router');
 const search = require('./search');
 
 // Módulos extraídos del refactor
-const { geminiGenerate, SAFETY_SETTINGS } = require('./gemini');
+const { geminiGenerate, SAFETY_SETTINGS, genAI: getGenAI, rotateGeminiKey } = require('./gemini');
 const { CONFIG, parseEmployees, knowledgeBase } = require('./config');
 const { findBestImage, detectAndSendProductImages: _detectAndSendProductImages } = require('./images');
 
@@ -1655,12 +1655,12 @@ Llévalo sutilmente y con persuasión a que apoye la causa, logrando que haga OT
     }
 
     // 5. Llamar a Gemini con reintentos
-    const MAX_RETRIES = Math.max(3, GEMINI_KEYS.length);
+    const MAX_RETRIES = 3; // geminiGenerate() ya maneja rotación de keys internamente
     let lastError = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const model = genAI.getGenerativeModel({
+        const model = getGenAI().getGenerativeModel({
           model: 'gemini-3.1-pro-preview',
           systemInstruction: systemPrompt,
           safetySettings: SAFETY_SETTINGS,
