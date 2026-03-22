@@ -18,6 +18,11 @@ const CONFIG = {
 
 // Parsear empleados del .env
 // Formato: "Juan:573001111111,Maria:573002222222"
+/**
+ * Parsea los empleados configurados en el .env.
+ * Formato esperado: "Juan:573001111111,Maria:573002222222"
+ * @returns {Array<{name: string, phone: string}>} Lista de empleados
+ */
 function parseEmployees() {
   const envEmployees = process.env.EMPLOYEES || '';
   if (!envEmployees) return [];

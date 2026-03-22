@@ -11,6 +11,11 @@ function init(whatsappClient) {
   client = whatsappClient;
 }
 
+/**
+ * Busca chats con mensajes sin responder y les envía un mensaje de recuperación.
+ * Se ejecuta una sola vez al arrancar el bot. Usa un archivo de control
+ * (recovery_enviados.json) para no enviar dos veces al mismo número.
+ */
 async function recuperarChatsViejos() {
   try {
     console.log('[RECOVERY] 🔍 Buscando chats sin responder...');
@@ -118,6 +123,11 @@ async function recuperarChatsViejos() {
 // ============================================
 // Cada vez que llega un cliente nuevo, lo agrega al archivo
 // contactos_clientes.vcf (acumulativo, no sobreescribe)
+/**
+ * Guarda un contacto individual en el archivo VCF maestro (acumulativo).
+ * @param {string} phone - Número de teléfono
+ * @param {string} name - Nombre del contacto
+ */
 function saveContactToVCF(phone, name) {
   try {
     const displayName = name || phone;
@@ -156,6 +166,9 @@ function saveContactToVCF(phone, name) {
 // ============================================
 // EXPORTAR CONTACTOS A VCF
 // ============================================
+/**
+ * Exporta todos los contactos de WhatsApp a un archivo .vcf con timestamp.
+ */
 async function exportContactsToVCF() {
   try {
     console.log('[VCF] Exportando contactos de WhatsApp...');

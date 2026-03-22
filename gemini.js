@@ -21,6 +21,12 @@ let geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview', safe
 
 console.log(`[GEMINI] 🔑 ${GEMINI_KEYS.length} API key(s) cargadas — activa: #1`);
 
+/**
+ * Rota a la siguiente API key de Gemini.
+ * Se llama automáticamente en caso de error 429 (quota exceeded).
+ * @param {string} reason - Razón de la rotación (para logging)
+ * @returns {boolean} true si se pudo rotar, false si solo hay 1 key
+ */
 function rotateGeminiKey(reason = '') {
   if (GEMINI_KEYS.length <= 1) {
     console.error('[GEMINI] ⚠️ Solo hay 1 API key — no se puede rotar. Agrega más keys a GEMINI_API_KEYS en .env');

@@ -11,6 +11,11 @@ function init(whatsappClient) {
   client = whatsappClient;
 }
 
+/**
+ * Verifica si un número de teléfono es administrador.
+ * @param {string} phone - Número de teléfono
+ * @returns {boolean}
+ */
 function isAdmin(phone) {
   return phone === CONFIG.businessPhone || CONFIG.auditors.includes(phone);
 }
@@ -19,6 +24,13 @@ function isAuditor(phone) {
   return CONFIG.auditors.includes(phone);
 }
 
+/**
+ * Envía una copia del mensaje a todos los auditores configurados.
+ * @param {string} senderPhone - Teléfono del remitente
+ * @param {string} text - Contenido del mensaje
+ * @param {string} senderName - Nombre del remitente
+ * @param {boolean} isBotResponse - true si es respuesta del bot
+ */
 function notifyAuditors(senderPhone, text, senderName = 'BOT', isBotResponse = false) {
   if (!client || !CONFIG.auditors || CONFIG.auditors.length === 0) return;
   const prefix = isBotResponse ? `🤖 [${senderName} → ${senderPhone}]` : `👤 [${senderPhone} → ${senderName}]`;
@@ -31,6 +43,12 @@ function notifyAuditors(senderPhone, text, senderName = 'BOT', isBotResponse = f
   }
 }
 
+/**
+ * Procesa un comando administrativo (ej: !stats, !clients, !reset).
+ * @param {object} msg - Mensaje de WhatsApp
+ * @param {string} senderPhone - Teléfono del admin
+ * @param {string} command - Comando completo con argumentos
+ */
 async function handleAdminCommand(msg, senderPhone, command) {
   const cmd = command.toLowerCase().trim();
   const parts = command.trim().split(/\s+/);

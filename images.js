@@ -4,9 +4,12 @@
 const fs = require('fs');
 const path = require('path');
 
-// ============================================
-// BUSCAR IMAGEN DE PRODUCTO
-// ============================================
+/**
+ * Busca la mejor imagen de producto que coincida con la query.
+ * Escanea el directorio imagenes/pistolas/ por marca y modelo.
+ * @param {string} query - Término de búsqueda (ej: "retay g17", "blow f92")
+ * @returns {string|null} Ruta absoluta a la imagen, o null si no hay match
+ */
 function findBestImage(query) {
   const baseDir = path.join(__dirname, 'imagenes', 'pistolas');
   if (!fs.existsSync(baseDir)) return null;
@@ -58,9 +61,15 @@ function findBestImage(query) {
   return bestScore >= 2 ? bestMatch : null;
 }
 
-// ============================================
-// DETECTAR Y ENVIAR IMÁGENES DE PRODUCTOS EN UNA RESPUESTA
-// ============================================
+/**
+ * Detecta nombres de productos en la respuesta del bot y envía las imágenes.
+ * Detecta por: 1) Etiqueta [ENVIAR_IMAGEN: X]  2) URL de producto en la respuesta.
+ * @param {string} response - Texto de respuesta del bot
+ * @param {object} rawMsg - Mensaje original de WhatsApp (para reply)
+ * @param {string} senderPhone - Teléfono del cliente
+ * @param {object} MessageMedia - Clase MessageMedia de whatsapp-web.js
+ * @returns {{cleanResponse: string, imagesSent: number}}
+ */
 async function detectAndSendProductImages(response, rawMsg, senderPhone, MessageMedia) {
   const imagesToSend = [];
 

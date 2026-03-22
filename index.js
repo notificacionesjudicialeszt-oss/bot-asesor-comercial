@@ -14,8 +14,6 @@ const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
-const { fork } = require('child_process');
 const jsQR = require('jsqr');
 const Jimp = require('jimp');
 
@@ -23,10 +21,9 @@ const db = require('./db');
 const router = require('./router');
 const search = require('./search');
 
-// Módulos extraídos del refactor
-const { geminiGenerate, SAFETY_SETTINGS, genAI: getGenAI, rotateGeminiKey } = require('./gemini');
+const { geminiGenerate, SAFETY_SETTINGS } = require('./gemini');
 const { CONFIG, parseEmployees, knowledgeBase } = require('./config');
-const { findBestImage, detectAndSendProductImages: _detectAndSendProductImages } = require('./images');
+const { findBestImage } = require('./images');
 const adminCommands = require('./admin_commands');
 const { isAdmin, isAuditor, notifyAuditors, handleAdminCommand } = adminCommands;
 const broadcasters = require('./broadcasters');
@@ -41,9 +38,9 @@ const { recuperarChatsViejos, saveContactToVCF, exportContactsToVCF } = recovery
 // Cola de reintentos para cuando falla Gemini
 const retryQueue = [];
 
-// (Gemini, Config y Knowledge Base ahora viven en gemini.js y config.js)
 
-// (Helpers de imágenes ahora viven en images.js)
+
+
 
 // ============================================
 // INICIALIZAR BASE DE DATOS Y EMPLEADOS
@@ -1011,11 +1008,8 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 // un caché de transporte. Si falla por "No LID", resuelve el ID canónico,
 // lo guarda en BD y reintenta una vez.
 // ============================================
-// (Client flow ahora vive en client_flow.js)
 
-// (Client flow ahora vive en client_flow.js)
 
-// (Recovery y VCF ahora viven en recovery.js)
 
 // ARRANCAR EL BOT
 // ============================================
@@ -1024,9 +1018,8 @@ console.log(`[BOT] Negocio: ${CONFIG.businessName}`);
 console.log(`[BOT] Modo: ${CONFIG.mode}`);
 console.log('[BOT] Conectando a WhatsApp...\n');
 
-// (Broadcasters ahora viven en broadcasters.js)
 
-// (API server y reactivación ahora viven en api_server.js)
+
 
 // ============================================
 // PROCESADOR DE COLA DE REINTENTOS (Fondo)
