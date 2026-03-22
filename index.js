@@ -45,6 +45,7 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
 let geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview', safetySettings: SAFETY_SETTINGS });
@@ -84,14 +85,20 @@ async function geminiGenerate(modelName, content, options = {}) {
     } catch (err) {
       lastError = err;
       const is429 = err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('Too Many Requests'));
+      const isProhibited = err.message && err.message.includes('PROHIBITED_CONTENT');
 
-      if (is429 && attempt < maxRetries - 1) {
-        console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada (429) — rotando...`);
-        rotateGeminiKey('429 quota exceeded');
+      if ((is429 || isProhibited) && attempt < maxRetries - 1) {
+        if (is429) console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada (429) — rotando...`);
+        if (isProhibited) console.warn(`[GEMINI] ⚠️ Contenido bloqueado (PROHIBITED_CONTENT) con key #${geminiKeyIndex + 1} — rotando key...`);
+        rotateGeminiKey(is429 ? '429 quota exceeded' : 'prohibited_content');
         // Esperar un momento antes de reintentar
         await new Promise(r => setTimeout(r, 1000));
+      } else if (isProhibited) {
+        // Si se agotaron todas las keys con PROHIBITED_CONTENT, lanzar error descriptivo
+        console.error(`[GEMINI] ❌ PROHIBITED_CONTENT en todas las keys — revisar safetySettings o el prompt`);
+        throw err;
       } else {
-        throw err; // No es 429 o ya se agotaron todas las keys
+        throw err; // No es 429 ni prohibited — lanzar inmediatamente
       }
     }
   }
@@ -145,7 +152,13 @@ function findBestImage(query) {
   const baseDir = path.join(__dirname, 'imagenes', 'pistolas');
   if (!fs.existsSync(baseDir)) return null;
 
-  const tokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(t => t.length >= 2);
+  // Normalizar query: quitar acentos, pasar a minúsculas, separar por guiones y espacios
+  const tokens = query.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length >= 2);
+
   if (tokens.length === 0) return null;
 
   let bestMatch = null;
@@ -159,16 +172,25 @@ function findBestImage(query) {
 
       const files = fs.readdirSync(brandDir);
       for (const file of files) {
-        if (!file.endsWith('.png') && !file.endsWith('.jpg') && !file.endsWith('.jpeg')) continue;
+        if (!file.endsWith('.png') && !file.endsWith('.jpg') && !file.endsWith('.jpeg') && !file.endsWith('.webp')) continue;
 
-        const targetString = `${brand} ${file.replace(/\.[^/.]+$/, "")}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+        // Normalizar nombre de archivo igual que los tokens
+        const fileNameClean = file.replace(/\.[^/.]+$/, "").toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]/g, ' ');
+          
+        const targetString = `${brand.toLowerCase()} ${fileNameClean}`;
+        
         let score = 0;
         for (const token of tokens) {
-          // Si el token es muy común (ej. "retay"), sumar 1. Modelos suman 2.
-          if (targetString.includes(token)) score += (token === brand.toLowerCase() ? 1 : 2);
+          if (targetString.includes(token)) {
+            // Las marcas valen 1, los modelos (palabras raras) valen 2
+            score += (token === brand.toLowerCase() ? 1 : 2);
+          }
         }
 
-        if (score > bestScore) {
+        // Si el score es mayor, o si empatan pero este nombre de archivo es más corto (más exacto)
+        if (score > bestScore || (score === bestScore && score > 0 && bestMatch && file.length < path.basename(bestMatch).length)) {
           bestScore = score;
           bestMatch = path.join(brandDir, file);
         }
@@ -178,7 +200,6 @@ function findBestImage(query) {
     console.error('[BOT] Error buscando imagen:', e.message);
   }
 
-  // Requiere mínimo 2 puntos (ej. acertar un modelo o marca+algo más)
   return bestScore >= 2 ? bestMatch : null;
 }
 
@@ -207,14 +228,14 @@ async function detectAndSendProductImages(response, rawMsg, senderPhone) {
   // Limpiar todas las etiquetas del mensaje final
   response = response.replace(imageRegex, '').trim();
 
-  // 2. Detección automática por URL de producto
-  const urlRegex = /zonatraumatica\.(com|club)\/producto\/([a-zA-Z0-9\-]+)/ig;
+  // 2. Detección automática por URL de producto (hace match de cualquier URL que termine en producto/algo)
+  const urlRegex = /producto\/([a-zA-Z0-9\-]+)/ig;
   let urlMatch;
   while ((urlMatch = urlRegex.exec(response)) !== null) {
-    const productSlug = urlMatch[2].replace(/-/g, ' ').trim();
-    console.log(`[IMG] 🔍 URL producto: slug="${urlMatch[2]}", query="${productSlug}"`);
+    const productSlug = urlMatch[1].replace(/-/g, ' ').trim();
+    console.log(`[IMG] 🔍 URL producto detectada: slug="${urlMatch[1]}", query="${productSlug}"`);
     const foundPath = findBestImage(productSlug);
-    console.log(`[IMG] ${foundPath ? '✅' : '❌'} findBestImage("${productSlug}") → ${foundPath || 'NO ENCONTRADA'}`);
+    console.log(`[IMG] ${foundPath ? '✅' : '❌'} findBestImage("${productSlug}") → ${foundPath ? path.basename(foundPath) : 'NO ENCONTRADA'}`);
     if (foundPath && !imagesToSend.includes(foundPath)) {
       imagesToSend.push(foundPath);
     }
@@ -335,8 +356,12 @@ process.on('uncaughtException', async (err) => {
     console.log('[BOT] 🧹 Crash por sesión corrupta detectado. Limpiando...');
     const sessionDir = path.join(__dirname, 'session');
     if (fs.existsSync(sessionDir)) {
-      fs.rmSync(sessionDir, { recursive: true, force: true });
-      console.log('[BOT] ✅ Sesión corrupta eliminada. Reinicia el bot para escanear QR nuevo.');
+      try {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        console.log('[BOT] ✅ Sesión corrupta eliminada. Reinicia el bot para escanear QR nuevo.');
+      } catch (rmErr) {
+        console.error(`[BOT] ❌ Error EBUSY: No se pudo borrar la sesión automáticamente. Por favor, cierra Chrome desde el Administrador de Tareas y borra la carpeta 'session' manualmente. Obviando error...`);
+      }
     }
   }
 
@@ -363,28 +388,25 @@ client.on('ready', async () => {
   // Recovery COMPLETADO — bot en modo venta
   // setTimeout(() => recuperarChatsViejos(), 8000);
 
-  // Iniciar broadcaster de imágenes a grupos (esperar 30s para que todo esté listo)
-  /* Ocultado por peticion
-  setTimeout(() => {
-    if (typeof startGroupBroadcaster === 'function') {
-      startGroupBroadcaster();
-    }
-  }, 30000);
-  */
-
-  // Iniciar publicación automática de Estados (esperar 45s)
-  /* Ocultado por peticion
-  setTimeout(() => {
-    if (typeof startStatusBroadcaster === 'function') {
-      startStatusBroadcaster();
-    }
-  }, 45000);
-  */
-
-  // Iniciar servidor interno para recibir comandos del panel
+  // Iniciar servidor interno y automatizaciones SOLO la primera vez
   if (!serverStarted) {
     serverStarted = true;
-    // startReactivacionServer() is defined globally but might be causing ReferenceError due to block scoping
+    
+    // Iniciar broadcaster de imágenes a grupos (esperar 30s)
+    setTimeout(() => {
+      if (typeof startGroupBroadcaster === 'function') {
+        startGroupBroadcaster();
+      }
+    }, 30000);
+
+    // Iniciar publicación automática de Estados (esperar 45s)
+    setTimeout(() => {
+      if (typeof startStatusBroadcaster === 'function') {
+        startStatusBroadcaster();
+      }
+    }, 45000);
+
+    // Iniciar servidor interno para recibir comandos del panel
     if (typeof startReactivacionServer === 'function') {
       startReactivacionServer();
     }
@@ -397,8 +419,12 @@ client.on('auth_failure', async (msg) => {
   console.log('[BOT] 🧹 Limpiando sesión corrupta...');
   const sessionDir = path.join(__dirname, 'session');
   if (fs.existsSync(sessionDir)) {
-    fs.rmSync(sessionDir, { recursive: true, force: true });
-    console.log('[BOT] ✅ Sesión borrada. Reiniciando para QR nuevo...');
+    try {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      console.log('[BOT] ✅ Sesión borrada. Reiniciando para QR nuevo...');
+    } catch (rmErr) {
+      console.error(`[BOT] ❌ Error EBUSY: No se pudo borrar la sesión de WhatsApp automáticamente por archivos bloqueados. Considera borrar 'session' a mano si el reinicio falla.`);
+    }
   }
   setTimeout(() => {
     console.log('[BOT] 🔄 Reiniciando cliente...');
@@ -418,6 +444,48 @@ client.on('disconnected', async (reason) => {
   }
   console.log('[BOT] 🔄 Intentando reconectar en 10 segundos...');
   setTimeout(() => client.initialize(), 10000);
+});
+
+// ============================================
+// WATCHDOG GLOBAL — detached Frame & errores fatales de Puppeteer
+// Si Puppeteer se cae (detached Frame, Session closed, Target closed),
+// el proceso termina con código 1 para que PM2 / el script de reinicio lo arranque de nuevo.
+// ============================================
+process.on('uncaughtException', (err) => {
+  const msg = err.message || '';
+  const esFatalPuppeteer = (
+    msg.includes('detached Frame') ||
+    msg.includes('Session closed') ||
+    msg.includes('Target closed') ||
+    msg.includes('Protocol error') ||
+    msg.includes('Connection closed')
+  );
+  if (esFatalPuppeteer) {
+    console.error('[WATCHDOG] 💀 Error fatal de Puppeteer detectado — reiniciando proceso...');
+    console.error('[WATCHDOG]   >', msg);
+    process.exit(1); // PM2 / reinicio externo arrancará el bot de nuevo
+  } else {
+    // Error no fatal — loggear y continuar
+    console.error('[WATCHDOG] ⚠️ Excepción no capturada (no fatal):', msg);
+  }
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = (reason && reason.message) ? reason.message : String(reason);
+  const esFatalPuppeteer = (
+    msg.includes('detached Frame') ||
+    msg.includes('Session closed') ||
+    msg.includes('Target closed') ||
+    msg.includes('Protocol error') ||
+    msg.includes('Connection closed')
+  );
+  if (esFatalPuppeteer) {
+    console.error('[WATCHDOG] 💀 Promesa rechazada fatal (Puppeteer caído) — reiniciando proceso...');
+    console.error('[WATCHDOG]   >', msg);
+    process.exit(1);
+  } else {
+    console.error('[WATCHDOG] ⚠️ Promesa rechazada (no fatal):', msg);
+  }
 });
 
 // ============================================
@@ -443,7 +511,7 @@ async function enviarTransicionAdmin(clientPhone, chatId, alvaroMsg) {
       `${h.role === 'user' ? 'Cliente' : h.role === 'admin' ? 'Álvaro' : 'Bot'}: ${h.message}`
     ).join('\n');
 
-    const result = await geminiGenerate('gemini-2.5-flash', prompt);
+    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
     const transMsg = result.response.text().trim();
 
     // Enviar directo al chatId original (evita problemas con LID)
@@ -801,7 +869,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             let esCarnet = false;
             let datosCarnet = {};
             try {
-              const carnetCheckResult = await geminiGenerate('gemini-2.5-flash', [
+              const carnetCheckResult = await geminiGenerate('gemini-3.1-pro-preview', [
                 imagePart,
                 '¿Esta imagen es un CARNET del Club Zona Traumática / Carné de Tiro AML? Busca: texto "Carné de Tiro AML", logo "ZT", texto "ZONA TRAUMATICA", o referencia a "LEY 2197". Si es un carnet, extrae los campos visibles. Revisa especialmente la FECHA DE VIGENCIA o VÁLIDO HASTA. Responde SOLO con JSON: {"esCarnet": true/false, "nombre": "", "cedula": "", "vigente_hasta": "YYYY-MM-DD", "marca_arma": "", "modelo_arma": "", "serial": ""}'
               ]);
@@ -846,7 +914,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             let esComprobante = false;
             let infoComprobante = '';
             try {
-              const checkResult = await geminiGenerate('gemini-2.5-flash', [
+              const checkResult = await geminiGenerate('gemini-3.1-pro-preview', [
                 imagePart,
                 'Analiza esta imagen. ¿Es un COMPROBANTE DE PAGO real (captura de transferencia bancaria, Nequi, Bancolombia, Daviplata, Bold, PSE, etc.)? \n\nIMPORTANTE: Fotos de PRODUCTOS (armas, ropa, accesorios), selfies, memes, catálogos, o cualquier imagen que NO sea una captura de pantalla de una transacción financiera = esComprobante: false.\n\nResponde SOLO con JSON: {"esComprobante": true/false, "monto": "valor si lo ves o null", "entidad": "banco/app o null"}'
               ]);
@@ -1425,7 +1493,7 @@ NO inventes datos. Solo registra lo que el cliente DIJO explícitamente.
 Responde SOLO con la ficha, sin explicaciones.`;
 
     // Usar Gemini Flash para memoria (barato y rápido)
-    const memoryResult = await geminiGenerate('gemini-2.5-flash', memoryPrompt);
+    const memoryResult = await geminiGenerate('gemini-3.1-pro-preview', memoryPrompt);
     const newMemory = memoryResult.response.text().trim();
 
     // Solo actualizar si cambió y no está vacío
@@ -2690,7 +2758,16 @@ function buildImageQueue() {
   const didacticoDir = path.join(imagenesDir, 'didactico');
 
   const imagenesPistolas = obtenerImagenesRecursivo(pistolasDir);
-  const imagenesOferta = obtenerImagenesRecursivo(ofertaDir);
+  // Excluir la carpeta 'inventario y precios' — esa imagen es interna para actualizar
+  // el catálogo y NO debe publicarse en estados ni grupos.
+  const CARPETA_INTERNA = path.join(ofertaDir, 'inventario y precios');
+  const imagenesOfertaRaw = obtenerImagenesRecursivo(ofertaDir);
+  const imagenesOferta = imagenesOfertaRaw.filter(
+    fullPath => !fullPath.startsWith(CARPETA_INTERNA)
+  );
+  if (imagenesOfertaRaw.length !== imagenesOferta.length) {
+    console.log(`[QUEUE] 🔒 Excluidas ${imagenesOfertaRaw.length - imagenesOferta.length} imágenes internas de 'inventario y precios'`);
+  }
   const imagenesDidactico = obtenerImagenesRecursivo(didacticoDir);
 
   // 4. Filtrar pistolas: solo las que corresponden a productos del catálogo
@@ -2896,22 +2973,28 @@ async function sendGroupBroadcast() {
     return;
   }
 
-  // 3. Generar texto UNA vez (misma imagen y texto para todos los grupos)
-  const texto = await getGroupBroadcastText(imageItem.relativePath, imageItem.productoInfo);
-
-  // 4. Cargar la imagen UNA vez
+  // 3. Cargar la imagen UNA vez
   const media = MessageMedia.fromFilePath(imageItem.fullPath);
 
-  // 5. Enviar a TODOS los grupos con la MISMA imagen y texto
+  // 4. Enviar a TODOS los grupos iterativamente con TEXTO ÚNICO
   let enviados = 0;
   for (const grupo of grupos) {
     try {
-      console.log(`[BROADCASTER] ➡️ Enviando a ${grupo.name} (Img: ${imageItem.relativePath})...`);
-      await client.sendMessage(grupo.id._serialized, media, { caption: texto });
+      console.log(`[BROADCASTER] ➡️ Preparando envío a ${grupo.name} (Img: ${imageItem.relativePath})...`);
+      
+      // Generar un texto nuevo para CADA grupo (Rompe la firma de anti-spam de WhatsApp)
+      const textoUnico = await getGroupBroadcastText(imageItem.relativePath, imageItem.productoInfo);
+
+      await client.sendMessage(grupo.id._serialized, media, { caption: textoUnico });
       enviados++;
       console.log(`[BROADCASTER] ✅ Enviado a: ${grupo.name}`);
-      // Esperar entre 3 y 6 segundos entre grupos para parecer natural
-      await new Promise(r => setTimeout(r, 3000 + Math.random() * 3000));
+      
+      // Delay de seguridad anti-ban masivo: Esperar entre 1 y 3 MINUTOS entre cada grupo
+      if (enviados < grupos.length) {
+        const banDelay = Math.floor(Math.random() * 120000) + 60000; 
+        console.log(`[BROADCASTER] 🛡️ Anti-Ban: Esperando ${Math.round(banDelay/1000)}s antes del próximo grupo...`);
+        await new Promise(r => setTimeout(r, banDelay));
+      }
     } catch (err) {
       console.error(`[BROADCASTER] ❌ Error en grupo ${grupo.name}:`, err.message);
     }
@@ -2921,8 +3004,9 @@ async function sendGroupBroadcast() {
 }
 
 function startGroupBroadcaster() {
-  // Horas fijas del día en que se envía (hora Colombia UTC-5)
-  const HORAS_ENVIO = [0, 6, 8, 12, 16, 20, 22]; // 12am, 6am, 8am, 12pm, 4pm, 8pm, 10pm
+  // Horas fijas y humanas del día en que se envía (hora Colombia UTC-5)
+  // Reducido a 3 veces al día para evitar reportes de spam
+  const HORAS_ENVIO = [8, 13, 19]; // 8am, 1pm, 7pm
 
   function getMsHastaProximoEnvio() {
     const ahora = new Date();
@@ -3035,29 +3119,46 @@ async function sendStatusBroadcast() {
     console.log(`[STATUS] ✅ Historia publicada exitosamente.`);
 
   } catch (err) {
-    console.error(`[STATUS] ❌ Error subiendo estado:`, err.message);
+    const msg = err.message || '';
+    if (msg.includes('detached Frame') || msg.includes('Session closed') || msg.includes('Target closed')) {
+      console.error('[STATUS] 💀 Error fatal de Puppeteer — el bot necesita reiniciarse.');
+      process.exit(1);
+    }
+    console.error(`[STATUS] ❌ Error subiendo estado:`, msg);
   }
 }
 
 function startStatusBroadcaster() {
-  function getMsHastaSiguienteHora() {
+  const HORAS_ESTADO = [9, 14, 18, 22]; // 4 historias estratégicas al día
+
+  function getMsHastaProximoEstado() {
     const ahora = new Date();
-    const minutosRestantes = 60 - ahora.getMinutes();
-    return minutosRestantes * 60 * 1000 - (ahora.getSeconds() * 1000) - ahora.getMilliseconds();
+    const utcMinutes = ahora.getUTCHours() * 60 + ahora.getUTCMinutes();
+    const colMinutes = ((utcMinutes - 5 * 60) % (24 * 60) + 24 * 60) % (24 * 60);
+    const colHora = Math.floor(colMinutes / 60);
+    const colMin = colMinutes % 60;
+
+    let proximaHora = HORAS_ESTADO.find(h => h > colHora || (h === colHora && colMin === 0));
+    if (proximaHora === undefined) {
+      proximaHora = HORAS_ESTADO[0] + 24;
+    }
+    const minutosRestantes = proximaHora * 60 - colMinutes;
+    return minutosRestantes * 60 * 1000 - ahora.getSeconds() * 1000;
   }
 
   function programarSiguienteEstado() {
-    const msEspera = getMsHastaSiguienteHora();
-    const minutosEspera = Math.round(msEspera / 60000);
-    console.log(`[STATUS] ⏰ Próxima historia programada en ${minutosEspera} minutos.`);
+    const msEspera = getMsHastaProximoEstado();
+    const horasEspera = Math.floor((msEspera / 1000) / 3600);
+    const minsEspera = Math.round(((msEspera / 1000) % 3600) / 60);
+    console.log(`[STATUS] ⏰ Próxima historia programada en ${horasEspera}h ${minsEspera}m (a las ${HORAS_ESTADO.join(', ')}h)`);
 
     setTimeout(async () => {
       await sendStatusBroadcast();
-      programarSiguienteEstado(); // Bucle infinito
+      programarSiguienteEstado(); 
     }, msEspera);
   }
 
-  console.log(`[STATUS] 🚀 Automatización de Historias iniciada (1 publicación cada hora, cola secuencial).`);
+  console.log(`[STATUS] 🚀 Automatización de Historias iniciada (4 publicaciones controladas al día).`);
   programarSiguienteEstado();
 }
 
@@ -3137,13 +3238,13 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
   console.log(`[REACTIVAR] 🎉 Reactivación completada — ${clientes.length} mensajes enviados`);
 }
 
-async function forceBotReply(phone) {
+async function forceBotReply(phone, preloadedChat = null) {
   try {
     const chatId = db.getClientChatId(phone) || `${phone}@c.us`;
     console.log(`\n[PANEL-REACTIVACION] Buscando mensajes pendientes para: ${phone} (${chatId})`);
 
-    const chat = await client.getChatById(chatId);
-    const messages = await chat.fetchMessages({ limit: 5 });
+    const chat = preloadedChat || await client.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit: 15 });
 
     if (!messages || messages.length === 0) {
       return { ok: false, message: 'No se encontró historial de chat con este cliente.' };
@@ -3241,7 +3342,7 @@ Reglas:
 
 Responde SOLO con el mensaje al cliente, sin explicaciones ni prefijos.`;
 
-    const result = await geminiGenerate('gemini-2.5-flash', prompt);
+    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
     const followUpMsg = result.response.text().trim();
 
     if (!followUpMsg) {
@@ -3311,6 +3412,12 @@ function startReactivacionServer() {
         try {
           console.log('[PANEL] 📬 Iniciando reatención de mensajes no leídos...');
           const chats = await client.getChats();
+          console.log(`[DEBUG-PANEL] Total chats obtenidos de WhatsApp: ${chats.length}`);
+          
+          // Debugging top 10 recent chats to see their unread status
+          chats.slice(0, 10).forEach(c => {
+            console.log(`[DEBUG-PANEL] Chat: ${c.name} | Phone: ${c.id._serialized} | UnreadCount: ${c.unreadCount} | IsGroup: ${c.isGroup}`);
+          });
 
           // Filtrar solo chats con mensajes no leídos y que no sean de grupos
           const pendientes = chats.filter(c =>
@@ -3320,6 +3427,7 @@ function startReactivacionServer() {
           );
 
           if (pendientes.length === 0) {
+            console.log('[DEBUG-PANEL] No se encontraron pendientes tras el filtro.');
             res.end(JSON.stringify({ ok: false, msg: 'No hay chats con mensajes sin leer' }));
             return;
           }
@@ -3350,7 +3458,7 @@ function startReactivacionServer() {
                 }
 
                 console.log(`[NO-LEIDOS] 📨 Reatendiendo: ${phone} (${chat.unreadCount} mensajes sin leer)`);
-                const result = await forceBotReply(phone);
+                const result = await forceBotReply(phone, chat);
                 if (result.ok) {
                   procesados++;
                   console.log(`[NO-LEIDOS] ✅ Respondido: ${phone}`);
@@ -3430,7 +3538,7 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
 
           let mensajeIA = '';
           try {
-            const iaResult = await geminiGenerate('gemini-2.0-flash', promptIA);
+            const iaResult = await geminiGenerate('gemini-3.1-pro-preview', promptIA);
             mensajeIA = iaResult.response.text().trim();
           } catch (iaErr) {
             console.error('[AGREGAR] Error generando mensaje con IA:', iaErr.message);
@@ -4084,7 +4192,7 @@ ${instruccionExtra}
 Solo escribe el mensaje, sin explicaciones.`;
 
 
-              const resumeResult = await geminiGenerate('gemini-2.5-flash', resumePrompt);
+              const resumeResult = await geminiGenerate('gemini-3.1-pro-preview', resumePrompt);
               const resumeMsg = resumeResult.response.text().trim();
 
               if (resumeMsg) {
