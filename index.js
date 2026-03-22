@@ -16,7 +16,6 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { fork } = require('child_process');
-const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 const jsQR = require('jsqr');
 const Jimp = require('jimp');
 
@@ -24,242 +23,22 @@ const db = require('./db');
 const router = require('./router');
 const search = require('./search');
 
+// Módulos extraídos del refactor
+const { geminiGenerate, SAFETY_SETTINGS } = require('./gemini');
+const { CONFIG, parseEmployees, knowledgeBase } = require('./config');
+const { findBestImage, detectAndSendProductImages: _detectAndSendProductImages } = require('./images');
+
+// Wrapper para inyectar MessageMedia a detectAndSendProductImages
+async function detectAndSendProductImages(response, rawMsg, senderPhone) {
+  return _detectAndSendProductImages(response, rawMsg, senderPhone, MessageMedia);
+}
+
 // Cola de reintentos para cuando falla Gemini
 const retryQueue = [];
 
-// ============================================
-// SISTEMA DE ROTACIÓN DE API KEYS — GEMINI
-// ============================================
-// Almacena múltiples keys en .env separadas por coma:
-//   GEMINI_API_KEYS=key1,key2,key3
-// Si solo hay una key, también funciona con GEMINI_API_KEY=key1.
-// Cuando una key da 429 (quota), rota automáticamente a la siguiente.
+// (Gemini, Config y Knowledge Base ahora viven en gemini.js y config.js)
 
-const GEMINI_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
-let geminiKeyIndex = 0;
-let genAI = new GoogleGenerativeAI(GEMINI_KEYS[0]);
-
-// Desactivar TODOS los filtros de seguridad — negocio legal de armas traumáticas
-const SAFETY_SETTINGS = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
-];
-
-let geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview', safetySettings: SAFETY_SETTINGS });
-
-console.log(`[GEMINI] 🔑 ${GEMINI_KEYS.length} API key(s) cargadas — activa: #1`);
-
-function rotateGeminiKey(reason = '') {
-  if (GEMINI_KEYS.length <= 1) {
-    console.error('[GEMINI] ⚠️ Solo hay 1 API key — no se puede rotar. Agrega más keys a GEMINI_API_KEYS en .env');
-    return false;
-  }
-  const oldIndex = geminiKeyIndex;
-  geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_KEYS.length;
-  genAI = new GoogleGenerativeAI(GEMINI_KEYS[geminiKeyIndex]);
-  geminiPro = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview', safetySettings: SAFETY_SETTINGS });
-  console.log(`[GEMINI] 🔄 Rotación de API key: #${oldIndex + 1} → #${geminiKeyIndex + 1} ${reason ? '(' + reason + ')' : ''}`);
-  return true;
-}
-
-/**
- * Wrapper para llamadas a Gemini con rotación automática de keys en caso de 429.
- * Uso: const result = await geminiGenerate(model, content, options);
- * @param {string} modelName - Nombre del modelo (ej: 'gemini-2.5-flash')
- * @param {any} content - Contenido para generateContent
- * @param {object} options - Opciones adicionales del modelo (opcional)
- * @returns {object} Resultado de generateContent
- */
-async function geminiGenerate(modelName, content, options = {}) {
-  let lastError;
-  const maxRetries = GEMINI_KEYS.length;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName, safetySettings: SAFETY_SETTINGS, ...options });
-      const result = await model.generateContent(content);
-      return result;
-    } catch (err) {
-      lastError = err;
-      const is429 = err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('Too Many Requests'));
-      const isProhibited = err.message && err.message.includes('PROHIBITED_CONTENT');
-
-      if ((is429 || isProhibited) && attempt < maxRetries - 1) {
-        if (is429) console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada (429) — rotando...`);
-        if (isProhibited) console.warn(`[GEMINI] ⚠️ Contenido bloqueado (PROHIBITED_CONTENT) con key #${geminiKeyIndex + 1} — rotando key...`);
-        rotateGeminiKey(is429 ? '429 quota exceeded' : 'prohibited_content');
-        // Esperar un momento antes de reintentar
-        await new Promise(r => setTimeout(r, 1000));
-      } else if (isProhibited) {
-        // Si se agotaron todas las keys con PROHIBITED_CONTENT, lanzar error descriptivo
-        console.error(`[GEMINI] ❌ PROHIBITED_CONTENT en todas las keys — revisar safetySettings o el prompt`);
-        throw err;
-      } else {
-        throw err; // No es 429 ni prohibited — lanzar inmediatamente
-      }
-    }
-  }
-  throw lastError;
-}
-
-// ============================================
-// CONFIGURACIÓN
-// ============================================
-const CONFIG = {
-  mode: process.env.MODE || 'direct',
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  businessName: process.env.BUSINESS_NAME || 'Mi Tienda',
-  businessPhone: process.env.BUSINESS_PHONE || '',
-  auditors: (process.env.AUDITORS || '').split(',').map(a => a.trim()).filter(Boolean),
-  ignoreGroups: process.env.IGNORE_GROUPS === 'true',
-  debug: process.env.DEBUG === 'true',
-  n8nWebhook: process.env.N8N_WEBHOOK_URL || '',
-};
-
-// Parsear empleados del .env
-// Formato: "Juan:573001111111,Maria:573002222222"
-function parseEmployees() {
-  const envEmployees = process.env.EMPLOYEES || '';
-  if (!envEmployees) return [];
-
-  return envEmployees.split(',').map(emp => {
-    const [name, phone] = emp.trim().split(':');
-    return { name: name.trim(), phone: phone.trim() };
-  });
-}
-
-// Cargar base de conocimiento
-let knowledgeBase = {};
-try {
-  const kbPath = path.join(__dirname, 'knowledge_base.json');
-  if (fs.existsSync(kbPath)) {
-    knowledgeBase = JSON.parse(fs.readFileSync(kbPath, 'utf8'));
-    console.log('[BOT] Base de conocimiento cargada');
-  } else {
-    console.log('[BOT] No se encontró knowledge_base.json, se usará memoria vacía o catálogo.');
-  }
-} catch (error) {
-  console.error('[BOT] Error cargando knowledge_base.json:', error.message);
-}
-
-// ============================================
-// HELPER: BUSCAR IMAGEN DE PRODUCTO
-// ============================================
-function findBestImage(query) {
-  const baseDir = path.join(__dirname, 'imagenes', 'pistolas');
-  if (!fs.existsSync(baseDir)) return null;
-
-  // Normalizar query: quitar acentos, pasar a minúsculas, separar por guiones y espacios
-  const tokens = query.toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, ' ')
-    .split(/\s+/)
-    .filter(t => t.length >= 2);
-
-  if (tokens.length === 0) return null;
-
-  let bestMatch = null;
-  let bestScore = 0;
-
-  try {
-    const brands = fs.readdirSync(baseDir);
-    for (const brand of brands) {
-      const brandDir = path.join(baseDir, brand);
-      if (!fs.statSync(brandDir).isDirectory()) continue;
-
-      const files = fs.readdirSync(brandDir);
-      for (const file of files) {
-        if (!file.endsWith('.png') && !file.endsWith('.jpg') && !file.endsWith('.jpeg') && !file.endsWith('.webp')) continue;
-
-        // Normalizar nombre de archivo igual que los tokens
-        const fileNameClean = file.replace(/\.[^/.]+$/, "").toLowerCase()
-          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-z0-9]/g, ' ');
-          
-        const targetString = `${brand.toLowerCase()} ${fileNameClean}`;
-        
-        let score = 0;
-        for (const token of tokens) {
-          if (targetString.includes(token)) {
-            // Las marcas valen 1, los modelos (palabras raras) valen 2
-            score += (token === brand.toLowerCase() ? 1 : 2);
-          }
-        }
-
-        // Si el score es mayor, o si empatan pero este nombre de archivo es más corto (más exacto)
-        if (score > bestScore || (score === bestScore && score > 0 && bestMatch && file.length < path.basename(bestMatch).length)) {
-          bestScore = score;
-          bestMatch = path.join(brandDir, file);
-        }
-      }
-    }
-  } catch (e) {
-    console.error('[BOT] Error buscando imagen:', e.message);
-  }
-
-  return bestScore >= 2 ? bestMatch : null;
-}
-
-// ============================================
-// HELPER: DETECTAR Y ENVIAR IMÁGENES DE PRODUCTOS EN UNA RESPUESTA
-// Escanea la respuesta del bot buscando etiquetas [ENVIAR_IMAGEN: ...] y URLs
-// del catálogo, busca las fotos locales, y las envía al chat.
-// Devuelve la respuesta limpia (sin etiquetas) y la cantidad de imágenes enviadas.
-// ============================================
-async function detectAndSendProductImages(response, rawMsg, senderPhone) {
-  const imagesToSend = [];
-
-  // 1. Detección por etiqueta explícita [ENVIAR_IMAGEN: Marca Modelo]
-  const imageRegex = /\[ENVIAR_IMAGEN:\s*([^\]]+)\]/ig;
-  let match;
-  while ((match = imageRegex.exec(response)) !== null) {
-    const productQuery = match[1].trim();
-    console.log(`[IMG] 🔍 Etiqueta ENVIAR_IMAGEN: "${productQuery}"`);
-    const foundPath = findBestImage(productQuery);
-    console.log(`[IMG] ${foundPath ? '✅' : '❌'} findBestImage("${productQuery}") → ${foundPath || 'NO ENCONTRADA'}`);
-    if (foundPath && !imagesToSend.includes(foundPath)) {
-      imagesToSend.push(foundPath);
-    }
-  }
-
-  // Limpiar todas las etiquetas del mensaje final
-  response = response.replace(imageRegex, '').trim();
-
-  // 2. Detección automática por URL de producto (hace match de cualquier URL que termine en producto/algo)
-  const urlRegex = /producto\/([a-zA-Z0-9\-]+)/ig;
-  let urlMatch;
-  while ((urlMatch = urlRegex.exec(response)) !== null) {
-    const productSlug = urlMatch[1].replace(/-/g, ' ').trim();
-    console.log(`[IMG] 🔍 URL producto detectada: slug="${urlMatch[1]}", query="${productSlug}"`);
-    const foundPath = findBestImage(productSlug);
-    console.log(`[IMG] ${foundPath ? '✅' : '❌'} findBestImage("${productSlug}") → ${foundPath ? path.basename(foundPath) : 'NO ENCONTRADA'}`);
-    if (foundPath && !imagesToSend.includes(foundPath)) {
-      imagesToSend.push(foundPath);
-    }
-  }
-
-  // 3. Enviar las imágenes encontradas
-  let sent = 0;
-  for (const imgPath of imagesToSend) {
-    try {
-      const media = MessageMedia.fromFilePath(imgPath);
-      await rawMsg.reply(media);
-      console.log(`[IMG] 🖼️ Imagen enviada a ${senderPhone}: ${path.basename(imgPath)}`);
-      sent++;
-    } catch (imgErr) {
-      console.error(`[IMG] ❌ Error enviando imagen ${imgPath}:`, imgErr.message);
-    }
-  }
-
-  if (imagesToSend.length === 0) {
-    console.log(`[IMG] ℹ️ Sin imágenes detectadas en respuesta para ${senderPhone}`);
-  }
-
-  return { cleanResponse: response, imagesSent: sent };
-}
+// (Helpers de imágenes ahora viven en images.js)
 
 // ============================================
 // INICIALIZAR BASE DE DATOS Y EMPLEADOS
