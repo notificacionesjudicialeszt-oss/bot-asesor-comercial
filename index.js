@@ -1011,6 +1011,17 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 // (Client flow ahora vive en client_flow.js)
 
 // (Client flow ahora vive en client_flow.js)
+
+// ============================================
+// RECUPERAR CHATS SIN RESPONDER
+// ============================================
+// Se ejecuta una sola vez al arrancar el bot.
+async function recuperarChatsViejos() {
+  try {
+    console.log('[RECOVERY] 🔍 Buscando chats sin responder...');
+
+    const allChats = await client.getChats();
+    let enviados = 0;
     let omitidos = 0;
 
     // Archivo de control para no enviar dos veces al mismo número
