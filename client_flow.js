@@ -817,11 +817,11 @@ async function getClaudeResponse(clientPhone, message, history) {
 
     // --- MANEJO ESPECIAL PARA JONATHAN CORTEZ ---
     if (clientPhone === '17607908733') {
-      systemPrompt += `\n\nâš ï¸  INSTRUCCIÃ“N ULTRA-ESPECIAL EXCLUSIVA PARA ESTE CLIENTE (Jonathan Cortez):
-Este usuario es un seguidor especial y peculiar, que a veces envÃ­a "mensajitos chimbos" o usa tÃ©rminos inusuales ("marik y autista"). Sin embargo, ha hecho donaciones a la causa.
-Tu objetivo AHORA MISMO es darle un MANEJO ESPECIAL, respondiendo de forma 100% HUMANA, sÃºper conversacional, empÃ¡tica y con extremada paciencia. 
-Sigue su juego, muÃ©strate agradecido, no lo trates como un bot automÃ¡tico ni le lances respuestas genÃ©ricas o de venta directa de inmediato. 
-LlÃ©valo sutilmente y con persuasiÃ³n a que apoye la causa, logrando que haga OTRA donaciÃ³n a la causa personal de Ã lvaro o de la empresa. Â¡Cero actitud bot, todo orgÃ¡nico!`;
+      systemPrompt += `\n\n⚠️ INSTRUCCIÓN ULTRA-ESPECIAL EXCLUSIVA PARA ESTE CLIENTE (Jonathan Cortez):
+Este usuario es un seguidor especial y peculiar, que a veces envía "mensajitos chimbos" o usa términos inusuales ("marik y autista"). Sin embargo, ha hecho donaciones a la causa.
+Tu objetivo AHORA MISMO es darle un MANEJO ESPECIAL, respondiendo de forma 100% HUMANA, súper conversacional, empática y con extremada paciencia. 
+Sigue su juego, muéstrate agradecido, no lo trates como un bot automático ni le lances respuestas genéricas o de venta directa de inmediato. 
+Llévalo sutilmente y con persuasión a que apoye la causa, logrando que haga OTRA donación a la causa personal de Álvaro o de la empresa. ¡Cero actitud bot, todo orgánico!`;
     }
 
     // 4. Convertir historial al formato Gemini
@@ -834,7 +834,7 @@ LlÃ©valo sutilmente y con persuasiÃ³n a que apoye la causa, logrando que hag
       if (m.role === 'admin') {
         geminiHistory.push({
           role: 'model',
-          parts: [{ text: `[Ã LVARO respondiÃ³ directamente]: ${m.message}` }]
+          parts: [{ text: `[ÁLVARO respondió directamente]: ${m.message}` }]
         });
       } else {
         const role = m.role === 'assistant' ? 'model' : 'user';
@@ -847,18 +847,18 @@ LlÃ©valo sutilmente y con persuasiÃ³n a que apoye la causa, logrando que hag
       geminiHistory.shift();
     }
 
-    // 5. Llamar a Gemini con reintentos
-    const MAX_RETRIES = 3; // geminiGenerate() ya maneja rotaciÃ³n de keys internamente
+    // 5. Llamar a Gemini con reintentos (via geminiGenerate para activar thinking)
+    const MAX_RETRIES = 3;
     let lastError = null;
+
+    // Construir contents: historial previo + mensaje actual del cliente
+    const contents = [
+      ...geminiHistory,
+      { role: 'user', parts: [{ text: message }] }
+    ];
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const model = getGenAI().getGenerativeModel({
-          model: 'gemini-3.1-pro-preview',
-          systemInstruction: systemPrompt,
-          safetySettings: SAFETY_SETTINGS,
-        });
-
         const SEPARATOR = '='.repeat(65);
         console.log('\n' + SEPARATOR);
         console.log('[BOT-CONTEXT] LO QUE VE EL BOT — ' + clientPhone + ' (' + (clientProfile && clientProfile.name ? clientProfile.name : 'Sin nombre') + ')');
@@ -877,17 +877,18 @@ LlÃ©valo sutilmente y con persuasiÃ³n a que apoye la causa, logrando que hag
         });
         console.log(SEPARATOR + '\n');
 
-        const chat = model.startChat({ history: geminiHistory });
-        const result = await chat.sendMessage(message);
-        console.log(`[GEMINI] âœ… Respuesta OK para ${clientPhone}`);
+        const result = await geminiGenerate('gemini-3.1-pro-preview', contents, {
+          config: { systemInstruction: systemPrompt }
+        });
+
+        console.log(`[GEMINI] ✅ Respuesta OK (con thinking) para ${clientPhone}`);
         const responseText = result.response.text();
         if (!responseText || !responseText.trim()) {
-          console.error(`[GEMINI] âš ï¸ RESPUESTA VACÃA de Gemini para ${clientPhone}. Mensaje enviado: "${message.substring(0, 60)}". Esto causa que el bot envÃ­e un mensaje sin texto.`);
+          console.error(`[GEMINI] ⚠️ RESPUESTA VACÍA de Gemini para ${clientPhone}. Mensaje: "${message.substring(0, 60)}"`);
         } else if (global._pendingCatalogSent === clientPhone) {
-          // Si llegamos aquÃ­, la respuesta fue exitosa y contenÃ­a el catÃ¡logo completo
           db.updateClientFlag(clientPhone, 'catalog_sent', true);
           delete global._pendingCatalogSent;
-          if (CONFIG.debug) console.log(`[DEBUG] âœ… Catalog marked as sent for ${clientPhone}`);
+          if (CONFIG.debug) console.log(`[DEBUG] ✅ Catalog marked as sent for ${clientPhone}`);
         }
         return responseText;
       } catch (retryError) {
