@@ -9,19 +9,23 @@ const db = require('./db');
 const { CONFIG } = require('./config');
 const { geminiGenerate } = require('./gemini');
 const { isAdmin } = require('./admin_commands');
-const { safeSend } = require('./client_flow');
+const { safeSend, updateClientMemory } = require('./client_flow');
 
 // Inyeccion de dependencias (funciones que viven en index.js)
 let client = null;
 let MessageMedia = null;
 let procesarMensaje = null;
 let isBotPaused = null;
+let adminPauseMap = null;
+let enviarTransicionAdmin = null;
 
 function init(whatsappClient, msgMedia, deps) {
   client = whatsappClient;
   MessageMedia = msgMedia;
   procesarMensaje = deps.procesarMensaje;
   isBotPaused = deps.isBotPaused;
+  adminPauseMap = deps.adminPauseMap;
+  enviarTransicionAdmin = deps.enviarTransicionAdmin;
 }
 
 async function procesarClientesCalientes(clientes, mode = 'normal') {
@@ -99,36 +103,60 @@ async function forceBotReply(phone, preloadedChat = null) {
     const chatId = db.getClientChatId(phone) || `${phone}@c.us`;
     console.log(`\n[PANEL-REACTIVACION] Buscando mensajes pendientes para: ${phone} (${chatId})`);
 
-    const chat = preloadedChat || await client.getChatById(chatId);
-    const messages = await chat.fetchMessages({ limit: 15 });
+    // ESTRATEGIA: fetchMessages() está roto en versiones recientes de WA Web
+    // (depende de waitForChatLoading que ya no existe). En su lugar, leemos
+    // el último mensaje del cliente desde nuestra BD local.
+    const historial = db.getConversationHistory(phone, 20);
 
-    if (!messages || messages.length === 0) {
-      return { ok: false, message: 'No se encontró historial de chat con este cliente.' };
-    }
-
-    // Buscar el último mensaje que realmente sea del usuario (retrocediendo en el historial)
-    let userMsg = null;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (!messages[i].fromMe) {
-        userMsg = messages[i];
+    // Buscar el último mensaje que sea del usuario (role = 'user')
+    let ultimoMsgUsuario = null;
+    for (let i = historial.length - 1; i >= 0; i--) {
+      if (historial[i].role === 'user') {
+        ultimoMsgUsuario = historial[i];
         break;
       }
     }
 
-    if (!userMsg) {
-      return { ok: false, message: 'No se encontraron mensajes recientes del usuario para reatender.' };
+    if (!ultimoMsgUsuario || !ultimoMsgUsuario.message) {
+      return { ok: false, message: 'No se encontró mensaje reciente del usuario en el historial.' };
     }
 
-    const hasMediaContent = userMsg.hasMedia || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(userMsg.type);
+    const userMessageText = ultimoMsgUsuario.message.trim();
 
-    if ((!userMsg.body || userMsg.body.trim() === '') && !hasMediaContent) {
-      return { ok: false, message: 'El último mensaje del usuario no contiene texto ni multimedia que pueda procesar el bot.' };
+    // Si es un mensaje de media guardado como texto plano, no procesarlo
+    if (!userMessageText || userMessageText === '') {
+      return { ok: false, message: 'El último mensaje del usuario está vacío.' };
     }
 
-    const userMessageText = userMsg.body ? userMsg.body.trim() : `[Multimedia: ${userMsg.type}]`;
-    console.log(`[PANEL-REACTIVACION] Pendiente de usuario encontrado: "${userMessageText}"`);
+    console.log(`[PANEL-REACTIVACION] Último mensaje del usuario encontrado en BD: "${userMessageText.substring(0, 80)}"`);
 
-    await procesarMensaje(userMsg, chat, phone, userMsg);
+    // Construir un objeto de mensaje sintético para procesarMensaje
+    // Obtenemos el chat para poder enviar la respuesta
+    let chat;
+    try {
+      chat = preloadedChat || await client.getChatById(chatId);
+    } catch (chatErr) {
+      console.warn(`[PANEL-REACTIVACION] No se pudo obtener chat (${chatErr.message}) — usando chatId directo`);
+      chat = { id: { _serialized: chatId }, isGroup: false };
+    }
+
+    // Crear mensaje sintético compatible con procesarMensaje
+    const msgSintetico = {
+      from: chatId,
+      to: 'me',
+      body: userMessageText,
+      type: 'chat',
+      hasMedia: false,
+      fromMe: false,
+      id: { remote: chatId },
+      getChat: async () => chat,
+      getContact: async () => ({ pushname: '', name: '', number: phone }),
+      reply: async (text) => {
+        await safeSend(phone, text);
+      }
+    };
+
+    await procesarMensaje(msgSintetico, chat, phone, msgSintetico);
 
     return { ok: true, message: 'Se ha reactivado la conversación y enviado una respuesta.' };
   } catch (err) {
@@ -459,6 +487,14 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
         try {
           const { id, accion, phone, tipo, productoName } = JSON.parse(body);
 
+          // Omitir: marcar en BD y salir sin notificar
+          if (accion === 'omitir') {
+            db.updateComprobanteEstado(id, 'omitido');
+            console.log(`[COMPROBANTE] ⏭️ Comprobante #${id} omitido silenciosamente`);
+            res.end(JSON.stringify({ ok: true, waSent: false, accion: 'omitir' }));
+            return;
+          }
+
           // 1. Actualizar BD primero — esto SIEMPRE debe ocurrir
           db.updateComprobanteEstado(id, accion === 'confirmar' ? 'confirmado' : 'rechazado');
 
@@ -512,6 +548,8 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
               let clubBody = `🛡️ *Afiliación Club ZT (${planNombre}):* ¡Bienvenido!\n\n`;
               if (clubMsgs.length > 1) {
                 clubBody += `Para generar tu *Carnet Digital* necesito:\n` + clubMsgs.map((req, i) => `${i + 1}. ${req}`).join('\n');
+                clubBody += `\n\n📝 *Por favor envíame los datos en este mismo formato, indicando a qué corresponde cada uno.* Ejemplo:\n`;
+                clubBody += `1. Nombre: Juan Pérez\n2. Cédula: 12345678\n3. Teléfono: 3001234567\n4. Arma: Ekol Firat Compact\n5. Serial: AB12345\n6. (Adjunta tu foto de frente)`;
               } else {
                 clubBody += `Solo necesito 1 cosa para tu carnet:\n1. 📸 Foto de frente (selfie clara, sin gafas, buena luz)`;
               }
@@ -739,6 +777,62 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
       });
+    } else if (req.url === '/extraer-datos-carnet' && req.method === 'POST') {
+      // Extraer datos de un carnet con Gemini Vision (OCR inteligente)
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { imagenBase64, imagenMime } = JSON.parse(body);
+          if (!imagenBase64) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Falta la imagen' }));
+            return;
+          }
+
+          console.log('[EXTRAER-CARNET] 🔍 Analizando imagen de carnet con Gemini Vision...');
+
+          const prompt = `Analiza esta imagen de un carnet/credencial de portador de arma traumática. Extrae TODOS los datos visibles y devuelve SOLO un JSON válido sin markdown ni explicaciones, con esta estructura exacta:
+
+{
+  "nombre": "nombre completo del titular",
+  "cedula": "número de cédula",
+  "marca_arma": "marca del arma (ej: Ekol, Retay, Blow)",
+  "modelo_arma": "modelo del arma (ej: Special 99, Firat Compact)",
+  "serial": "número de serial del arma",
+  "vigente_hasta": "fecha de vigencia en formato DD/MM/YYYY",
+  "plan_tipo": "Plus o Pro (si se puede determinar)"
+}
+
+Si algún campo no es legible o no está presente, pon null.
+Responde SOLO con el JSON, sin backticks ni explicaciones.`;
+
+          const content = [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: imagenMime || 'image/jpeg',
+                data: imagenBase64
+              }
+            }
+          ];
+
+          const result = await geminiGenerate('gemini-2.5-flash', content);
+          const responseText = result.response.text().trim();
+
+          // Limpiar respuesta de posibles backticks
+          const cleanJson = responseText.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+          const datos = JSON.parse(cleanJson);
+
+          console.log('[EXTRAER-CARNET] ✅ Datos extraídos:', JSON.stringify(datos));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, datos }));
+        } catch (e) {
+          console.error('[EXTRAER-CARNET] ❌ Error:', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
     } else if (req.url === '/resolver-lids' && req.method === 'POST') {
       // Resolver phones LID: clientes cuyo phone >= 13 dígitos NO son un número real
       // Solo responsabilidad: dejar el número real como phone. El chat_id se auto-sana al enviar.
@@ -752,15 +846,83 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, total: lidClients.length }));
 
+      // Helper: detectar si un error es por frame/contexto detached
+      function isFrameDetached(err) {
+        const msg = (err.message || '').toLowerCase();
+        return msg.includes('detached frame') ||
+               msg.includes('execution context was destroyed') ||
+               msg.includes('frame was detached') ||
+               msg.includes('session closed') ||
+               msg.includes('target closed') ||
+               msg.includes('protocol error');
+      }
+
+      // Helper: refrescar la página del navegador y esperar reconexión
+      async function refreshWhatsAppPage() {
+        console.log('[LID] 🔄 Refrescando página de WhatsApp Web para recuperar frames...');
+        try {
+          if (client.pupPage) {
+            await client.pupPage.reload({ waitUntil: 'networkidle0', timeout: 30000 });
+            // Esperar a que WhatsApp Web se re-inicialice completamente
+            await new Promise(r => setTimeout(r, 8000));
+            console.log('[LID] ✅ Página refrescada — frames restaurados');
+            return true;
+          }
+        } catch (refreshErr) {
+          console.error('[LID] ⚠️ Error al refrescar página:', refreshErr.message);
+        }
+        return false;
+      }
+
+      // Helper: getContactById con reintento + refresh de página
+      async function safeGetContact(chatId) {
+        try {
+          return await client.getContactById(chatId);
+        } catch (err) {
+          if (isFrameDetached(err)) {
+            // Intentar refrescar la página y reintentar UNA vez
+            const refreshed = await refreshWhatsAppPage();
+            if (refreshed) {
+              try {
+                return await client.getContactById(chatId);
+              } catch (retryErr) {
+                throw retryErr;
+              }
+            }
+          }
+          throw err;
+        }
+      }
+
       (async () => {
         let resueltos = 0;
         let fallidos = 0;
+        let pageRefreshed = false;
         console.log(`[LID] 🔍 Resolviendo ${lidClients.length} phones LID a número real...`);
+
+        // Pre-check: verificar si la página está viva antes de empezar
+        try {
+          await client.getContactById(lidClients[0].chat_id || (lidClients[0].phone + '@lid'));
+        } catch (preErr) {
+          if (isFrameDetached(preErr)) {
+            console.log('[LID] ⚠️ Frame detached detectado en pre-check — refrescando antes de empezar...');
+            pageRefreshed = await refreshWhatsAppPage();
+            if (!pageRefreshed) {
+              console.error('[LID] ❌ No se pudo recuperar la conexión. Intente reiniciar el bot.');
+              return;
+            }
+          }
+        }
 
         for (const c of lidClients) {
           try {
             const chatId = c.chat_id || (c.phone + '@lid');
-            const contact = await client.getContactById(chatId);
+            const contact = await safeGetContact(chatId);
+            if (!contact) {
+              console.log(`[LID] ⏭️  ${c.phone} — contacto no encontrado`);
+              fallidos++;
+              continue;
+            }
             const realNumber = (contact.number || '').replace(/\D/g, '');
 
             if (!realNumber || realNumber === c.phone) {
@@ -778,7 +940,7 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
               console.log(`[LID] ✅ ${c.phone} → ${realNumber}`);
               resueltos++;
             }
-            await new Promise(r => setTimeout(r, 800));
+            await new Promise(r => setTimeout(r, 1500));
           } catch (err) {
             console.error(`[LID] ❌ ${c.phone}: ${err.message}`);
             fallidos++;
@@ -974,8 +1136,9 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, wasPaused }));
 
-          // === SMART RESUME: Revisar lo que pasó durante la pausa ===
-          if (wasPaused) {
+          // === SMART RESUME: siempre corre al presionar "Devolver al Bot" ===
+          // NO depende de wasPaused — el adminPauseMap se pierde en cada reinicio
+          {
             try {
               // Leer los últimos 20 mensajes para tener contexto de la pausa
               const history = db.getConversationHistory(phone, 20);
@@ -994,8 +1157,10 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
               }
 
               if (msgsDurantePausa.length === 0) {
-                console.log(`[RESUME] ℹ️ No hay mensajes durante la pausa para ${phone}`);
-                return;
+                // Sin mensajes de Álvaro — usar los últimos mensajes del cliente como contexto
+                const recientes = history.slice(-5);
+                msgsDurantePausa.push(...recientes);
+                console.log(`[RESUME] ℹ️ Sin msgs de pausa para ${phone} — usando últimos ${recientes.length} msgs`);
               }
 
               // Detectar si hay comprobante sin procesar (enviado durante la pausa)
@@ -1090,10 +1255,33 @@ Solo escribe el mensaje, sin explicaciones.`;
           let msgText = caption || `🪪 *¡Aquí tienes tu Carnet Digital del ${planStr}!* \n\nGuarda esta imagen en tu celular. Es tu identificación oficial que te acredita como miembro activo y te brinda todo nuestro respaldo jurídico. 🛡️`;
 
           try {
+            // 1. Enviar carnet FRENTE
             const media = new MessageMedia(imagenMime || 'image/png', imagenBase64, 'carnet_digital.png');
             await client.sendMessage(chatId, media, { caption: msgText });
             db.saveMessage(phone, 'assistant', msgText);
-            console.log(`[PANEL] 🪪 Carnet enviado a ${phone}`);
+            console.log(`[PANEL] 🪪 Carnet (frente) enviado a ${phone}`);
+
+            // 2. Enviar REVERSO genérico (si existe)
+            const reversoPath = path.join(__dirname, 'imagenes', 'carnets', 'reverso.png');
+            if (fs.existsSync(reversoPath)) {
+              await new Promise(r => setTimeout(r, 1500)); // delay anti-spam
+              const reversoMedia = MessageMedia.fromFilePath(reversoPath);
+              const reversoCaption = `🪪 *Reverso de tu Carnet Digital*\n\nAquí están los términos y condiciones de tu membresía. Guárdalo junto con el frente del carnet. 🛡️`;
+              await client.sendMessage(chatId, reversoMedia, { caption: reversoCaption });
+              db.saveMessage(phone, 'assistant', reversoCaption);
+              console.log(`[PANEL] 📋 Reverso enviado a ${phone}`);
+            }
+
+            // 3. Enviar mensaje de bienvenida con links de recursos
+            await new Promise(r => setTimeout(r, 2000)); // delay anti-spam
+            const bienvenidaMsg = `🌟 *¡Bienvenido a la familia ZT!* 🌟\n\n` +
+              `Como afiliado activo, tienes acceso a estos recursos exclusivos:\n\n` +
+              `📢 *Grupo Exclusivo de Afiliados (WhatsApp):*\nhttps://chat.whatsapp.com/KpuqBkuEFqjJDKtproEgKf\n👉 Solicita acceso al grupo para estar conectado con la comunidad.\n\n` +
+              `📁 *Carpeta de Pruebas (Google Drive):*\nhttps://drive.google.com/drive/u/1/folders/1KSi1v5Y_07f8X6ei2IVVyh45cXEbegJr\n👉 Solicita acceso para consultar el material disponible.\n\n` +
+              `¡Estamos para servirte! 💪`;
+            await client.sendMessage(chatId, bienvenidaMsg);
+            db.saveMessage(phone, 'assistant', bienvenidaMsg);
+            console.log(`[PANEL] 🔗 Mensaje de bienvenida con links enviado a ${phone}`);
             
             // Actualizar la memoria indicando que ya se entregó el carnet
             const memoriaActual = db.getClientMemory(phone) || '';
@@ -1228,10 +1416,46 @@ Solo escribe el mensaje, sin explicaciones.`;
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
       });
+    } else if (req.url === '/execute-directive' && req.method === 'POST') {
+      // ── Ejecutar directiva del admin (llamado por panel.js al guardar una directiva) ──
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { phone, directive } = JSON.parse(body || '{}');
+          if (!phone || !directive) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, msg: 'Faltan phone o directive' }));
+            return;
+          }
+          console.log(`[DIRECTIVE] 🎯 Ejecutando directiva para ${phone}: "${directive.substring(0, 80)}"`);
+
+          // La directiva ya está guardada en BD (bot_directive). forceBotReply construirá
+          // el prompt con esa directiva incluida automáticamente (via buildSystemPrompt).
+          const resultado = await forceBotReply(phone, null);
+
+          if (resultado.ok) {
+            console.log(`[DIRECTIVE] ✅ Directiva ejecutada para ${phone}`);
+            // Limpiar la directiva después de ejecutarla para que no se repita en el siguiente mensaje
+            db.db.prepare('UPDATE clients SET bot_directive = NULL, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phone);
+            console.log(`[DIRECTIVE] 🧹 Directiva limpiada para ${phone}`);
+          } else {
+            console.warn(`[DIRECTIVE] ⚠️ No se pudo ejecutar para ${phone}: ${resultado.message}`);
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(resultado));
+        } catch (e) {
+          console.error('[DIRECTIVE] Error execute-directive:', e.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, msg: e.message }));
+        }
+      });
     } else {
       res.writeHead(404);
       res.end();
     }
+
   });
 
   botApiServer.listen(3001, () => {

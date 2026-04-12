@@ -1,176 +1,190 @@
 {
   "metadata": {
     "fuente": "Generado automáticamente desde imagen tabla excel",
-    "fecha_generacion": "2024-05-21",
+    "fecha_generacion": "2023-10-24",
     "total_productos": 12,
-    "categorias": 3,
+    "categorias": 4,
     "nota_precios": "Precios finales al cliente (Base + 300k/400k armas, Base + 20k/60k municion)"
   },
   "categorias": {
     "BLOW": [
       {
         "titulo": "BLOW F92",
-        "descripcion": "Pistola traumática marca BLOW.",
+        "descripcion": "Pistola traumática BLOW F92",
         "color": "NEGRO",
         "precio_plus": "$1.150.000",
         "precio_pro": "$1.250.000",
-        "precio": "$1.150.000 (Plan Plus / Afiliado) / $1.250.000 (Plan Pro / Público)",
+        "precio": "$1.150.000 (Plan Plus) / $1.250.000 (Plan Pro)",
         "disponible": true,
         "marca": "BLOW",
         "modelo": "F92",
-        "url": "https://zonatraumatica.club/tienda/"
+        "url": "https://www.zonatraumatica.club#productos"
       }
     ],
     "EKOL": [
       {
-        "titulo": "EKOL DICLE",
-        "descripcion": "Pistola traumática marca EKOL.",
-        "color": "NEGRO",
-        "precio_plus": "$1.200.000",
-        "precio_pro": "$1.300.000",
-        "precio": "$1.200.000 (Plan Plus / Afiliado) / $1.300.000 (Plan Pro / Público)",
-        "disponible": true,
-        "marca": "EKOL",
-        "modelo": "DICLE",
-        "url": "https://zonatraumatica.club/tienda/"
-      },
-      {
         "titulo": "EKOL FIRAT COMPACT",
-        "descripcion": "Pistola traumática marca EKOL.",
+        "descripcion": "Pistola traumática EKOL FIRAT COMPACT",
         "color": "NEGRO",
         "precio_plus": "$1.200.000",
         "precio_pro": "$1.300.000",
-        "precio": "$1.200.000 (Plan Plus / Afiliado) / $1.300.000 (Plan Pro / Público)",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
         "disponible": true,
         "marca": "EKOL",
         "modelo": "FIRAT COMPACT",
-        "url": "https://zonatraumatica.club/tienda/"
+        "url": "https://www.zonatraumatica.club#productos"
+      },
+      {
+        "titulo": "EKOL SPECIAL 99",
+        "descripcion": "Pistola traumática EKOL SPECIAL 99",
+        "color": "FUME",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "SPECIAL 99",
+        "url": "https://www.zonatraumatica.club#productos"
       },
       {
         "titulo": "EKOL FIRAT MAGNUM",
-        "descripcion": "Pistola traumática marca EKOL.",
-        "color": "NEGRO",
+        "descripcion": "Pistola traumática EKOL FIRAT MAGNUM",
+        "color": "NEGRO - FUME - CROMADO",
         "precio_plus": "$1.200.000",
         "precio_pro": "$1.300.000",
-        "precio": "$1.200.000 (Plan Plus / Afiliado) / $1.300.000 (Plan Pro / Público)",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
         "disponible": true,
         "marca": "EKOL",
         "modelo": "FIRAT MAGNUM",
-        "url": "https://zonatraumatica.club/tienda/"
+        "url": "https://www.zonatraumatica.club#productos"
       },
       {
-        "titulo": "EKOL JACKAL DUAL MAGNUM",
-        "descripcion": "Pistola traumática marca EKOL.",
-        "color": "FUME Y NEGRO",
-        "precio_plus": "$1.400.000",
-        "precio_pro": "$1.500.000",
-        "precio": "$1.400.000 (Plan Plus / Afiliado) / $1.500.000 (Plan Pro / Público)",
-        "disponible": true,
-        "marca": "EKOL",
-        "modelo": "JACKAL DUAL MAGNUM",
-        "url": "https://zonatraumatica.club/tienda/"
-      },
-      {
-        "titulo": "EKOL JACKAL DUAL COMPACT",
-        "descripcion": "Pistola traumática marca EKOL.",
-        "color": "NEGRO",
+        "titulo": "EKOL NIG 211",
+        "descripcion": "Pistola traumática EKOL NIG 211",
+        "color": "NEGRO Y FUME",
         "precio_plus": "$1.300.000",
         "precio_pro": "$1.400.000",
-        "precio": "$1.300.000 (Plan Plus / Afiliado) / $1.400.000 (Plan Pro / Público)",
+        "precio": "$1.300.000 (Plan Plus) / $1.400.000 (Plan Pro)",
         "disponible": true,
         "marca": "EKOL",
-        "modelo": "JACKAL DUAL COMPACT",
-        "url": "https://zonatraumatica.club/tienda/"
+        "modelo": "NIG 211",
+        "url": "https://www.zonatraumatica.club#productos"
       },
       {
-        "titulo": "EKOL REVOLVER 2.5",
-        "descripcion": "Revólver traumático marca EKOL.",
+        "titulo": "EKOL VIPER 2.5",
+        "descripcion": "Revólver traumático EKOL VIPER 2.5",
         "color": "NEGRO",
         "precio_plus": "$1.200.000",
         "precio_pro": "$1.300.000",
-        "precio": "$1.200.000 (Plan Plus / Afiliado) / $1.300.000 (Plan Pro / Público)",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
         "disponible": true,
         "marca": "EKOL",
-        "modelo": "REVOLVER 2.5",
-        "url": "https://zonatraumatica.club/tienda/"
+        "modelo": "VIPER 2.5",
+        "url": "https://www.zonatraumatica.club#productos"
       },
       {
-        "titulo": "EKOL REVOLVER 4.5",
-        "descripcion": "Revólver traumático marca EKOL.",
+        "titulo": "EKOL VIPER 3.0",
+        "descripcion": "Revólver traumático EKOL VIPER 3.0",
+        "color": "CROMADO",
+        "precio_plus": "$1.200.000",
+        "precio_pro": "$1.300.000",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
+        "disponible": true,
+        "marca": "EKOL",
+        "modelo": "VIPER 3.0",
+        "url": "https://www.zonatraumatica.club#productos"
+      },
+      {
+        "titulo": "EKOL VIPER 4.5",
+        "descripcion": "Revólver traumático EKOL VIPER 4.5",
         "color": "NEGRO - FUME",
         "precio_plus": "$1.200.000",
         "precio_pro": "$1.300.000",
-        "precio": "$1.200.000 (Plan Plus / Afiliado) / $1.300.000 (Plan Pro / Público)",
+        "precio": "$1.200.000 (Plan Plus) / $1.300.000 (Plan Pro)",
         "disponible": true,
         "marca": "EKOL",
-        "modelo": "REVOLVER 4.5",
-        "url": "https://zonatraumatica.club/tienda/"
+        "modelo": "VIPER 4.5",
+        "url": "https://www.zonatraumatica.club#productos"
       }
     ],
     "MUNICIÓN": [
       {
-        "titulo": "Caja Munición Traumática Ozkursan Original Cal. 9mm",
-        "descripcion": "Caja de munición traumática marca Ozkursan.",
+        "titulo": "Caja Munición Traumática OZKURSAN ORIGINAL CAL. 9mm",
+        "descripcion": "MUNICION ORIGINAL CAL. 9mm",
         "color": "N/A",
         "precio_plus": "$130.000",
         "precio_pro": "$130.000",
         "precio": "$130.000 (Afiliados Club) / $170.000 (Público General)",
         "disponible": true,
         "marca": "MUNICIÓN",
-        "modelo": "Ozkursan Original Cal. 9mm",
-        "url": "https://zonatraumatica.club/tienda/"
+        "modelo": "OZKURSAN ORIGINAL CAL. 9mm",
+        "url": "https://www.zonatraumatica.club#productos"
       },
       {
-        "titulo": "Caja Munición Traumática Ozkursan Nacional Cal. 9mm Y 38",
-        "descripcion": "Caja de munición traumática marca Ozkursan.",
+        "titulo": "Caja Munición Traumática OZKURSAN NACIONAL CAL. 9mm Y 38",
+        "descripcion": "MUNICION NACIONAL CAL. 9mm Y 38",
         "color": "N/A",
         "precio_plus": "$120.000",
         "precio_pro": "$120.000",
         "precio": "$120.000 (Afiliados Club) / $160.000 (Público General)",
         "disponible": true,
         "marca": "MUNICIÓN",
-        "modelo": "Ozkursan Nacional Cal. 9mm Y 38",
-        "url": "https://zonatraumatica.club/tienda/"
+        "modelo": "OZKURSAN NACIONAL CAL. 9mm Y 38",
+        "url": "https://www.zonatraumatica.club#productos"
       },
       {
-        "titulo": "Caja Munición Traumática Rubber Ball Original Cal. 9mm",
-        "descripcion": "Caja de munición traumática marca Rubber Ball.",
+        "titulo": "Caja Munición Traumática RUBBER BALL ORIGINAL CAL. 9mm",
+        "descripcion": "MUNICION ORIGINAL CAL. 9mm",
         "color": "N/A",
-        "precio_plus": "$190.000",
-        "precio_pro": "$190.000",
-        "precio": "$190.000 (Afiliados Club) / $230.000 (Público General)",
+        "precio_plus": "$200.000",
+        "precio_pro": "$200.000",
+        "precio": "$200.000 (Afiliados Club) / $250.000 (Público General)",
         "disponible": true,
         "marca": "MUNICIÓN",
-        "modelo": "Rubber Ball Original Cal. 9mm",
-        "url": "https://zonatraumatica.club/tienda/"
+        "modelo": "RUBBER BALL ORIGINAL CAL. 9mm",
+        "url": "https://www.zonatraumatica.club#productos"
       },
       {
-        "titulo": "Caja Munición Traumática Kaiser Original Cal. 9mm",
-        "descripcion": "Caja de munición traumática marca Kaiser.",
+        "titulo": "Caja Munición Traumática KAISER ORIGINAL CAL. 9mm",
+        "descripcion": "MUNICION ORIGINAL CAL. 9mm",
         "color": "N/A",
         "precio_plus": "$170.000",
         "precio_pro": "$170.000",
         "precio": "$170.000 (Afiliados Club) / $210.000 (Público General)",
         "disponible": true,
         "marca": "MUNICIÓN",
-        "modelo": "Kaiser Original Cal. 9mm",
-        "url": "https://zonatraumatica.club/tienda/"
+        "modelo": "KAISER ORIGINAL CAL. 9mm",
+        "url": "https://www.zonatraumatica.club#productos"
       }
     ],
     "SERVICIOS": [
       {
-        "titulo": "Afiliación Club Zona Traumática",
-        "descripcion": "Membresía al Club ZT. Incluye: carnet de miembro activo al Plan Plus.",
-        "precio": "$150.000 (anual)",
+        "titulo": "Afiliación Club ZT — Plan Plus",
+        "descripcion": "Membresía anual Plan Plus Club ZT. Carpeta jurídica, carnet, descuentos en munición, campo de tiro, comunidad 500+ portadores.",
+        "precio": "$100.000/año (promoción limitada — precio normal $150.000)",
+        "precio_anual": "$100.000",
+        "disponible": true,
+        "categoria": "Servicio / Membresía"
+      },
+      {
+        "titulo": "Afiliación Club ZT — Plan Pro",
+        "descripcion": "Membresía anual Plan Pro Club ZT. Todo el Plan Plus + Respaldo jurídico integral ante incautación ilegal.",
+        "precio": "$150.000/año (promoción limitada — precio normal $200.000)",
         "precio_anual": "$150.000",
         "disponible": true,
         "categoria": "Servicio / Membresía"
       },
       {
-        "titulo": "Asesor Legal IA — Zona Traumática",
-        "descripcion": "Acceso por 6 meses al Asesor Legal IA. Responde en segundos sobre artículos jurídicos.",
-        "precio": "$50.000 (6 meses)",
-        "precio_semestral": "$50.000",
+        "titulo": "Asesor Legal IA — 1 mes",
+        "descripcion": "Acceso por 1 mes al Asesor Legal IA. Responde en segundos sobre artículos jurídicos. Disponible solo con compra de arma nueva o como gancho de venta (1 mes GRATIS con afiliación).",
+        "precio": "$20.000 (1 mes)",
+        "disponible": true,
+        "categoria": "Servicio / IA Legal"
+      },
+      {
+        "titulo": "Asesor Legal IA — 3 meses",
+        "descripcion": "Acceso por 3 meses al Asesor Legal IA. Responde en segundos sobre artículos jurídicos.",
+        "precio": "$50.000 (3 meses)",
         "disponible": true,
         "categoria": "Servicio / IA Legal"
       }

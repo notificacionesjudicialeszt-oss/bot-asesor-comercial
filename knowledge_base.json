@@ -52,12 +52,12 @@
       "incluye": [
         "Carpeta Jurídica Digital 2026 — 30+ documentos listos para usar",
         "Simulacros de requisa — qué decir, qué callar, cómo actuar",
-        "Descuentos en munición: Oskurzan Nacional $120.000, Oskurzan Importada $130.000, Rubber Ball Importada $180.000",
+        "Descuentos en munición: Oskurzan Nacional $120.000, Oskurzan Importada $130.000, Rubber Ball Importada $200.000",
         "Comunidad de 500+ portadores — red nacional",
         "Certificado digital con QR — validación profesional por 1 año",
         "Acceso al canal YouTube con 50+ videos educativos",
         "Grupos de WhatsApp activos 24/7",
-        "BONUS: Asesor Legal IA (Chatbot) por 6 meses totalmente GRATIS"
+        "BONUS de bienvenida: 1 mes del Asesor Legal IA (Chatbot) GRATIS (valor $20.000)"
       ]
     },
     "plan_pro": {
@@ -65,7 +65,7 @@
       "precio": "$150.000/año (OFERTA - normal $200.000)",
       "incluye": [
         "Todo lo del Plan Plus",
-        "BONUS: Asesor Legal IA (Chatbot) por 6 meses totalmente GRATIS",
+        "BONUS de bienvenida: 1 mes del Asesor Legal IA (Chatbot) GRATIS (valor $20.000)",
         "Respaldo jurídico 100% GRATIS si te incautan ilegalmente (Solo para Plan Pro)",
         "Consultoría telefónica para no afiliados: $50.000 (máx 30 min)",
         "Primera instancia ante Policía (valor comercial $800.000)",
@@ -76,143 +76,9 @@
     }
   },
   "inventario": {
-    "marcas": [
-      "RETAY",
-      "EKOL",
-      "BLOW"
-    ],
-    "planes_precio": {
-      "plan_plus": "precio incluye membresía Plan Plus",
-      "plan_pro": "precio incluye membresía Plan Pro"
-    },
-    "productos": [
-      {
-        "marca": "RETAY",
-        "modelo": "S2022",
-        "color": "Negro",
-        "plan_plus": 1150000,
-        "plan_pro": 1250000
-      },
-      {
-        "marca": "RETAY",
-        "modelo": "G17",
-        "color": "Negro",
-        "plan_plus": 1150000,
-        "plan_pro": 1250000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Volga Mini",
-        "color": "Negro y Fume",
-        "plan_plus": 1200000,
-        "plan_pro": 1300000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Botan",
-        "color": "Fume",
-        "plan_plus": 1200000,
-        "plan_pro": 1300000
-      },
-      {
-        "marca": "BLOW",
-        "modelo": "Mini 9",
-        "color": "Fume y Negro",
-        "plan_plus": 1150000,
-        "plan_pro": 1250000
-      },
-      {
-        "marca": "BLOW",
-        "modelo": "F92",
-        "color": "Negro Cromado / Fume",
-        "plan_plus": 1150000,
-        "plan_pro": 1250000
-      },
-      {
-        "marca": "BLOW",
-        "modelo": "TR 92",
-        "color": "Negro y Fume",
-        "plan_plus": 1150000,
-        "plan_pro": 1250000
-      },
-      {
-        "marca": "BLOW",
-        "modelo": "TR 92D",
-        "color": "Negro y Fume",
-        "plan_plus": 1150000,
-        "plan_pro": 1250000
-      },
-      {
-        "marca": "BLOW",
-        "modelo": "TR 92K",
-        "color": "Negro y Fume",
-        "plan_plus": 1150000,
-        "plan_pro": 1250000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Dicle",
-        "color": "Negra",
-        "plan_plus": 1200000,
-        "plan_pro": 1300000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Firat Compact",
-        "color": "Negro / Cromado",
-        "plan_plus": 1200000,
-        "plan_pro": 1300000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Firat Magnum",
-        "color": "Negro / Fume / Cromado",
-        "plan_plus": 1200000,
-        "plan_pro": 1300000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "NIG 211",
-        "color": "Fume y Negra",
-        "plan_plus": 1300000,
-        "plan_pro": 1400000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Jackal Dual Magnum",
-        "color": "Negro y Fume",
-        "plan_plus": 1400000,
-        "plan_pro": 1500000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Jackal Dual Compact",
-        "color": "Negro",
-        "plan_plus": 1300000,
-        "plan_pro": 1400000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "P92 Auto",
-        "color": "Fume y Negro",
-        "plan_plus": 1400000,
-        "plan_pro": 1500000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Revolver 2.5",
-        "color": "Negro",
-        "plan_plus": 1200000,
-        "plan_pro": 1300000
-      },
-      {
-        "marca": "EKOL",
-        "modelo": "Revolver 4.5",
-        "color": "Negro / Fume / Cromado",
-        "plan_plus": 1300000,
-        "plan_pro": null
-      }
-    ]
+    "nota": "El inventario real y actualizado está en catalogo_contexto.json. Este archivo (knowledge_base.json) contiene info general del negocio, NO el inventario actual.",
+    "marcas_que_manejamos": ["EKOL", "BLOW", "RETAY"],
+    "nota_marcas": "No todas las marcas tienen stock en todo momento. Consultar catalogo_contexto.json para disponibilidad actual."
   },
   "preguntas_frecuentes": {
     "es_legal": "Sí, 100% legal. Las armas traumáticas son dispositivos menos letales regulados por la Ley 2197/2022. NO requieren permiso de porte de armas de fuego.",
@@ -227,7 +93,7 @@
     "manifiesto_aduana": "El manifiesto de aduana es un documento del IMPORTADOR, no del comprador. Ningún vendedor serio lo entrega porque legalmente no le corresponde — solo la DIAN y la POLFA fiscalizan al importador (Decreto 1165/2019, Ley 2197/2022). Lo que SÍ recibes con tu compra es: factura con NIT, asesoría jurídica permanente y respaldo legal incluido. OJO: si alguien te ofrece 'manifiesto de aduana', es una señal de alarma — puede ser un documento falso. Otros indicadores de fraude: vender sin factura y precios sospechosamente bajos. Tu mejor protección es FACTURA + ASESORÍA LEGAL, que es exactamente lo que Zona Traumática te garantiza.",
     "marco_legal_general": "Las armas traumáticas en Colombia están reguladas principalmente por la Ley 2197/2022 (Ley de Seguridad Ciudadana), que las define como dispositivos menos letales con categoría jurídica autónoma — completamente distintas a las armas de fuego. El Artículo 223 de la Constitución habla de 'municiones de guerra', lo que NO aplica a los proyectiles de goma de las traumáticas. Adicionalmente, la Sentencia C-014/2023 y múltiples precedentes del Tribunal Superior de Bogotá han reconocido la atipicidad penal del porte de estas armas.",
     "incautacion": "Solo tomamos casos de incautación de personas afiliadas al Club ZT con el Plan Pro vigente. Si no eres afiliado o tienes Plan Plus, puedes solicitar una consultoría telefónica de 30 minutos máximo por un valor de $50.000.",
-    "preguntas_legales_profundas": "Para consultas legales detalladas — jurisprudencia específica, procedimientos de defensa ante incautación, análisis de la Sentencia C-014/2023, Resolución 01840/2025, comparativa técnica balística y más — contamos con la Biblioteca Legal de Zona Traumática: la biblia de la legalidad de las armas traumáticas en Colombia, construida íntegramente por nuestro equipo. Puedes consultarla en: https://www.zonatraumatica.club/portelegal/biblioteca.html — Es gratuita y cubre desde la Constitución hasta los casos reales ganados. Para asesoría jurídica personalizada y defensa ante incautaciones, te recomendamos afiliarte al Club Zona Traumática (Plan Pro)."
+    "preguntas_legales_profundas": "Para consultas legales detalladas — jurisprudencia específica, procedimientos de defensa ante incautación, análisis de la Sentencia C-014/2023, Resolución 01840/2025, comparativa técnica balística y más — contamos con la Biblioteca Legal y Simulador de Procedimiento Policial de Zona Traumática: la biblia de la legalidad de las armas traumáticas en Colombia, construida íntegramente por nuestro equipo. Puedes consultarla en: https://www.zonatraumatica.club/portelegal/biblioteca.html — Es gratuita y cubre desde la Constitución hasta los casos reales ganados, además incluye un simulador interactivo de requisa policial para que practiques cómo responder ante las autoridades. Para asesoría jurídica personalizada y defensa ante incautaciones, te recomendamos afiliarte al Club Zona Traumática (Plan Pro)."
   },
   "carnet": {
     "descripcion": "Carnet digital de portador con QR de validación",

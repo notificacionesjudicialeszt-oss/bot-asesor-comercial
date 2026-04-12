@@ -21,22 +21,23 @@ const db = require('./db');
 const router = require('./router');
 const search = require('./search');
 
-const { geminiGenerate, SAFETY_SETTINGS } = require('./gemini');
+const { geminiGenerate, SAFETY_SETTINGS, genAI: getGenAI, runDiagnostic } = require('./gemini');
 const { CONFIG, parseEmployees, knowledgeBase } = require('./config');
 const { findBestImage } = require('./images');
+const { buildSystemPrompt } = require('./prompts');
 const adminCommands = require('./admin_commands');
 const { isAdmin, isAuditor, notifyAuditors, handleAdminCommand } = adminCommands;
 const broadcasters = require('./broadcasters');
 const { startGroupBroadcaster, startStatusBroadcaster } = broadcasters;
 const clientFlow = require('./client_flow');
-const { safeSend, handleClientMessage, getClaudeResponse, getN8nResponse, buildSystemPrompt, updateClientMemory, generateSimpleMemory, detectPostventaIntent, detectHandoffIntent, handleHandoff, summarizeConversation, needsProductSearch, detectAndSendProductImages } = clientFlow;
+const { cleanBotTags, safeSend, handleClientMessage, getClaudeResponse, getN8nResponse, updateClientMemory, generateSimpleMemory, detectPostventaIntent, detectHandoffIntent, handleHandoff, summarizeConversation, needsProductSearch, detectAndSendProductImages, retryQueue } = clientFlow;
 const apiServer = require('./api_server');
 const { startReactivacionServer, procesarClientesCalientes, forceBotReply, forcePostventaReply } = apiServer;
 const recovery = require('./recovery');
 const { recuperarChatsViejos, saveContactToVCF, exportContactsToVCF } = recovery;
+const tts = require('./tts');
 
-// Cola de reintentos para cuando falla Gemini
-const retryQueue = [];
+// retryQueue ahora viene de client_flow.js
 
 
 
@@ -104,12 +105,28 @@ const client = new Client({
   }
 });
 
+// ============================================
+// CONVIVENCIA HUMANO-BOT
+// ============================================
+const adminPauseMap = new Map(); // phone → timestamp hasta cuándo pausado
+
+function isBotPaused(phone) {
+  const pauseUntil = adminPauseMap.get(phone);
+  if (!pauseUntil) return false;
+  if (Date.now() > pauseUntil) {
+    adminPauseMap.delete(phone);
+    return false;
+  }
+  return true;
+}
+
 // Inyectar client a módulos que lo necesitan
 adminCommands.init(client);
 broadcasters.init(client, MessageMedia);
 clientFlow.init(client, MessageMedia);
-apiServer.init(client, MessageMedia, { procesarMensaje, isBotPaused });
+apiServer.init(client, MessageMedia, { procesarMensaje, isBotPaused, adminPauseMap, enviarTransicionAdmin });
 recovery.init(client);
+tts.init(client, MessageMedia);
 
 // ============================================
 // GRACEFUL SHUTDOWN — prevenir corrupción de sesión
@@ -130,30 +147,36 @@ async function gracefulShutdown(signal) {
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+// Unified uncaughtException handler — combines session cleanup + Puppeteer watchdog
 process.on('uncaughtException', async (err) => {
-  console.error('[BOT] 💥 Error no capturado:', err);
+  const msg = err.message || '';
+  console.error('[BOT] 💥 Error no capturado:', msg);
 
-  const isSessionCorrupt = err.message && (
-    err.message.includes('Execution context was destroyed') ||
-    err.message.includes('Session closed') ||
-    err.message.includes('Protocol error') ||
-    err.message.includes('Target closed')
+  const esFatalPuppeteer = (
+    msg.includes('Execution context was destroyed') ||
+    msg.includes('detached Frame') ||
+    msg.includes('Session closed') ||
+    msg.includes('Protocol error') ||
+    msg.includes('Target closed') ||
+    msg.includes('Connection closed')
   );
 
-  if (isSessionCorrupt) {
-    console.log('[BOT] 🧹 Crash por sesión corrupta detectado. Limpiando...');
+  if (esFatalPuppeteer) {
+    console.error('[WATCHDOG] 💀 Error fatal de Puppeteer detectado — limpiando y reiniciando...');
     const sessionDir = path.join(__dirname, 'session');
     if (fs.existsSync(sessionDir)) {
       try {
         fs.rmSync(sessionDir, { recursive: true, force: true });
-        console.log('[BOT] ✅ Sesión corrupta eliminada. Reinicia el bot para escanear QR nuevo.');
+        console.log('[BOT] ✅ Sesión corrupta eliminada.');
       } catch (rmErr) {
-        console.error(`[BOT] ❌ Error EBUSY: No se pudo borrar la sesión automáticamente. Por favor, cierra Chrome desde el Administrador de Tareas y borra la carpeta 'session' manualmente. Obviando error...`);
+        console.error(`[BOT] ❌ Error EBUSY: No se pudo borrar la sesión automáticamente.`);
       }
     }
+    process.exit(1);
+  } else {
+    // Error no fatal — loggear y continuar
+    console.error('[WATCHDOG] ⚠️ Excepción no capturada (no fatal):', msg);
   }
-
-  process.exit(1);
 });
 // Mostrar QR para escanear
 client.on('qr', (qr) => {
@@ -172,6 +195,11 @@ client.on('ready', async () => {
   console.log(`[BOT] Empleados activos: ${employees.length}`);
   console.log(`[BOT] Auditores: ${CONFIG.auditors.length > 0 ? CONFIG.auditors.join(', ') : 'ninguno'}`);
   console.log('============================================\n');
+
+  // Autodiagnóstico de Gemini (10s después para no bloquear el arranque)
+  setTimeout(() => {
+    runDiagnostic().catch(e => console.error('[DIAGNÓSTICO] Error:', e.message));
+  }, 10000);
 
   // Recovery COMPLETADO — bot en modo venta
   // setTimeout(() => recuperarChatsViejos(), 8000);
@@ -198,6 +226,17 @@ client.on('ready', async () => {
     if (typeof startReactivacionServer === 'function') {
       startReactivacionServer();
     }
+
+    // Iniciar agentes proactivos (scheduler: briefing + lead scoring)
+    setTimeout(() => {
+      try {
+        const scheduler = require('./agents/scheduler');
+        scheduler.init(client);
+        scheduler.startScheduler();
+      } catch (err) {
+        console.error('[BOT] Error iniciando scheduler de agentes:', err.message);
+      }
+    }, 60000);
   }
 });
 
@@ -234,30 +273,7 @@ client.on('disconnected', async (reason) => {
   setTimeout(() => client.initialize(), 10000);
 });
 
-// ============================================
-// WATCHDOG GLOBAL — detached Frame & errores fatales de Puppeteer
-// Si Puppeteer se cae (detached Frame, Session closed, Target closed),
-// el proceso termina con código 1 para que PM2 / el script de reinicio lo arranque de nuevo.
-// ============================================
-process.on('uncaughtException', (err) => {
-  const msg = err.message || '';
-  const esFatalPuppeteer = (
-    msg.includes('detached Frame') ||
-    msg.includes('Session closed') ||
-    msg.includes('Target closed') ||
-    msg.includes('Protocol error') ||
-    msg.includes('Connection closed')
-  );
-  if (esFatalPuppeteer) {
-    console.error('[WATCHDOG] 💀 Error fatal de Puppeteer detectado — reiniciando proceso...');
-    console.error('[WATCHDOG]   >', msg);
-    process.exit(1); // PM2 / reinicio externo arrancará el bot de nuevo
-  } else {
-    // Error no fatal — loggear y continuar
-    console.error('[WATCHDOG] ⚠️ Excepción no capturada (no fatal):', msg);
-  }
-});
-
+// Watchdog for unhandled promise rejections (Puppeteer fatals)
 process.on('unhandledRejection', (reason) => {
   const msg = (reason && reason.message) ? reason.message : String(reason);
   const esFatalPuppeteer = (
@@ -276,20 +292,7 @@ process.on('unhandledRejection', (reason) => {
   }
 });
 
-// ============================================
-// CONVIVENCIA HUMANO-BOT
-// ============================================
-const adminPauseMap = new Map(); // phone → timestamp hasta cuándo pausado
 
-function isBotPaused(phone) {
-  const pauseUntil = adminPauseMap.get(phone);
-  if (!pauseUntil) return false;
-  if (Date.now() > pauseUntil) {
-    adminPauseMap.delete(phone);
-    return false;
-  }
-  return true;
-}
 
 async function enviarTransicionAdmin(clientPhone, chatId, alvaroMsg) {
   try {
@@ -298,6 +301,19 @@ async function enviarTransicionAdmin(clientPhone, chatId, alvaroMsg) {
     const histText = history.map(h =>
       `${h.role === 'user' ? 'Cliente' : h.role === 'admin' ? 'Álvaro' : 'Bot'}: ${h.message}`
     ).join('\n');
+
+    const prompt = `Eres Sofía, asesora comercial de Zona Traumática. Álvaro (el director) acaba de responder PERSONALMENTE a este cliente por WhatsApp.
+
+MEMORIA DEL CLIENTE:
+${memory}
+
+ÚLTIMOS MENSAJES:
+${histText}
+
+MENSAJE DE ÁLVARO:
+"${alvaroMsg}"
+
+Tu tarea: Genera un mensaje BREVE de seguimiento natural después de la respuesta de Álvaro. NO repitas lo que Álvaro dijo. Solo complementa si falta algo, o pregunta si el cliente tiene más dudas. Máximo 2-3 líneas, tono natural y cercano. Si Álvaro ya resolvió todo, un simple "¿Algo más en lo que te pueda ayudar?" basta.`;
 
     const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
     const transMsg = result.response.text().trim();
@@ -327,6 +343,54 @@ const DEBOUNCE_MS = 10000; // 10 segundos
 // ============================================
 // MANEJO DE MENSAJES
 // ============================================
+// ============================================
+// CAPTURA DE MENSAJES SALIENTES DE ÁLVARO
+// Cuando Álvaro responde directamente desde el celular (no desde el panel),
+// guardamos ese mensaje en la BD para que el bot tenga contexto real del chat.
+// También pausamos el bot para ese cliente 30 minutos.
+// ============================================
+client.on('message_create', async (msg) => {
+  try {
+    // Solo mensajes SALIENTES (fromMe) y de texto — ignorar los del bot mismo
+    if (!msg.fromMe) return;
+    if (!msg.body || msg.body.trim() === '') return;
+    // Los comandos admin (#) ya se manejan en 'message'
+    if (msg.body.startsWith('#')) return;
+    // Ignorar mensajes a grupos, estados, newsletters
+    if (msg.to === 'status@broadcast') return;
+    if ((msg.to || '').includes('@g.us')) return;
+    if ((msg.to || '').includes('@newsletter')) return;
+    if ((msg.to || '').includes('@broadcast')) return;
+
+    // Extraer el teléfono del destinatario (cliente)
+    const clientPhone = (msg.to || '').replace(/@.*/g, '');
+    if (!clientPhone || clientPhone.length < 7) return;
+
+    const msgText = msg.body.trim();
+
+    // No capturar si es mensaje que el BOT envió vía safeSend (tienen origen interno)
+    // Comparar contra los últimos 5 mensajes assistant para evitar falsos positivos
+    const recentMsgs = db.getConversationHistory(clientPhone, 5);
+    const isFromBot = recentMsgs.some(m => m.role === 'assistant' && m.message === msgText);
+    if (isFromBot) {
+      return; // Ya estaba guardado por safeSend — no duplicar
+    }
+
+    // Guardar como mensaje de admin (Álvaro respondiendo directo)
+    db.saveMessage(clientPhone, 'admin', `[ÁLVARO respondió directamente]: ${msgText}`);
+    console.log(`[ÁLVARO→WA] 📤 Mensaje guardado en BD para ${clientPhone}: "${msgText.substring(0, 60)}"`);
+
+    // Pausar el bot para este cliente 30 minutos (Álvaro está atendiendo)
+    adminPauseMap.set(clientPhone, Date.now() + 30 * 60 * 1000);
+    console.log(`[ÁLVARO→WA] ⏸️ Bot pausado 30min para ${clientPhone}`);
+  } catch (e) {
+    // Silencioso — no queremos que un error aquí afecte el bot
+    if (e.message && !e.message.includes('getContact')) {
+      console.error('[ÁLVARO→WA] Error capturando mensaje saliente:', e.message);
+    }
+  }
+});
+
 client.on('message', async (msg) => {
   try {
     // Ignorar ANTES de getChat() para evitar crash con canales/newsletters
@@ -342,8 +406,9 @@ client.on('message', async (msg) => {
       return; // No procesar más — el comando fue manejado
     }
 
-    // Ignorar mensajes propios del bot (los de Álvaro se capturan en message_create)
+    // Ignorar mensajes propios (los de Álvaro ya se capturan en message_create arriba)
     if (msg.fromMe) return;
+
     if (msg.from === 'status@broadcast') return;
     if (msg.from.includes('@newsletter')) return;
     if (msg.from.includes('@broadcast')) return;
@@ -576,6 +641,14 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
       db.upsertClient(senderPhone, updateData);
     }
 
+    // 2.5 Auto-detener secuencias de follow-up si el cliente escribe
+    try {
+      const stopped = db.stopAllSequencesForClient(senderPhone);
+      if (stopped.changes > 0) {
+        console.log(`[FOLLOWUP] 🛑 ${stopped.changes} secuencia(s) detenida(s) — ${senderPhone} respondió`);
+      }
+    } catch (e) { /* silenciar si la tabla aún no existe */ }
+
     // ⛔ Contacto ignorado desde el panel — silencio total
     if (db.isIgnored(senderPhone)) {
       if (CONFIG.debug) console.log(`[BOT] 🔇 Ignorado (panel): ${senderPhone} (${profileName})`);
@@ -627,12 +700,18 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               keywords: []
             });
 
-            const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile);
+            // Obtener document summary para el expediente del cliente
+            const clientFiles = db.getClientFiles ? db.getClientFiles(senderPhone) : [];
+            const documentSummary = clientFiles.length > 0
+              ? clientFiles.map(f => `- ${f.tipo}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n')
+              : '';
+            const catalogSent = clientProfile && clientProfile.catalog_sent;
+            const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile, documentSummary, catalogSent);
 
             // Construir historial previo para que Gemini tenga contexto de la conversación
             const geminiHistory = history
-              .filter(h => h.role !== 'system' && h.content && h.content.trim().length > 0)
-              .map(h => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content.trim() }] }));
+              .filter(h => h.role !== 'system' && h.message && h.message.trim().length > 0)
+              .map(h => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.message.trim() }] }));
             // Gemini exige que el historial empiece con 'user'
             while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') geminiHistory.shift();
 
@@ -768,6 +847,18 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               }
               console.log(`[COMPROBANTE] 🏷️ Tipo auto-detectado: ${tipoComprobante} (señales: bot=${senalesBot}, club=${senalesClub}, producto=${senalesProducto})`);
 
+              // Deduplicación: verificar si ya existe un comprobante reciente (últimas 48h)
+              const recentComp = db.getRecentComprobante(senderPhone);
+              if (recentComp) {
+                const estadoTxt = recentComp.estado === 'pendiente' ? 'en verificación' : recentComp.estado === 'confirmado' ? 'ya confirmado' : recentComp.estado;
+                console.log(`[COMPROBANTE] ⚠️ Dedup: ya existe comprobante #${recentComp.id} (${estadoTxt}) para ${senderPhone}`);
+                reply = `Ya tenemos tu comprobante registrado (está ${estadoTxt}) 🙏 Si es un pago diferente, avísanos y lo procesamos.`;
+                await msg.reply(reply);
+                db.saveMessage(senderPhone, 'user', `[Comprobante duplicado — ya existe #${recentComp.id}]`);
+                db.saveMessage(senderPhone, 'assistant', reply);
+                return;
+              }
+
               // Guardar en BD de comprobantes pendientes
               const comprobanteResult = db.saveComprobante(senderPhone, clientName, infoComprobante, media.data, mediaType, tipoComprobante);
               const comprobanteId = comprobanteResult.lastInsertRowid;
@@ -799,7 +890,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               // QR detectado — responder SOLO sobre el contenido del QR
               const qrPrompt = `El cliente envió una imagen con un código QR que contiene el siguiente texto: "${qrTexto}".\n\nTu tarea es informar al cliente sobre el contenido de este QR de forma amable y profesional, o responder a cualquier pregunta que haya hecho relacionada con el QR.\n\nContexto actual del asesor comercial:\n${systemPrompt}`;
               const qrResult = await geminiGenerate('gemini-3.1-pro-preview', qrPrompt);
-              reply = qrResult.response.text();
+              reply = cleanBotTags(qrResult.response.text());
               await msg.reply(reply);
               db.saveMessage(senderPhone, 'user', `[QR escaneado: ${qrTexto.substring(0, 60)}]`);
               db.saveMessage(senderPhone, 'assistant', reply);
@@ -810,19 +901,43 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               const textPart = msg.body 
                 ? `El cliente envió esta imagen junto con este mensaje: "${msg.body}".\n\n⚠️ INSTRUCCIÓN CRÍTICA: Si la imagen muestra un arma traumática o producto que vendemos, IDENTIFICA la marca y modelo exacto, búscalo en tus REFERENCIAS RELEVANTES abajo, y dale al cliente el PRECIO ESPECÍFICO y detalles de ESE modelo exacto. NUNCA le des el "rango general de precios" si puedes identificar la pistola en la foto.`
                 : `El cliente envió solo esta imagen sin texto.\n\n⚠️ INSTRUCCIÓN CRÍTICA: Asume que el cliente quiere saber qué arma es o cuánto cuesta. IDENTIFICA la marca y modelo exacto en la imagen, búscalo en tus REFERENCIAS RELEVANTES abajo, y dale al cliente el PRECIO ESPECÍFICO y los detalles de ESE modelo exacto. NUNCA respondas con el "rango general de precios" si puedes identificar la pistola de la foto.`;
-              const visionModel = genAI.getGenerativeModel({
+              const visionModel = getGenAI().getGenerativeModel({
                 model: 'gemini-3.1-pro-preview',
                 systemInstruction: systemPrompt,
                 safetySettings: SAFETY_SETTINGS,
-                generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
               });
               const visionChat = visionModel.startChat({ history: geminiHistory });
               const visionResult = await visionChat.sendMessage([imagePart, textPart]);
               reply = visionResult.response.text();
-              await msg.reply(reply);
+              // Detectar tag de audio y limpiar etiquetas internas
+              const quiereAudioImg = /\[?\s*RESPONDER[_\s]*CON[_\s]*AUDIO\s*\]?/i.test(reply);
+              reply = cleanBotTags(reply);
+              if (quiereAudioImg) {
+                const audioSentImg = await tts.sendVoiceNote(senderPhone, reply);
+                if (!audioSentImg) await msg.reply(reply);
+              } else {
+                await msg.reply(reply);
+              }
               db.saveMessage(senderPhone, 'user', '[imagen enviada]');
               db.saveMessage(senderPhone, 'assistant', reply);
               db.upsertClient(senderPhone, {});
+
+              // === CLASIFICACIÓN Y ALMACENAMIENTO DE IMAGEN ===
+              // Ejecutar en background para no retrasar la respuesta al cliente
+              try {
+                const classResult = await geminiGenerate('gemini-2.5-flash', [
+                  imagePart,
+                  'Clasifica esta imagen en una de estas categorías. Responde SOLO con JSON válido, sin markdown:\n{"tipo": "selfie|cedula|foto_arma|documento|otro", "descripcion": "descripcion breve de 5-10 palabras"}\n\n- selfie: foto de la cara/rostro de una persona\n- cedula: documento de identidad colombiano\n- foto_arma: foto de un arma traumática, pistola o similar\n- documento: otro documento escrito (recibo, factura, etc.)\n- otro: cualquier otra imagen'
+                ]);
+                const classText = classResult.response.text().replace(/```json\n?/g, '').replace(/```/g, '').trim();
+                const classData = JSON.parse(classText);
+                if (classData.tipo && classData.tipo !== 'otro') {
+                  db.saveClientFile(senderPhone, classData.tipo, classData.descripcion || '', media.data, mediaType, 'cliente');
+                  console.log(`[IMG-CLASSIFY] 📁 Imagen guardada como '${classData.tipo}' para ${senderPhone}: ${classData.descripcion}`);
+                }
+              } catch (classErr) {
+                console.log(`[IMG-CLASSIFY] No se pudo clasificar imagen: ${classErr.message}`);
+              }
             }
 
             console.log(`[IMG] 🖼️ Imagen procesada para ${senderPhone}${esComprobante ? ' (COMPROBANTE)' : qrTexto ? ' (QR)' : ''}`);
@@ -853,27 +968,60 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
           const history = db.getConversationHistory(senderPhone, 10);
           const clientMemory = db.getClientMemory(senderPhone);
-          const systemPrompt = buildSystemPrompt('El cliente envió un mensaje de voz. Continúa la conversación con el contexto previo.', clientMemory);
+          const clientProfile = db.getClient(senderPhone);
+          const clientFiles = db.getClientFiles ? db.getClientFiles(senderPhone) : [];
+          const documentSummary = clientFiles.length > 0
+            ? clientFiles.map(f => `- ${f.tipo}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n')
+            : '';
+          const catalogSent = clientProfile && clientProfile.catalog_sent;
+          const systemPrompt = buildSystemPrompt('El cliente envió un mensaje de voz. Continúa la conversación con el contexto previo.', clientMemory, clientProfile, documentSummary, catalogSent);
 
           // Historial previo para mantener contexto
-          const geminiHistoryAudio = history
-            .filter(h => h.role !== 'system' && h.content && h.content.trim().length > 0)
-            .map(h => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content.trim() }] }));
+          const geminiHistoryAudio = [];
+          for (const h of history) {
+            if (h.role === 'system') continue;
+            const msgText = (h.message || '').trim();
+            if (!msgText) continue; // Saltar mensajes vacíos
+            if (h.role === 'admin') {
+              geminiHistoryAudio.push({
+                role: 'model',
+                parts: [{ text: `[ÁLVARO respondió directamente]: ${msgText}` }]
+              });
+            } else {
+              const role = h.role === 'assistant' ? 'model' : 'user';
+              geminiHistoryAudio.push({ role, parts: [{ text: msgText }] });
+            }
+          }
+          // Gemini exige que empiece con 'user' y NO tenga roles consecutivos iguales
           while (geminiHistoryAudio.length > 0 && geminiHistoryAudio[0].role !== 'user') geminiHistoryAudio.shift();
+          // Merge roles consecutivos iguales (ej: dos 'user' seguidos → uno solo)
+          for (let i = geminiHistoryAudio.length - 1; i > 0; i--) {
+            if (geminiHistoryAudio[i].role === geminiHistoryAudio[i - 1].role) {
+              geminiHistoryAudio[i - 1].parts[0].text += '\n' + geminiHistoryAudio[i].parts[0].text;
+              geminiHistoryAudio.splice(i, 1);
+            }
+          }
 
           const audioPart = { inlineData: { data: media.data, mimeType: audioMime } };
           const textPart = 'El cliente te ha enviado este mensaje de voz. Escúchalo y respóndele directamente. IMPORTANTE: NO transcribas el audio ni repitas lo que dice. Tu única tarea es dar la respuesta correspondiente como asesor comercial.';
 
-          const audioModel = genAI.getGenerativeModel({
+          const audioModel = getGenAI().getGenerativeModel({
             model: 'gemini-3.1-pro-preview',
             systemInstruction: systemPrompt,
             safetySettings: SAFETY_SETTINGS,
-            generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
           const audioChat = audioModel.startChat({ history: geminiHistoryAudio });
           const audioResult = await audioChat.sendMessage([audioPart, textPart]);
-          const reply = audioResult.response.text();
-          await msg.reply(reply);
+          let reply = audioResult.response.text();
+          // Detectar tag de audio y limpiar etiquetas internas
+          const quiereAudioPtt = /\[?\s*RESPONDER[_\s]*CON[_\s]*AUDIO\s*\]?/i.test(reply);
+          reply = cleanBotTags(reply);
+          if (quiereAudioPtt) {
+            const audioSentPtt = await tts.sendVoiceNote(senderPhone, reply);
+            if (!audioSentPtt) await msg.reply(reply);
+          } else {
+            await msg.reply(reply);
+          }
 
           // Guardar en historial CRM
           db.saveMessage(senderPhone, 'user', '[mensaje de voz]');
@@ -909,12 +1057,18 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
           const history = db.getConversationHistory(senderPhone, 10);
           const clientMemory = db.getClientMemory(senderPhone);
-          const systemPrompt = buildSystemPrompt('El cliente envió un PDF. Continúa la conversación con el contexto previo.', clientMemory);
+          const clientProfile = db.getClient(senderPhone);
+          const clientFiles = db.getClientFiles ? db.getClientFiles(senderPhone) : [];
+          const documentSummary = clientFiles.length > 0
+            ? clientFiles.map(f => `- ${f.tipo}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n')
+            : '';
+          const catalogSent = clientProfile && clientProfile.catalog_sent;
+          const systemPrompt = buildSystemPrompt('El cliente envió un PDF. Continúa la conversación con el contexto previo.', clientMemory, clientProfile, documentSummary, catalogSent);
 
           // Historial previo para mantener contexto
           const geminiHistoryPdf = history
-            .filter(h => h.role !== 'system' && h.content && h.content.trim().length > 0)
-            .map(h => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content.trim() }] }));
+            .filter(h => h.role !== 'system' && h.message && h.message.trim().length > 0)
+            .map(h => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.message.trim() }] }));
           while (geminiHistoryPdf.length > 0 && geminiHistoryPdf[0].role !== 'user') geminiHistoryPdf.shift();
 
           // Gemini recibe el PDF como inlineData (igual que imágenes) — lee texto e imágenes del PDF
@@ -923,16 +1077,23 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             ? `El cliente envió este PDF llamado "${media.filename || 'documento.pdf'}" y escribió: "${msg.body}". Analízalo y responde.`
             : `El cliente envió este PDF llamado "${media.filename || 'documento.pdf'}". Analízalo y responde de forma útil según el contexto de la conversación.`;
 
-          const pdfModel = genAI.getGenerativeModel({
+          const pdfModel = getGenAI().getGenerativeModel({
             model: 'gemini-3.1-pro-preview',
             systemInstruction: systemPrompt,
             safetySettings: SAFETY_SETTINGS,
-            generationConfig: { thinkingConfig: { thinkingBudget: -1 } }
           });
           const pdfChat = pdfModel.startChat({ history: geminiHistoryPdf });
           const pdfResult = await pdfChat.sendMessage([pdfPart, textPart]);
-          const reply = pdfResult.response.text();
-          await msg.reply(reply);
+          let reply = pdfResult.response.text();
+          // Detectar tag de audio y limpiar etiquetas internas
+          const quiereAudioPdf = /\[?\s*RESPONDER[_\s]*CON[_\s]*AUDIO\s*\]?/i.test(reply);
+          reply = cleanBotTags(reply);
+          if (quiereAudioPdf) {
+            const audioSentPdf = await tts.sendVoiceNote(senderPhone, reply);
+            if (!audioSentPdf) await msg.reply(reply);
+          } else {
+            await msg.reply(reply);
+          }
 
           db.saveMessage(senderPhone, 'user', `[PDF enviado: ${media.filename || 'documento.pdf'}]`);
           db.saveMessage(senderPhone, 'assistant', reply);
@@ -1066,7 +1227,8 @@ async function processRetryQueue() {
               responseLower.includes('150.000') && responseLower.includes('pro')
             );
           if (estaOfreciendoClub) {
-            sendPromoImage(senderPhone);
+            // sendPromoImage eliminado — imágenes de promo se manejan en el flujo principal
+            console.log(`[RETRY QUEUE] 📢 Bot ofreció el club a ${senderPhone}`);
           }
         } else {
           await handleHandoff(rawMsg, senderPhone, messageBody, history, 'venta');
