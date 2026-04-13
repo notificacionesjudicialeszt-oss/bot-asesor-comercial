@@ -102,7 +102,41 @@ async function detectAndSendProductImages(response, rawMsg, senderPhone, Message
     }
   }
 
-  // 3. Enviar las imágenes encontradas
+  // 3. Detección automática por nombre de producto del catálogo
+  // Si el bot menciona "Marca Modelo" (ej: "Blow TR92", "Ekol Firat Compact")
+  // buscar coincidencias en el catálogo y adjuntar foto automáticamente
+  if (imagesToSend.length === 0) {
+    try {
+      const search = require('./search');
+      const allProducts = search.getAllProducts();
+      const responseLower = response.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+      for (const product of allProducts) {
+        if (!product.marca || !product.modelo) continue;
+
+        const marca = product.marca.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const modelo = product.modelo.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        // Buscar "Marca Modelo" juntos en el texto (ej: "blow tr92", "ekol firat compact")
+        const fullName = `${marca} ${modelo}`;
+        if (responseLower.includes(fullName)) {
+          const query = `${product.marca} ${product.modelo}`;
+          const foundPath = findBestImage(query);
+          if (foundPath && !imagesToSend.includes(foundPath)) {
+            console.log(`[IMG] 🔍 Nombre detectado en texto: "${query}"`);
+            console.log(`[IMG] ✅ findBestImage("${query}") → ${path.basename(foundPath)}`);
+            imagesToSend.push(foundPath);
+            if (imagesToSend.length >= 2) break; // Máximo 2 fotos automáticas
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[IMG] Error en detección automática por nombre:', e.message);
+    }
+  }
+
+  // 4. Enviar las imágenes encontradas
   let sent = 0;
   for (const imgPath of imagesToSend) {
     try {

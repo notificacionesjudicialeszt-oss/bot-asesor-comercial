@@ -10,9 +10,9 @@ El Plan Plus está diseñado para el portador que quiere dormir tranquilo, conoc
 *(¡Ahorras $50.000 de entrada!)*
 
 ## 🎁 BONUS EXCLUSIVO DE ESTA PROMOCIÓN
-🤖 **Asesor Legal IA por 6 meses ¡TOTALMENTE GRATIS!**
-*(Valor comercial: $50.000)*
-Lleva el poder de un abogado en tu bolsillo. Un bot inteligente en tu WhatsApp personal que responde cualquier duda legal en 10 segundos citando la ley exacta. ¡Ideal para cuando un policía te detiene!
+🤖 **Asesor Legal IA incluido ¡TOTALMENTE GRATIS!**
+*(Valor comercial: $20.000/mes)*
+Lleva el poder de un abogado de bolsillo especializado en dispositivos menos letales. Un bot inteligente en tu WhatsApp personal que responde cualquier duda legal en 10 segundos citando la ley exacta. ¡Ideal para cuando un policía te detiene!
 
 ---
 
@@ -34,7 +34,7 @@ Lleva el poder de un abogado en tu bolsillo. Un bot inteligente en tu WhatsApp p
 6. **Acceso al Campo de Tiro (Bogotá - Suba)**
    *Fines de semana con reserva. Primera clase por $90.000 (incluye instructor, teoría y práctica).*
 
-> **⚠️ NOTA IMPORTANTE:** El Plan Plus te da todo el conocimiento para defenderte, pero **NO incluye** defensa jurídica gratuita (abogado) posterior a una incautación. Si buscas cobertura legal y demandas gratis, revisa nuestro **Plan Pro**.
+> **⚠️ NOTA IMPORTANTE:** El Plan Plus te da todo el conocimiento para defenderte, pero **NO incluye** respaldo jurídico gratuito posterior a una incautación. Si buscas cobertura legal con acompañamiento y redacción de documentos gratis, revisa nuestro **Plan Pro**.
 
 ---
 

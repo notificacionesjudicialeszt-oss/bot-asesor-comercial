@@ -44,7 +44,7 @@ async function updateInventory() {
     console.log('🧠 Enviando imagen a Gemini Vision AI. Por favor espera, esto puede tomar unos segundos...');
 
     // Usamos el modelo Pro para máxima precisión con tablas de precios
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3.1-pro-preview" });
 
     const prompt = `
 Eres un asistente experto en extracción de datos de inventario.

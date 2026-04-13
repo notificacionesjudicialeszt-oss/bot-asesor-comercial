@@ -37,7 +37,7 @@ const SAFETY = [
 async function callGemini(prompt, retries = 2) {
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', safetySettings: SAFETY });
+            const model = genAI.getGenerativeModel({ model: 'gemini-3.1-pro-preview', safetySettings: SAFETY });
             const result = await model.generateContent(prompt);
             return result.response.text().trim();
         } catch (err) {
@@ -182,7 +182,10 @@ async function enrichClient(phone) {
     }
 
     // Boolean flags: only set to TRUE (never downgrade)
-    const boolFields = { has_bought_gun: 'has_bought_gun', is_club_plus: 'is_club_plus', is_club_pro: 'is_club_pro', has_ai_bot: 'has_ai_bot' };
+    // IMPORTANTE: is_club_plus e is_club_pro NO se auto-asignan por IA.
+    // Solo se activan cuando el admin confirma un comprobante de pago desde el panel.
+    // La IA puede confundir "interesado en Plan Pro" con "ya tiene Plan Pro".
+    const boolFields = { has_bought_gun: 'has_bought_gun', has_ai_bot: 'has_ai_bot' };
     for (const [extKey, dbKey] of Object.entries(boolFields)) {
         if (extracted[extKey] === true && !profile[dbKey]) {
             updates[dbKey] = true;
@@ -190,8 +193,9 @@ async function enrichClient(phone) {
         }
     }
 
-    // Status: only upgrade (new → warm → hot → completed), never downgrade
-    const STATUS_RANK = { new: 0, warm: 1, hot: 2, assigned: 2, completed: 3 };
+    // Status: only upgrade (new → warm → hot), never downgrade, never set 'completed' (admin only)
+    // 'completed' e statuses de postventa solo los puede setear el admin desde el panel
+    const STATUS_RANK = { new: 0, warm: 1, hot: 2, assigned: 2 }; // 'completed' removido intencionalmente
     if (extracted.status && STATUS_RANK[extracted.status] !== undefined) {
         const currentRank = STATUS_RANK[profile.status] || 0;
         const newRank = STATUS_RANK[extracted.status];

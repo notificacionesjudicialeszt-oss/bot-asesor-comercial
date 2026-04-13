@@ -112,8 +112,24 @@ function initDatabase() {
     console.log('[DB] Columna modelo_arma agregada');
   } catch (e) { /* ya existe */ }
   try {
+    db.exec(`ALTER TABLE clients ADD COLUMN marca_arma TEXT DEFAULT ''`);
+    console.log('[DB] Columna marca_arma agregada');
+  } catch (e) { /* ya existe */ }
+  try {
     db.exec(`ALTER TABLE clients ADD COLUMN carnet_qr_url TEXT DEFAULT ''`);
     console.log('[DB] Columna carnet_qr_url agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN catalog_sent INTEGER DEFAULT 0`);
+    console.log('[DB] Columna catalog_sent agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN lead_score INTEGER DEFAULT 0`);
+    console.log('[DB] Columna lead_score agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN bot_directive TEXT DEFAULT NULL`);
+    console.log('[DB] Columna bot_directive agregada');
   } catch (e) { /* ya existe */ }
 
   // Tabla de empleados
@@ -186,9 +202,13 @@ function initDatabase() {
       estado TEXT DEFAULT 'pendiente',
       verificado_por TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      verified_at DATETIME
+      verified_at DATETIME,
+      plan_tipo TEXT DEFAULT ''
     )
   `);
+
+  // Migración: agregar plan_tipo si no existe
+  try { db.exec(`ALTER TABLE carnets ADD COLUMN plan_tipo TEXT DEFAULT ''`); } catch(e) { /* ya existe */ }
 
   // Tabla de archivos del cliente (fotos, comprobantes, carnets, selfies)
   db.exec(`
@@ -205,6 +225,41 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Tabla de secuencias de follow-up automático
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS followup_sequences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_phone TEXT NOT NULL,
+      type TEXT NOT NULL,
+      step INTEGER DEFAULT 0,
+      last_sent_at DATETIME,
+      stopped INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Tabla de escalaciones (handoffs pendientes de gestionar)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS escalaciones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_phone TEXT NOT NULL,
+      client_name TEXT DEFAULT '',
+      tipo TEXT DEFAULT 'venta',
+      trigger_message TEXT DEFAULT '',
+      memory TEXT DEFAULT '',
+      contexto TEXT DEFAULT '',
+      estado TEXT DEFAULT 'pendiente',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      resolved_at DATETIME
+    )
+  `);
+
+  // Migración: agregar columna notas a escalaciones
+  try {
+    db.exec(`ALTER TABLE escalaciones ADD COLUMN notas TEXT DEFAULT ''`);
+    console.log('[DB] Columna notas agregada a escalaciones');
+  } catch (e) { /* ya existe */ }
 
   console.log('[DB] Base de datos inicializada correctamente');
 }
@@ -251,7 +306,11 @@ function upsertClient(phone, data = {}) {
     if (data.club_vigente_hasta !== undefined) { fields.push('club_vigente_hasta = ?'); values.push(data.club_vigente_hasta); }
     if (data.serial_arma !== undefined) { fields.push('serial_arma = ?'); values.push(data.serial_arma); }
     if (data.modelo_arma !== undefined) { fields.push('modelo_arma = ?'); values.push(data.modelo_arma); }
+    if (data.marca_arma !== undefined) { fields.push('marca_arma = ?'); values.push(data.marca_arma); }
     if (data.carnet_qr_url !== undefined) { fields.push('carnet_qr_url = ?'); values.push(data.carnet_qr_url); }
+    if (data.catalog_sent !== undefined) { fields.push('catalog_sent = ?'); values.push(data.catalog_sent ? 1 : 0); }
+    // Permite establecer o limpiar la directiva del admin
+    if ('bot_directive' in data) { fields.push('bot_directive = ?'); values.push(data.bot_directive || null); }
 
     // Siempre incrementar interacciones y actualizar fecha
     fields.push('interaction_count = interaction_count + 1');
@@ -263,8 +322,8 @@ function upsertClient(phone, data = {}) {
   } else {
     // Crear nuevo cliente
     db.prepare(`
-      INSERT INTO clients (phone, chat_id, name, email, notes, memory, status, interaction_count, has_bought_gun, is_club_plus, is_club_pro, has_ai_bot)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+      INSERT INTO clients (phone, chat_id, name, email, notes, memory, status, interaction_count, has_bought_gun, is_club_plus, is_club_pro, has_ai_bot, catalog_sent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
     `).run(
       phone,
       data.chat_id || '',
@@ -276,7 +335,8 @@ function upsertClient(phone, data = {}) {
       data.has_bought_gun ? 1 : 0,
       data.is_club_plus ? 1 : 0,
       data.is_club_pro ? 1 : 0,
-      data.has_ai_bot ? 1 : 0
+      data.has_ai_bot ? 1 : 0,
+      data.catalog_sent ? 1 : 0
     );
 
     console.log(`[DB] Nuevo cliente registrado: ${phone}`);
@@ -396,8 +456,8 @@ function clearConversation(clientPhone) {
 // Guardar un carnet recibido para verificación
 function saveCarnet(clientPhone, clientName, imagenBase64, imagenMime, datos = {}) {
   return db.prepare(`
-    INSERT INTO carnets (client_phone, client_name, imagen_base64, imagen_mime, qr_contenido, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO carnets (client_phone, client_name, imagen_base64, imagen_mime, qr_contenido, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial, plan_tipo, estado)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     clientPhone,
     clientName || '',
@@ -409,7 +469,9 @@ function saveCarnet(clientPhone, clientName, imagenBase64, imagenMime, datos = {
     datos.vigente_hasta || '',
     datos.marca_arma || '',
     datos.modelo_arma || '',
-    datos.serial || ''
+    datos.serial || '',
+    datos.plan_tipo || '',
+    datos.estado || 'pendiente'
   );
 }
 
@@ -603,6 +665,16 @@ function getClientChatId(phone) {
   return phone.replace(/@.*/g, '').replace(/\D/g, '') + '@c.us';
 }
 
+// Obtener el teléfono canónico a partir de un chat_id LID
+function getPhoneByLid(lid) {
+  try {
+    const row = db.prepare('SELECT phone FROM clients WHERE chat_id = ?').get(lid);
+    return row ? row.phone : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Obtener memoria de un cliente
 function getClientMemory(phone) {
   const client = getClient(phone);
@@ -709,7 +781,7 @@ function getClientFile(id) {
 // HELPER: actualizar flag booleano de cliente
 // ============================================
 function updateClientFlag(phone, flagName, value) {
-  const allowed = ['has_bought_gun', 'is_club_plus', 'is_club_pro', 'has_ai_bot', 'ignored', 'spam_flag'];
+  const allowed = ['has_bought_gun', 'is_club_plus', 'is_club_pro', 'has_ai_bot', 'ignored', 'spam_flag', 'catalog_sent'];
   if (!allowed.includes(flagName)) return;
   db.prepare(`UPDATE clients SET ${flagName} = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?`).run(value ? 1 : 0, phone);
 }
@@ -722,6 +794,7 @@ module.exports = {
   upsertClient,
   getAllClients,
   getClientChatId,
+  getPhoneByLid,
   migrateClientPhone,
   getClientMemory,
   updateClientMemory,
@@ -754,6 +827,7 @@ module.exports = {
   getSalesReport,
   // Comprobantes
   saveComprobante,
+  getRecentComprobante,
   getComprobantesPendientes,
   updateComprobanteEstado,
   // Carnets
@@ -765,6 +839,18 @@ module.exports = {
   getClientFiles,
   getClientFilesByTipo,
   getClientFile,
+  // Secuencias de follow-up
+  getActiveSequences,
+  upsertSequence,
+  stopSequence,
+  getSequenceForClient,
+  stopAllSequencesForClient,
+  // Dashboard KPIs
+  getDashboardKPIs,
+  // Escalaciones
+  saveEscalacion,
+  getEscalacionesPendientes,
+  updateEscalacionEstado,
 };
 
 // ============================================
@@ -777,6 +863,14 @@ function saveComprobante(phone, name, info, imagenBase64, imagenMime, tipo) {
   `).run(phone, name || '', info || '', imagenBase64 || '', imagenMime || 'image/jpeg', tipo || 'desconocido');
 }
 
+function getRecentComprobante(phone, hoursAgo = 48) {
+  return db.prepare(`
+    SELECT id, estado, info, tipo, created_at FROM comprobantes
+    WHERE client_phone = ? AND created_at > datetime('now', '-' || ? || ' hours')
+    ORDER BY created_at DESC LIMIT 1
+  `).get(phone, hoursAgo);
+}
+
 function getComprobantesPendientes() {
   return db.prepare(`
     SELECT * FROM comprobantes WHERE estado = 'pendiente' ORDER BY created_at DESC
@@ -787,4 +881,151 @@ function updateComprobanteEstado(id, estado) {
   return db.prepare(`
     UPDATE comprobantes SET estado = ?, verified_at = CURRENT_TIMESTAMP WHERE id = ?
   `).run(estado, id);
+}
+
+// ============================================
+// ESCALACIONES (Handoffs pendientes)
+// ============================================
+function saveEscalacion(phone, name, tipo, triggerMessage, memory, contexto) {
+  return db.prepare(`
+    INSERT INTO escalaciones (client_phone, client_name, tipo, trigger_message, memory, contexto, estado)
+    VALUES (?, ?, ?, ?, ?, ?, 'pendiente')
+  `).run(phone, name || '', tipo || 'venta', triggerMessage || '', memory || '', contexto || '');
+}
+
+function getEscalacionesPendientes() {
+  return db.prepare(`
+    SELECT * FROM escalaciones WHERE estado = 'pendiente' ORDER BY created_at DESC
+  `).all();
+}
+
+function updateEscalacionEstado(id, estado) {
+  return db.prepare(`
+    UPDATE escalaciones SET estado = ?, resolved_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(estado, id);
+}
+
+// ============================================
+// SECUENCIAS DE FOLLOW-UP
+// ============================================
+
+function getActiveSequences(type) {
+  if (type) {
+    return db.prepare(`
+      SELECT fs.*, c.name, c.memory, c.status as client_status, c.updated_at as client_updated_at
+      FROM followup_sequences fs
+      JOIN clients c ON fs.client_phone = c.phone
+      WHERE fs.type = ? AND fs.stopped = 0
+      ORDER BY fs.last_sent_at ASC
+    `).all(type);
+  }
+  return db.prepare(`
+    SELECT fs.*, c.name, c.memory, c.status as client_status, c.updated_at as client_updated_at
+    FROM followup_sequences fs
+    JOIN clients c ON fs.client_phone = c.phone
+    WHERE fs.stopped = 0
+    ORDER BY fs.last_sent_at ASC
+  `).all();
+}
+
+function upsertSequence(phone, type, step) {
+  const existing = db.prepare(
+    'SELECT id FROM followup_sequences WHERE client_phone = ? AND type = ? AND stopped = 0'
+  ).get(phone, type);
+
+  if (existing) {
+    return db.prepare(
+      'UPDATE followup_sequences SET step = ?, last_sent_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(step, existing.id);
+  } else {
+    return db.prepare(
+      'INSERT INTO followup_sequences (client_phone, type, step, last_sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)'
+    ).run(phone, type, step);
+  }
+}
+
+function stopSequence(id) {
+  return db.prepare('UPDATE followup_sequences SET stopped = 1 WHERE id = ?').run(id);
+}
+
+function getSequenceForClient(phone, type) {
+  return db.prepare(
+    'SELECT * FROM followup_sequences WHERE client_phone = ? AND type = ? AND stopped = 0'
+  ).get(phone, type);
+}
+
+function stopAllSequencesForClient(phone) {
+  return db.prepare(
+    'UPDATE followup_sequences SET stopped = 1 WHERE client_phone = ? AND stopped = 0'
+  ).run(phone);
+}
+
+// ============================================
+// DASHBOARD KPIs
+// ============================================
+
+function getDashboardKPIs() {
+  // Funnel por estado
+  const funnel = db.prepare(`
+    SELECT status, COUNT(*) as count FROM clients
+    WHERE ignored = 0 AND spam_flag = 0
+    GROUP BY status ORDER BY count DESC
+  `).all();
+
+  // Totales principales
+  const total = db.prepare('SELECT COUNT(*) as c FROM clients WHERE ignored = 0 AND spam_flag = 0').get().c;
+  const completed = db.prepare("SELECT COUNT(*) as c FROM clients WHERE status = 'completed'").get().c;
+  const conversionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  // Clientes esta semana vs semana anterior
+  const thisWeek = db.prepare("SELECT COUNT(*) as c FROM clients WHERE created_at >= datetime('now', '-7 days')").get().c;
+  const lastWeek = db.prepare("SELECT COUNT(*) as c FROM clients WHERE created_at >= datetime('now', '-14 days') AND created_at < datetime('now', '-7 days')").get().c;
+  const weekTrend = thisWeek - lastWeek;
+
+  // Mensajes hoy
+  const msgsToday = db.prepare("SELECT COUNT(*) as c FROM conversations WHERE date(created_at) = date('now')").get().c;
+
+  // Comprobantes confirmados este mes
+  const confirmedThisMonth = db.prepare("SELECT COUNT(*) as c FROM comprobantes WHERE estado = 'confirmado' AND created_at >= datetime('now', 'start of month')").get().c;
+
+  // Top 5 productos más mencionados en memoria
+  const allMemories = db.prepare("SELECT memory FROM clients WHERE memory IS NOT NULL AND memory != ''").all();
+  const productKeywords = {};
+  const productPatterns = [
+    'firat', 'zoraki', 'blow', 'ekol', 'retay', 'bruni', 'kuzey',
+    'major', 'magnum', 'compact', 'aral', 'carrera', 'voltran',
+    'club plus', 'club pro', 'afiliación', 'afiliacion', 'carnet',
+    'munición', 'municion', 'traumática', 'traumatica'
+  ];
+  for (const row of allMemories) {
+    const mem = (row.memory || '').toLowerCase();
+    for (const kw of productPatterns) {
+      if (mem.includes(kw)) {
+        productKeywords[kw] = (productKeywords[kw] || 0) + 1;
+      }
+    }
+  }
+  const topProducts = Object.entries(productKeywords)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 7)
+    .map(([product, count]) => ({ product, count }));
+
+  // Secuencias activas por tipo
+  const activeSequences = db.prepare(`
+    SELECT type, COUNT(*) as count FROM followup_sequences
+    WHERE stopped = 0 GROUP BY type
+  `).all();
+
+  // Lead scores distribution
+  const scoreDistribution = {
+    hot: db.prepare("SELECT COUNT(*) as c FROM clients WHERE lead_score >= 60 AND ignored = 0").get().c,
+    warm: db.prepare("SELECT COUNT(*) as c FROM clients WHERE lead_score >= 30 AND lead_score < 60 AND ignored = 0").get().c,
+    cold: db.prepare("SELECT COUNT(*) as c FROM clients WHERE lead_score > 0 AND lead_score < 30 AND ignored = 0").get().c,
+  };
+
+  return {
+    funnel, total, completed, conversionRate,
+    thisWeek, lastWeek, weekTrend, msgsToday,
+    confirmedThisMonth, topProducts, activeSequences, scoreDistribution
+  };
 }

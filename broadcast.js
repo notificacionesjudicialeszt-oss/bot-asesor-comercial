@@ -39,7 +39,7 @@ La Ley 2197 de 2022 las clasifica como dispositivos menos letales. No requieren 
 
 🔹 *¿Para qué existe el Club Zona Traumática?*
 Para que no estés solo. Cuando te afilias al Club recibes:
-✅ Carnet de portador legal
+✅ Carnet digital de portador legal
 ✅ Respaldo jurídico ante incautaciones
 ✅ Acceso a capacitaciones en vivo
 ✅ Asesoría legal permanente

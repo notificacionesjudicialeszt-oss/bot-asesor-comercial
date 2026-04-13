@@ -8,6 +8,7 @@ const path = require('path');
 const CONFIG = {
   mode: process.env.MODE || 'direct',
   apiKey: process.env.ANTHROPIC_API_KEY,
+  internalApiKey: process.env.INTERNAL_API_KEY || '',
   businessName: process.env.BUSINESS_NAME || 'Mi Tienda',
   businessPhone: process.env.BUSINESS_PHONE || '',
   auditors: (process.env.AUDITORS || '').split(',').map(a => a.trim()).filter(Boolean),

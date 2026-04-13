@@ -1,6 +1,7 @@
 // ============================================
 // broadcasters.js — Cola de imágenes + Broadcasting a Grupos y Estados
 // ============================================
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { geminiGenerate } = require('./gemini');
@@ -83,21 +84,16 @@ function buildImageQueue() {
   console.log(`[QUEUE] 📦 Productos disponibles en catálogo: ${Object.keys(productosDisponibles).length}`);
 
   // 3. Escanear imágenes por categoría
+  // 4 fuentes: club (ofertas), pistolas (inventario disponible), didáctico y marketing
   const pistolasDir = path.join(imagenesDir, 'pistolas');
-  const ofertaDir = path.join(imagenesDir, 'oferta actual');
+  const clubDir = path.join(imagenesDir, 'oferta actual', 'club');
   const didacticoDir = path.join(imagenesDir, 'didactico');
+  const marketingDir = path.join(imagenesDir, 'oferta actual', 'marketing');
 
   const imagenesPistolas = obtenerImagenesRecursivo(pistolasDir);
-  // Excluir la carpeta 'inventario y precios' — esa imagen es interna
-  const CARPETA_INTERNA = path.join(ofertaDir, 'inventario y precios');
-  const imagenesOfertaRaw = obtenerImagenesRecursivo(ofertaDir);
-  const imagenesOferta = imagenesOfertaRaw.filter(
-    fullPath => !fullPath.startsWith(CARPETA_INTERNA)
-  );
-  if (imagenesOfertaRaw.length !== imagenesOferta.length) {
-    console.log(`[QUEUE] 🔒 Excluidas ${imagenesOfertaRaw.length - imagenesOferta.length} imágenes internas de 'inventario y precios'`);
-  }
+  const imagenesClub = obtenerImagenesRecursivo(clubDir);
   const imagenesDidactico = obtenerImagenesRecursivo(didacticoDir);
+  const imagenesMarketing = obtenerImagenesRecursivo(marketingDir);
 
   // 4. Filtrar pistolas: solo las que corresponden a productos del catálogo
   const pistolasFiltradas = [];
@@ -139,28 +135,27 @@ function buildImageQueue() {
     console.log(`[QUEUE] 🚫 Excluidas (no en catálogo): ${pistolasExcluidas.join(', ')}`);
   }
 
-  // 5. Construir cola con prioridad: pistolas disponibles → ofertas → didáctico
+  // 5. Construir cola intercalada: pistola → club → didáctico → marketing → ...
+  const shuffledPistolas = shuffleArray(pistolasFiltradas);
+  const toItem = fullPath => ({
+    fullPath,
+    relativePath: path.relative(imagenesDir, fullPath),
+    productoInfo: null
+  });
+  const shuffledClub = shuffleArray(imagenesClub).map(toItem);
+  const shuffledDidactico = shuffleArray(imagenesDidactico).map(toItem);
+  const shuffledMarketing = shuffleArray(imagenesMarketing).map(toItem);
+
   const colaOrdenada = [];
-
-  for (const item of shuffleArray(pistolasFiltradas)) {
-    colaOrdenada.push(item);
-  }
-  for (const fullPath of shuffleArray(imagenesOferta)) {
-    colaOrdenada.push({
-      fullPath,
-      relativePath: path.relative(imagenesDir, fullPath),
-      productoInfo: null
-    });
-  }
-  for (const fullPath of shuffleArray(imagenesDidactico)) {
-    colaOrdenada.push({
-      fullPath,
-      relativePath: path.relative(imagenesDir, fullPath),
-      productoInfo: null
-    });
+  const maxLen = Math.max(shuffledPistolas.length, shuffledClub.length, shuffledDidactico.length, shuffledMarketing.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < shuffledPistolas.length) colaOrdenada.push(shuffledPistolas[i]);
+    if (i < shuffledClub.length) colaOrdenada.push(shuffledClub[i]);
+    if (i < shuffledDidactico.length) colaOrdenada.push(shuffledDidactico[i]);
+    if (i < shuffledMarketing.length) colaOrdenada.push(shuffledMarketing[i]);
   }
 
-  console.log(`[QUEUE] 📋 Cola construida: ${pistolasFiltradas.length} pistolas + ${imagenesOferta.length} ofertas + ${imagenesDidactico.length} didáctico = ${colaOrdenada.length} total`);
+  console.log(`[QUEUE] 📋 Cola construida: ${pistolasFiltradas.length} pistolas + ${shuffledClub.length} club + ${shuffledDidactico.length} didáctico + ${shuffledMarketing.length} marketing = ${colaOrdenada.length} total`);
 
   return colaOrdenada;
 }
@@ -214,13 +209,21 @@ function getNextImage(type) {
 // BROADCASTER DE IMÁGENES A GRUPOS
 // ============================================
 
+// Semáforo para evitar ejecuciones concurrentes (scheduler + manual)
+let isBroadcasting = false;
+
 async function getGroupBroadcastText(imageRelativePath, productoInfo) {
-  const contextos = [
-    'Es de mañana, los grupos están empezando el día',
-    'Es mediodía, buen momento para recordar la oferta',
-    'Es tarde, último push del día para el club',
-  ];
-  const contextoAleatorio = contextos[Math.floor(Math.random() * contextos.length)];
+  // Hora real Colombia (UTC-5)
+  const ahoraUTC = new Date();
+  const horaCol = ((ahoraUTC.getUTCHours() - 5) + 24) % 24;
+  let contextoHora;
+  if (horaCol >= 5 && horaCol < 12) {
+    contextoHora = `Es de mañana (${horaCol}h Colombia), saluda con buenos días y da un arranque motivador`;
+  } else if (horaCol >= 12 && horaCol < 18) {
+    contextoHora = `Es mediodía/tarde (${horaCol}h Colombia), buen momento para recordar la oferta con energía`;
+  } else {
+    contextoHora = `Es noche (${horaCol}h Colombia), cierre del día, apela a la tranquilidad y seguridad de la familia`;
+  }
 
   let productoCtx = '';
   if (productoInfo) {
@@ -230,7 +233,7 @@ async function getGroupBroadcastText(imageRelativePath, productoInfo) {
   try {
     const prompt = `Eres el community manager de Zona Traumática Colombia.
 Escribe un mensaje corto y poderoso para acompañar esta imagen promocional en un grupo de WhatsApp de portadores de armas traumáticas.
-Contexto de tiempo: ${contextoAleatorio}.
+Contexto de tiempo: ${contextoHora}.
 Dato de la imagen: ${imageRelativePath.replace(/\\/g, '/')}${productoCtx}
 El mensaje debe:
 - Ser máximo 4 líneas
@@ -250,95 +253,136 @@ Solo escribe el mensaje, sin explicaciones.`;
 }
 
 async function sendGroupBroadcast() {
+  if (isBroadcasting) {
+    console.log('[BROADCASTER] ⚠️ Ya hay un broadcast de grupos en curso — ignorando solicitud duplicada');
+    return;
+  }
+  isBroadcasting = true;
   console.log('[BROADCASTER] 📢 Iniciando envío a grupos...');
 
-  const imageItem = getNextImage('groups');
-  if (!imageItem) {
-    console.log('[BROADCASTER] No hay imágenes disponibles en la cola — cancelando');
-    return;
-  }
-
-  if (!fs.existsSync(imageItem.fullPath)) {
-    console.log(`[BROADCASTER] ⚠️ Imagen ya no existe: ${imageItem.relativePath} — saltando`);
-    return;
-  }
-
-  let chats;
   try {
-    chats = await client.getChats();
-  } catch (e) {
-    console.error('[BROADCASTER] Error obteniendo chats:', e.message);
-    return;
-  }
-
-  const grupos = chats.filter(c => c.isGroup);
-  console.log(`[BROADCASTER] 👥 Grupos encontrados: ${grupos.length}`);
-
-  if (grupos.length === 0) {
-    console.log('[BROADCASTER] No hay grupos — cancelando');
-    return;
-  }
-
-  const media = MessageMedia.fromFilePath(imageItem.fullPath);
-
-  let enviados = 0;
-  for (const grupo of grupos) {
-    try {
-      console.log(`[BROADCASTER] ➡️ Preparando envío a ${grupo.name} (Img: ${imageItem.relativePath})...`);
-      
-      const textoUnico = await getGroupBroadcastText(imageItem.relativePath, imageItem.productoInfo);
-
-      await client.sendMessage(grupo.id._serialized, media, { caption: textoUnico });
-      enviados++;
-      console.log(`[BROADCASTER] ✅ Enviado a: ${grupo.name}`);
-      
-      if (enviados < grupos.length) {
-        const banDelay = Math.floor(Math.random() * 120000) + 60000; 
-        console.log(`[BROADCASTER] 🛡️ Anti-Ban: Esperando ${Math.round(banDelay/1000)}s antes del próximo grupo...`);
-        await new Promise(r => setTimeout(r, banDelay));
-      }
-    } catch (err) {
-      console.error(`[BROADCASTER] ❌ Error en grupo ${grupo.name}:`, err.message);
+    const imageItem = getNextImage('groups');
+    if (!imageItem) {
+      console.log('[BROADCASTER] No hay imágenes disponibles en la cola — cancelando');
+      return;
     }
-  }
 
-  console.log(`[BROADCASTER] 📊 Completado: ${enviados}/${grupos.length} grupos`);
+    if (!fs.existsSync(imageItem.fullPath)) {
+      console.log(`[BROADCASTER] ⚠️ Imagen ya no existe: ${imageItem.relativePath} — saltando`);
+      return;
+    }
+
+    let chats;
+    try {
+      chats = await client.getChats();
+    } catch (e) {
+      console.error('[BROADCASTER] Error obteniendo chats:', e.message);
+      return;
+    }
+
+    const grupos = chats.filter(c => c.isGroup);
+    console.log(`[BROADCASTER] 👥 Grupos encontrados: ${grupos.length}`);
+
+    if (grupos.length === 0) {
+      console.log('[BROADCASTER] No hay grupos — cancelando');
+      return;
+    }
+
+    let media;
+    try {
+      media = MessageMedia.fromFilePath(imageItem.fullPath);
+    } catch (mediaErr) {
+      console.error(`[BROADCASTER] ❌ No se pudo cargar imagen: ${mediaErr.message}`);
+      return;
+    }
+
+    let enviados = 0;
+    let frameDetached = false;
+
+    for (const grupo of grupos) {
+      if (frameDetached) {
+        console.warn(`[BROADCASTER] ⚠️ Frame caído — abortando resto de grupos`);
+        break;
+      }
+
+      try {
+        console.log(`[BROADCASTER] ➡️ Preparando envío a ${grupo.name} (Img: ${imageItem.relativePath})...`);
+        
+        const textoUnico = await getGroupBroadcastText(imageItem.relativePath, imageItem.productoInfo);
+
+        await client.sendMessage(grupo.id._serialized, media, { caption: textoUnico });
+        enviados++;
+        console.log(`[BROADCASTER] ✅ Enviado a: ${grupo.name}`);
+        
+        if (enviados < grupos.length) {
+          const banDelay = Math.floor(Math.random() * 120000) + 60000; 
+          console.log(`[BROADCASTER] 🛡️ Anti-Ban: Esperando ${Math.round(banDelay/1000)}s antes del próximo grupo...`);
+          await new Promise(r => setTimeout(r, banDelay));
+        }
+      } catch (err) {
+        const esDetachedFrame = err.message && (
+          err.message.includes('detached Frame') ||
+          err.message.includes('Execution context was destroyed') ||
+          err.message.includes('Target closed') ||
+          err.message.includes('Session closed')
+        );
+
+        if (esDetachedFrame) {
+          console.error(`[BROADCASTER] 💀 Frame de Puppeteer caído en grupo ${grupo.name} — deteniendo broadcast`);
+          frameDetached = true;
+        } else {
+          console.error(`[BROADCASTER] ❌ Error en grupo ${grupo.name}:`, err.message);
+          // Pequeña pausa antes de continuar con el siguiente grupo
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      }
+    }
+
+    console.log(`[BROADCASTER] 📊 Completado: ${enviados}/${grupos.length} grupos`);
+    if (frameDetached) {
+      console.log(`[BROADCASTER] ℹ️ El frame se cayó en medio del envío — el watchdog reiniciará el bot si es necesario`);
+    }
+  } finally {
+    isBroadcasting = false;
+  }
 }
 
 function startGroupBroadcaster() {
-  const HORAS_ENVIO = [8, 13, 19];
+  if (process.env.ENABLE_GROUP_BROADCAST !== 'true') {
+    console.log('[BROADCASTER] ⏸️ Broadcasting a grupos DESACTIVADO (ENABLE_GROUP_BROADCAST=false)');
+    return;
+  }
+  const ENVIOS_POR_DIA = 16;
+  const HORA_INICIO = 7;   // 7am Colombia
+  const HORA_FIN = 23;     // 11pm Colombia
+  const VENTANA_HORAS = HORA_FIN - HORA_INICIO; // 16h activas
+  const INTERVALO_MS = Math.floor((VENTANA_HORAS * 60 * 60 * 1000) / ENVIOS_POR_DIA); // ~60 min
 
-  function getMsHastaProximoEnvio() {
+  function getColombiaHour() {
     const ahora = new Date();
     const utcMinutes = ahora.getUTCHours() * 60 + ahora.getUTCMinutes();
     const colMinutes = ((utcMinutes - 5 * 60) % (24 * 60) + 24 * 60) % (24 * 60);
-    const colHora = Math.floor(colMinutes / 60);
-    const colMin = colMinutes % 60;
-
-    let proximaHora = HORAS_ENVIO.find(h => h > colHora || (h === colHora && colMin === 0));
-    if (proximaHora === undefined) {
-      proximaHora = HORAS_ENVIO[0] + 24;
-    }
-
-    const minutosRestantes = proximaHora * 60 - colMinutes;
-    return minutosRestantes * 60 * 1000;
+    return Math.floor(colMinutes / 60);
   }
 
-  function programarSiguiente() {
-    const msEspera = getMsHastaProximoEnvio();
-    const minutosEspera = Math.round(msEspera / 60000);
-    const horasEspera = Math.floor(minutosEspera / 60);
-    const minsEspera = minutosEspera % 60;
-    console.log(`[BROADCASTER] ⏰ Próximo envío en ${horasEspera}h ${minsEspera}m`);
+  // Log de la cola al arrancar para confirmar que no se repiten
+  const colaActual = buildImageQueue();
+  console.log(`[BROADCASTER] 📦 Imágenes disponibles en cola: ${colaActual.length} (se reciclan sin repetir hasta agotar todas)`);
 
-    setTimeout(async () => {
+  async function ciclo() {
+    const hora = getColombiaHour();
+    if (hora >= HORA_INICIO && hora < HORA_FIN) {
       await sendGroupBroadcast();
-      programarSiguiente();
-    }, msEspera);
+    } else {
+      console.log(`[BROADCASTER] 🌙 Fuera de horario (${hora}h Colombia) — saltando hasta las ${HORA_INICIO}h`);
+    }
+    setTimeout(ciclo, INTERVALO_MS);
   }
 
-  console.log(`[BROADCASTER] 🚀 Iniciado — enviará a grupos a las ${HORAS_ENVIO.join('h, ')}h (hora Colombia)`);
-  programarSiguiente();
+  const intervaloMin = Math.round(INTERVALO_MS / 60000);
+  console.log(`[BROADCASTER] 🚀 Iniciado — ${ENVIOS_POR_DIA}x/día, cada ~${intervaloMin}min (${HORA_INICIO}h-${HORA_FIN}h Colombia)`);
+  // Primer envío en 2 minutos para no bloquear el arranque
+  setTimeout(ciclo, 2 * 60 * 1000);
 }
 
 // ============================================
@@ -346,12 +390,17 @@ function startGroupBroadcaster() {
 // ============================================
 
 async function getStatusBroadcastText(imageRelativePath, productoInfo) {
-  const horasActivas = [
-    'Mañana: invita a empezar el día protegido.',
-    'Mediodía: mensaje rápido y contundente para el break del almuerzo.',
-    'Tarde/Noche: cierre del día, apela a la tranquilidad y seguridad de la familia.',
-  ];
-  const contextoAleatorio = horasActivas[Math.floor(Math.random() * horasActivas.length)];
+  // Hora real Colombia (UTC-5)
+  const ahoraUTC = new Date();
+  const horaCol = ((ahoraUTC.getUTCHours() - 5) + 24) % 24;
+  let contextoHora;
+  if (horaCol >= 5 && horaCol < 12) {
+    contextoHora = `Mañana (${horaCol}h): invita a empezar el día protegido con buenos días`;
+  } else if (horaCol >= 12 && horaCol < 18) {
+    contextoHora = `Mediodía/tarde (${horaCol}h): mensaje rápido y contundente para el break del almuerzo`;
+  } else {
+    contextoHora = `Noche (${horaCol}h): cierre del día, apela a la tranquilidad y seguridad de la familia`;
+  }
 
   let productoCtx = '';
   if (productoInfo) {
@@ -367,7 +416,7 @@ Dado que la imagen proviene de la ruta: "${imageRelativePath.replace(/\\/g, '/')
 - Si es de /pistolas: Habla de equipo táctico, seguridad y respaldo.
 ${productoCtx}
 
-Contexto de la hora: ${contextoAleatorio}
+Contexto de la hora: ${contextoHora}
 
 El mensaje debe:
 - Ser MUY CORTO (máximo 3 líneas) para lectura rápida en un estado.
@@ -418,37 +467,34 @@ async function sendStatusBroadcast() {
 }
 
 function startStatusBroadcaster() {
-  const HORAS_ESTADO = [9, 14, 18, 22];
+  if (process.env.ENABLE_STATUS_BROADCAST !== 'true') {
+    console.log('[STATUS] ⏸️ Broadcasting de estados DESACTIVADO (ENABLE_STATUS_BROADCAST=false)');
+    return;
+  }
+  const INTERVALO_MS = 30 * 60 * 1000; // 30 minutos
+  const HORA_INICIO = 7;  // no publicar antes de 7am Colombia
+  const HORA_FIN = 23;    // no publicar después de 11pm Colombia
 
-  function getMsHastaProximoEstado() {
+  function getColombiaHour() {
     const ahora = new Date();
     const utcMinutes = ahora.getUTCHours() * 60 + ahora.getUTCMinutes();
     const colMinutes = ((utcMinutes - 5 * 60) % (24 * 60) + 24 * 60) % (24 * 60);
-    const colHora = Math.floor(colMinutes / 60);
-    const colMin = colMinutes % 60;
-
-    let proximaHora = HORAS_ESTADO.find(h => h > colHora || (h === colHora && colMin === 0));
-    if (proximaHora === undefined) {
-      proximaHora = HORAS_ESTADO[0] + 24;
-    }
-    const minutosRestantes = proximaHora * 60 - colMinutes;
-    return minutosRestantes * 60 * 1000 - ahora.getSeconds() * 1000;
+    return Math.floor(colMinutes / 60);
   }
 
-  function programarSiguienteEstado() {
-    const msEspera = getMsHastaProximoEstado();
-    const horasEspera = Math.floor((msEspera / 1000) / 3600);
-    const minsEspera = Math.round(((msEspera / 1000) % 3600) / 60);
-    console.log(`[STATUS] ⏰ Próxima historia programada en ${horasEspera}h ${minsEspera}m (a las ${HORAS_ESTADO.join(', ')}h)`);
-
-    setTimeout(async () => {
+  async function ciclo() {
+    const hora = getColombiaHour();
+    if (hora >= HORA_INICIO && hora < HORA_FIN) {
       await sendStatusBroadcast();
-      programarSiguienteEstado(); 
-    }, msEspera);
+    } else {
+      console.log(`[STATUS] 🌙 Fuera de horario (${hora}h Colombia) — saltando hasta las ${HORA_INICIO}h`);
+    }
+    setTimeout(ciclo, INTERVALO_MS);
   }
 
-  console.log(`[STATUS] 🚀 Automatización de Historias iniciada (4 publicaciones controladas al día).`);
-  programarSiguienteEstado();
+  console.log(`[STATUS] 🚀 Automatización de Historias iniciada — cada 30 min (${HORA_INICIO}h-${HORA_FIN}h Colombia)`);
+  // Primer envío en 1 minuto para no bloquear el arranque
+  setTimeout(ciclo, 60 * 1000);
 }
 
 module.exports = { init, startGroupBroadcaster, startStatusBroadcaster, sendGroupBroadcast, sendStatusBroadcast, buildImageQueue };

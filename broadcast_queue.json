@@ -2,216 +2,20 @@
   "groups": {
     "queue": [
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92 fume.png",
-        "relativePath": "pistolas\\blow\\f92 fume.png",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\revolver viper 2.5.jpg",
+        "relativePath": "pistolas\\ekol\\revolver viper 2.5.jpg",
         "productoInfo": {
-          "titulo": "BLOW F92",
-          "marca": "BLOW",
-          "color": "Negro / Cromado / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-f92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnumk.png",
-        "relativePath": "pistolas\\ekol\\firat magnumk.png",
-        "productoInfo": {
-          "titulo": "EKOL Firat Magnum",
+          "titulo": "EKOL VIPER 2.5",
           "marca": "EKOL",
-          "color": "Negro / Fume",
+          "color": "NEGRO",
           "precio_plus": "$1.200.000",
           "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-firat-magnum-k/"
+          "url": "https://www.zonatraumatica.club#productos"
         }
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\VOLGA K NEGRA.png",
-        "relativePath": "pistolas\\ekol\\VOLGA K NEGRA.png",
-        "productoInfo": {
-          "titulo": "EKOL Volga",
-          "marca": "EKOL",
-          "color": "Negro",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-volga/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\tr92 fume.png",
-        "relativePath": "pistolas\\blow\\tr92 fume.png",
-        "productoInfo": {
-          "titulo": "BLOW TR 92",
-          "marca": "BLOW",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-tr92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\tr92d.png",
-        "relativePath": "pistolas\\blow\\tr92d.png",
-        "productoInfo": {
-          "titulo": "BLOW TR 92",
-          "marca": "BLOW",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-tr92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firatmagnum (2).png",
-        "relativePath": "pistolas\\ekol\\firatmagnum (2).png",
-        "productoInfo": {
-          "titulo": "EKOL Firat Magnum",
-          "marca": "EKOL",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-firat-magnum-k/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\botanciudad.png",
-        "relativePath": "pistolas\\ekol\\botanciudad.png",
-        "productoInfo": {
-          "titulo": "EKOL Botan",
-          "marca": "EKOL",
-          "color": "Fume",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-botan/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\botan.png",
-        "relativePath": "pistolas\\ekol\\botan.png",
-        "productoInfo": {
-          "titulo": "EKOL Botan",
-          "marca": "EKOL",
-          "color": "Fume",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-botan/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\retay\\s2022.png",
-        "relativePath": "pistolas\\retay\\s2022.png",
-        "productoInfo": {
-          "titulo": "RETAY S2022",
-          "marca": "RETAY",
-          "color": "Negro",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/retay-s2022/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92.png",
-        "relativePath": "pistolas\\blow\\f92.png",
-        "productoInfo": {
-          "titulo": "BLOW F92",
-          "marca": "BLOW",
-          "color": "Negro / Cromado / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-f92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\retay\\g17.png",
-        "relativePath": "pistolas\\retay\\g17.png",
-        "productoInfo": {
-          "titulo": "RETAY G17",
-          "marca": "RETAY",
-          "color": "Negro",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/retay-g17/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\volga negra.png",
-        "relativePath": "pistolas\\ekol\\volga negra.png",
-        "productoInfo": {
-          "titulo": "EKOL Volga",
-          "marca": "EKOL",
-          "color": "Negro",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-volga/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\tr92k.png",
-        "relativePath": "pistolas\\blow\\tr92k.png",
-        "productoInfo": {
-          "titulo": "BLOW TR 92",
-          "marca": "BLOW",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-tr92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firatcompactk.png",
-        "relativePath": "pistolas\\ekol\\firatcompactk.png",
-        "productoInfo": {
-          "titulo": "EKOL Firat Compact",
-          "marca": "EKOL",
-          "color": "Negro",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-firat-compact-k/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta club completa.png",
-        "relativePath": "oferta actual\\club\\oferta club completa.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta individual club pro.png",
-        "relativePath": "oferta actual\\club\\oferta individual club pro.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor legal ia.png",
-        "relativePath": "oferta actual\\club\\asesor legal ia.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta  individual club plus.png",
-        "relativePath": "oferta actual\\club\\oferta  individual club plus.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta club pro y plus.png",
-        "relativePath": "oferta actual\\club\\oferta club pro y plus.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor legal zt.png",
-        "relativePath": "oferta actual\\club\\asesor legal zt.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_linea_tiempo.webp.webp",
-        "relativePath": "didactico\\img_linea_tiempo.webp.webp",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_cadena_validacion.webp.webp",
-        "relativePath": "didactico\\img_cadena_validacion.webp.webp",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_energia_balistica.webp.webp",
-        "relativePath": "didactico\\img_energia_balistica.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\club-zt-plan-pro.jpg",
+        "relativePath": "oferta actual\\club\\club-zt-plan-pro.jpg",
         "productoInfo": null
       },
       {
@@ -220,13 +24,106 @@
         "productoInfo": null
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_doble_estandar.webp.webp",
-        "relativePath": "didactico\\img_doble_estandar.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\nueva-web.jpg",
+        "relativePath": "oferta actual\\marketing\\nueva-web.jpg",
         "productoInfo": null
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_split_screen.webp.webp",
-        "relativePath": "didactico\\img_split_screen.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnum fume.png",
+        "relativePath": "pistolas\\ekol\\firat magnum fume.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\afiliacion-club-plan-pro.jpg",
+        "relativePath": "oferta actual\\club\\afiliacion-club-plan-pro.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_energia_balistica.webp.webp",
+        "relativePath": "didactico\\img_energia_balistica.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\simulador-procedimiento.jpg",
+        "relativePath": "oferta actual\\marketing\\simulador-procedimiento.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\nig 211.png",
+        "relativePath": "pistolas\\ekol\\nig 211.png",
+        "productoInfo": {
+          "titulo": "EKOL NIG 211",
+          "marca": "EKOL",
+          "color": "NEGRO Y FUME",
+          "precio_plus": "$1.300.000",
+          "precio_pro": "$1.400.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia-2.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia-2.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_linea_tiempo.webp.webp",
+        "relativePath": "didactico\\img_linea_tiempo.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\nos-reinventamos.jpg",
+        "relativePath": "oferta actual\\marketing\\nos-reinventamos.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92 fume.png",
+        "relativePath": "pistolas\\blow\\f92 fume.png",
+        "productoInfo": {
+          "titulo": "BLOW F92",
+          "marca": "BLOW",
+          "color": "NEGRO",
+          "precio_plus": "$1.150.000",
+          "precio_pro": "$1.250.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia-1-mes.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia-1-mes.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_caracteristicas_tecnicas.webp.webp",
+        "relativePath": "didactico\\img_caracteristicas_tecnicas.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\simulador-procediminto-2.jpg",
+        "relativePath": "oferta actual\\marketing\\simulador-procediminto-2.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnum.png",
+        "relativePath": "pistolas\\ekol\\firat magnum.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia.jpg",
         "productoInfo": null
       },
       {
@@ -235,221 +132,168 @@
         "productoInfo": null
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_caracteristicas_tecnicas.webp.webp",
-        "relativePath": "didactico\\img_caracteristicas_tecnicas.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\anuncio-nueva-web.jpg",
+        "relativePath": "oferta actual\\marketing\\anuncio-nueva-web.jpg",
         "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\nig211k.png",
+        "relativePath": "pistolas\\ekol\\nig211k.png",
+        "productoInfo": {
+          "titulo": "EKOL NIG 211",
+          "marca": "EKOL",
+          "color": "NEGRO Y FUME",
+          "precio_plus": "$1.300.000",
+          "precio_pro": "$1.400.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\club-zt-plan-plus.jpg",
+        "relativePath": "oferta actual\\club\\club-zt-plan-plus.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_split_screen.webp.webp",
+        "relativePath": "didactico\\img_split_screen.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnum cromado.jpg",
+        "relativePath": "pistolas\\ekol\\firat magnum cromado.jpg",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia-3-meses.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia-3-meses.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_doble_estandar.webp.webp",
+        "relativePath": "didactico\\img_doble_estandar.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\revolver viper 4.5 fume.jpg",
+        "relativePath": "pistolas\\ekol\\revolver viper 4.5 fume.jpg",
+        "productoInfo": {
+          "titulo": "EKOL VIPER 4.5",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\afiliacion-club-plan-plus.jpg",
+        "relativePath": "oferta actual\\club\\afiliacion-club-plan-plus.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_cadena_validacion.webp.webp",
+        "relativePath": "didactico\\img_cadena_validacion.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\nig211.png",
+        "relativePath": "pistolas\\ekol\\nig211.png",
+        "productoInfo": {
+          "titulo": "EKOL NIG 211",
+          "marca": "EKOL",
+          "color": "NEGRO Y FUME",
+          "precio_plus": "$1.300.000",
+          "precio_pro": "$1.400.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\special 99 fume.jpg",
+        "relativePath": "pistolas\\ekol\\special 99 fume.jpg",
+        "productoInfo": {
+          "titulo": "EKOL SPECIAL 99",
+          "marca": "EKOL",
+          "color": "FUME",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92.png",
+        "relativePath": "pistolas\\blow\\f92.png",
+        "productoInfo": {
+          "titulo": "BLOW F92",
+          "marca": "BLOW",
+          "color": "NEGRO",
+          "precio_plus": "$1.150.000",
+          "precio_pro": "$1.250.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnumk.png",
+        "relativePath": "pistolas\\ekol\\firat magnumk.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firatcompactk.png",
+        "relativePath": "pistolas\\ekol\\firatcompactk.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT COMPACT",
+          "marca": "EKOL",
+          "color": "NEGRO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\special 99 negra.jpg",
+        "relativePath": "pistolas\\ekol\\special 99 negra.jpg",
+        "productoInfo": {
+          "titulo": "EKOL SPECIAL 99",
+          "marca": "EKOL",
+          "color": "FUME",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
       }
     ],
-    "index": 8
+    "index": 18
   },
   "status": {
     "queue": [
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\botanciudad.png",
-        "relativePath": "pistolas\\ekol\\botanciudad.png",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\special 99 fume.jpg",
+        "relativePath": "pistolas\\ekol\\special 99 fume.jpg",
         "productoInfo": {
-          "titulo": "EKOL Botan",
+          "titulo": "EKOL SPECIAL 99",
           "marca": "EKOL",
-          "color": "Fume",
+          "color": "FUME",
           "precio_plus": "$1.200.000",
           "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-botan/"
+          "url": "https://www.zonatraumatica.club#productos"
         }
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firatcompactk.png",
-        "relativePath": "pistolas\\ekol\\firatcompactk.png",
-        "productoInfo": {
-          "titulo": "EKOL Firat Compact",
-          "marca": "EKOL",
-          "color": "Negro",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-firat-compact-k/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92 fume.png",
-        "relativePath": "pistolas\\blow\\f92 fume.png",
-        "productoInfo": {
-          "titulo": "BLOW F92",
-          "marca": "BLOW",
-          "color": "Negro / Cromado / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-f92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\tr92k.png",
-        "relativePath": "pistolas\\blow\\tr92k.png",
-        "productoInfo": {
-          "titulo": "BLOW TR 92",
-          "marca": "BLOW",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-tr92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnumk.png",
-        "relativePath": "pistolas\\ekol\\firat magnumk.png",
-        "productoInfo": {
-          "titulo": "EKOL Firat Magnum",
-          "marca": "EKOL",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-firat-magnum-k/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92.png",
-        "relativePath": "pistolas\\blow\\f92.png",
-        "productoInfo": {
-          "titulo": "BLOW F92",
-          "marca": "BLOW",
-          "color": "Negro / Cromado / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-f92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\retay\\s2022.png",
-        "relativePath": "pistolas\\retay\\s2022.png",
-        "productoInfo": {
-          "titulo": "RETAY S2022",
-          "marca": "RETAY",
-          "color": "Negro",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/retay-s2022/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\tr92 fume.png",
-        "relativePath": "pistolas\\blow\\tr92 fume.png",
-        "productoInfo": {
-          "titulo": "BLOW TR 92",
-          "marca": "BLOW",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-tr92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\botan.png",
-        "relativePath": "pistolas\\ekol\\botan.png",
-        "productoInfo": {
-          "titulo": "EKOL Botan",
-          "marca": "EKOL",
-          "color": "Fume",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-botan/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\VOLGA K NEGRA.png",
-        "relativePath": "pistolas\\ekol\\VOLGA K NEGRA.png",
-        "productoInfo": {
-          "titulo": "EKOL Volga",
-          "marca": "EKOL",
-          "color": "Negro",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-volga/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\volga negra.png",
-        "relativePath": "pistolas\\ekol\\volga negra.png",
-        "productoInfo": {
-          "titulo": "EKOL Volga",
-          "marca": "EKOL",
-          "color": "Negro",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-volga/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\retay\\g17.png",
-        "relativePath": "pistolas\\retay\\g17.png",
-        "productoInfo": {
-          "titulo": "RETAY G17",
-          "marca": "RETAY",
-          "color": "Negro",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/retay-g17/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\tr92d.png",
-        "relativePath": "pistolas\\blow\\tr92d.png",
-        "productoInfo": {
-          "titulo": "BLOW TR 92",
-          "marca": "BLOW",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.150.000",
-          "precio_pro": "$1.250.000",
-          "url": "https://zonatraumatica.club/producto/blow-tr92/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firatmagnum (2).png",
-        "relativePath": "pistolas\\ekol\\firatmagnum (2).png",
-        "productoInfo": {
-          "titulo": "EKOL Firat Magnum",
-          "marca": "EKOL",
-          "color": "Negro / Fume",
-          "precio_plus": "$1.200.000",
-          "precio_pro": "$1.300.000",
-          "url": "https://zonatraumatica.club/producto/ekol-firat-magnum-k/"
-        }
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta individual club pro.png",
-        "relativePath": "oferta actual\\club\\oferta individual club pro.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta club pro y plus.png",
-        "relativePath": "oferta actual\\club\\oferta club pro y plus.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta  individual club plus.png",
-        "relativePath": "oferta actual\\club\\oferta  individual club plus.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\oferta club completa.png",
-        "relativePath": "oferta actual\\club\\oferta club completa.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor legal ia.png",
-        "relativePath": "oferta actual\\club\\asesor legal ia.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor legal zt.png",
-        "relativePath": "oferta actual\\club\\asesor legal zt.png",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_piramide_kelsen.webp.webp",
-        "relativePath": "didactico\\img_piramide_kelsen.webp.webp",
-        "productoInfo": null
-      },
-      {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_caracteristicas_tecnicas.webp.webp",
-        "relativePath": "didactico\\img_caracteristicas_tecnicas.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\afiliacion-club-plan-pro.jpg",
+        "relativePath": "oferta actual\\club\\afiliacion-club-plan-pro.jpg",
         "productoInfo": null
       },
       {
@@ -458,8 +302,52 @@
         "productoInfo": null
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_split_screen.webp.webp",
-        "relativePath": "didactico\\img_split_screen.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\anuncio-nueva-web.jpg",
+        "relativePath": "oferta actual\\marketing\\anuncio-nueva-web.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnumk.png",
+        "relativePath": "pistolas\\ekol\\firat magnumk.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\club-zt-plan-pro.jpg",
+        "relativePath": "oferta actual\\club\\club-zt-plan-pro.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_piramide_kelsen.webp.webp",
+        "relativePath": "didactico\\img_piramide_kelsen.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\simulador-procedimiento.jpg",
+        "relativePath": "oferta actual\\marketing\\simulador-procedimiento.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\special 99 negra.jpg",
+        "relativePath": "pistolas\\ekol\\special 99 negra.jpg",
+        "productoInfo": {
+          "titulo": "EKOL SPECIAL 99",
+          "marca": "EKOL",
+          "color": "FUME",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia-2.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia-2.jpg",
         "productoInfo": null
       },
       {
@@ -468,8 +356,79 @@
         "productoInfo": null
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_contradiccion_institucional.webp.webp",
-        "relativePath": "didactico\\img_contradiccion_institucional.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\simulador-procediminto-2.jpg",
+        "relativePath": "oferta actual\\marketing\\simulador-procediminto-2.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\nig211.png",
+        "relativePath": "pistolas\\ekol\\nig211.png",
+        "productoInfo": {
+          "titulo": "EKOL NIG 211",
+          "marca": "EKOL",
+          "color": "NEGRO Y FUME",
+          "precio_plus": "$1.300.000",
+          "precio_pro": "$1.400.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia-3-meses.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia-3-meses.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_cadena_validacion.webp.webp",
+        "relativePath": "didactico\\img_cadena_validacion.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\nos-reinventamos.jpg",
+        "relativePath": "oferta actual\\marketing\\nos-reinventamos.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92 fume.png",
+        "relativePath": "pistolas\\blow\\f92 fume.png",
+        "productoInfo": {
+          "titulo": "BLOW F92",
+          "marca": "BLOW",
+          "color": "NEGRO",
+          "precio_plus": "$1.150.000",
+          "precio_pro": "$1.250.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\club-zt-plan-plus.jpg",
+        "relativePath": "oferta actual\\club\\club-zt-plan-plus.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_caracteristicas_tecnicas.webp.webp",
+        "relativePath": "didactico\\img_caracteristicas_tecnicas.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\marketing\\nueva-web.jpg",
+        "relativePath": "oferta actual\\marketing\\nueva-web.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\revolver viper 4.5 fume.jpg",
+        "relativePath": "pistolas\\ekol\\revolver viper 4.5 fume.jpg",
+        "productoInfo": {
+          "titulo": "EKOL VIPER 4.5",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia-1-mes.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia-1-mes.jpg",
         "productoInfo": null
       },
       {
@@ -478,11 +437,122 @@
         "productoInfo": null
       },
       {
-        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_cadena_validacion.webp.webp",
-        "relativePath": "didactico\\img_cadena_validacion.webp.webp",
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\blow\\f92.png",
+        "relativePath": "pistolas\\blow\\f92.png",
+        "productoInfo": {
+          "titulo": "BLOW F92",
+          "marca": "BLOW",
+          "color": "NEGRO",
+          "precio_plus": "$1.150.000",
+          "precio_pro": "$1.250.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\afiliacion-club-plan-plus.jpg",
+        "relativePath": "oferta actual\\club\\afiliacion-club-plan-plus.jpg",
         "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_contradiccion_institucional.webp.webp",
+        "relativePath": "didactico\\img_contradiccion_institucional.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnum.png",
+        "relativePath": "pistolas\\ekol\\firat magnum.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\oferta actual\\club\\asesor-legal-ia.jpg",
+        "relativePath": "oferta actual\\club\\asesor-legal-ia.jpg",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\didactico\\img_split_screen.webp.webp",
+        "relativePath": "didactico\\img_split_screen.webp.webp",
+        "productoInfo": null
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\nig 211.png",
+        "relativePath": "pistolas\\ekol\\nig 211.png",
+        "productoInfo": {
+          "titulo": "EKOL NIG 211",
+          "marca": "EKOL",
+          "color": "NEGRO Y FUME",
+          "precio_plus": "$1.300.000",
+          "precio_pro": "$1.400.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\nig211k.png",
+        "relativePath": "pistolas\\ekol\\nig211k.png",
+        "productoInfo": {
+          "titulo": "EKOL NIG 211",
+          "marca": "EKOL",
+          "color": "NEGRO Y FUME",
+          "precio_plus": "$1.300.000",
+          "precio_pro": "$1.400.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\revolver viper 2.5.jpg",
+        "relativePath": "pistolas\\ekol\\revolver viper 2.5.jpg",
+        "productoInfo": {
+          "titulo": "EKOL VIPER 2.5",
+          "marca": "EKOL",
+          "color": "NEGRO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnum cromado.jpg",
+        "relativePath": "pistolas\\ekol\\firat magnum cromado.jpg",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firat magnum fume.png",
+        "relativePath": "pistolas\\ekol\\firat magnum fume.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT MAGNUM",
+          "marca": "EKOL",
+          "color": "NEGRO - FUME - CROMADO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
+      },
+      {
+        "fullPath": "C:\\Users\\Alvaro Ocampo\\Documents\\bot\\negrobot\\imagenes\\pistolas\\ekol\\firatcompactk.png",
+        "relativePath": "pistolas\\ekol\\firatcompactk.png",
+        "productoInfo": {
+          "titulo": "EKOL FIRAT COMPACT",
+          "marca": "EKOL",
+          "color": "NEGRO",
+          "precio_plus": "$1.200.000",
+          "precio_pro": "$1.300.000",
+          "url": "https://www.zonatraumatica.club#productos"
+        }
       }
     ],
-    "index": 27
+    "index": 15
   }
 }

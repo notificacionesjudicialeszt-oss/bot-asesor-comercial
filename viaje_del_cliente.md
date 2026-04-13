@@ -49,8 +49,8 @@ La gestión del dinero es el punto más crítico. Así funciona:
 *   **Acción:** Inicia el trámite del carnet. Debes pedirle por chat su foto, cédula y serial del arma para emitirle el documento con código QR. Automáticamente accede al Bot Asesor IA como bono por 6 meses.
 
 ### RUTA C: Compra del Bot "Asesor Legal IA" (Promo temporal)
-*   **Interés:** Solo quiere el abogado en el bolsillo por $50.000 (no le alcanza para el club o aún no está convencido).
-*   **Cierre:** Paga los $50.000 y envía comprobante.
+*   **Interés:** Solo quiere el abogado de bolsillo especializado en dispositivos menos letales por $20.000/mes (no le alcanza para el club o aún no está convencido).
+*   **Cierre:** Paga los $20.000 (primer mes) y envía comprobante.
 *   **Panel:** Confirmas el comprobante (aparece etiquetado tipo: `bot_asesor`).
 *   **Acción:** Le notificas que dentro de 24 horas el sistema estará enlazado a su número para que pueda consultar la ley en cualquier momento.
 

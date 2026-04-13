@@ -1,17 +1,17 @@
 # 🤖 ASESOR LEGAL IA — ZONA TRAUMÁTICA
 
-El **Asesor Legal IA** es tu abogado de bolsillo especializado en derecho de armas traumáticas en Colombia, operando 24/7 directamente en tu WhatsApp personal.
+El **Asesor Legal IA** es tu abogado de bolsillo especializado en dispositivos menos letales en Colombia, operando 24/7 directamente en tu WhatsApp personal.
 
 ---
 
 ### 💰 INVERSIÓN Y PROMOCIÓN
 
-**Valor:** `$50.000 COP / 6 meses`
+**Valor:** `$20.000 COP / mes` (suscripción mensual)
 
-⚠️ **PROMOCIÓN POR TIEMPO LIMITADO:**
-Normalmente, este bot es de uso **EXCLUSIVO** para miembros activos del Club ZT. Sin embargo, por tiempo y cupos limitados, **lo hemos abierto al público general**. Cualquier persona puede adquirirlo hoy por $50.000.
+⚠️ **DISPONIBLE PARA TODOS:**
+Este bot está disponible para cualquier persona por una suscripción mensual de $20.000. No necesitas ser afiliado al Club ZT para adquirirlo.
 
-🎁 **BONUS EXCLUSIVO:** ¿Quieres llevarlo gratis? Al afiliarte HOY al **Club ZT (Plan Plus o Plan Pro)**, te incluimos el Asesor Legal IA por 6 meses **TOTALMENTE GRATIS** *(aplica hasta agotar cupos)*.
+🎁 **BONUS EXCLUSIVO:** ¿Quieres llevarlo gratis? Al afiliarte HOY al **Club ZT (Plan Plus o Plan Pro)**, te incluimos el Asesor Legal IA **TOTALMENTE GRATIS** por los primeros meses *(aplica hasta agotar cupos)*.
 
 ---
 
@@ -39,7 +39,7 @@ Normalmente, este bot es de uso **EXCLUSIVO** para miembros activos del Club ZT.
 
 ### 🚀 ¿CÓMO ACTIVARLO HOY MISMO?
 
-1. **Haz el pago de los $50.000** (o asegura tu afiliación al Club ZT para llevarlo gratis).
+1. **Haz el pago de los $20.000** (primer mes) o asegura tu afiliación al Club ZT para llevarlo gratis.
    *   **Nequi / Bre-B:** `3013981979`
    *   **Bancolombia Ahorros:** `064-431122-17`
    *   *Titular: Alvaro Ocampo — C.C. 1.107.078.609*

@@ -216,6 +216,7 @@ function searchProducts(message, maxResults = 6) {
     products: results,
     totalFound: scored.filter(p => p._score > 0).length,
     strategy: 'search',
+    hasStrongMatch,
   };
 }
 
@@ -235,6 +236,14 @@ function getHighlightProducts() {
     }
   });
   return highlights;
+}
+
+// ============================================
+// OBTENER TODO EL CATÁLOGO DISPONIBLE
+// ============================================
+function getAllProducts() {
+  checkCatalogUpdate();
+  return catalogo.filter(p => p.disponible);
 }
 
 // ============================================
@@ -287,19 +296,33 @@ function formatForPrompt(searchResult) {
 // ============================================
 function getCatalogSummary() {
   checkCatalogUpdate();
-  const marcas = {};
-  catalogo.forEach(p => {
-    if (!marcas[p.categoria]) marcas[p.categoria] = 0;
-    marcas[p.categoria]++;
-  });
-
-  let summary = 'RESUMEN DEL INVENTARIO ZONA TRAUMÁTICA:\n';
-  summary += `- Total de referencias: ${catalogo.length} pistolas traumáticas\n`;
-  for (const [marca, count] of Object.entries(marcas)) {
-    summary += `- ${marca}: ${count} referencias\n`;
+  const available = catalogo.filter(p => p.disponible && p.marca && p.modelo);
+  
+  if (available.length === 0) {
+    return 'INVENTARIO: No hay productos cargados en el catálogo.\n';
   }
-  summary += `- Rango de precios: $1.150.000 - $1.500.000\n`;
-  summary += `- Todos los precios incluyen Plan de Respaldo (Plus o Pro)\n`;
+
+  let summary = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+  summary += '🔫 INVENTARIO ACTUAL — MODELOS DISPONIBLES PARA VENTA INMEDIATA:\n';
+  summary += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+  
+  // Group by brand
+  const byBrand = {};
+  available.forEach(p => {
+    const brand = p.marca || p.categoria;
+    if (!byBrand[brand]) byBrand[brand] = [];
+    byBrand[brand].push(p);
+  });
+  
+  for (const [brand, products] of Object.entries(byBrand)) {
+    if (brand === 'MUNICIÓN' || brand === 'SERVICIOS') continue; // Skip non-gun categories
+    products.forEach(p => {
+      summary += `• ${p.marca} ${p.modelo} — ${p.color || ''} — ${p.precio_plus || ''} (Plus) / ${p.precio_pro || ''} (Pro)\n`;
+    });
+  }
+  
+  summary += '\n⛔ REGLA ABSOLUTA: Si un modelo NO aparece en esta lista, está AGOTADO. NO lo ofrezcas.\n';
+  summary += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
 
   return summary;
 }
@@ -313,4 +336,5 @@ module.exports = {
   formatForPrompt,
   getCatalogSummary,
   extractKeywords,
+  getAllProducts,
 };

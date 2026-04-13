@@ -1417,7 +1417,9 @@ Solo escribe el mensaje, sin explicaciones.`;
         }
       });
     } else if (req.url === '/execute-directive' && req.method === 'POST') {
-      // ── Ejecutar directiva del admin (llamado por panel.js al guardar una directiva) ──
+      // ── Ejecutar directiva del admin — FLUJO DEDICADO ──
+      // NO usa forceBotReply (que re-procesa el último msg del usuario y pierde la directiva).
+      // En su lugar, llama directamente a Gemini con la directiva prominente en el prompt.
       let body = '';
       req.on('data', chunk => body += chunk);
       req.on('end', async () => {
@@ -1430,21 +1432,103 @@ Solo escribe el mensaje, sin explicaciones.`;
           }
           console.log(`[DIRECTIVE] 🎯 Ejecutando directiva para ${phone}: "${directive.substring(0, 80)}"`);
 
-          // La directiva ya está guardada en BD (bot_directive). forceBotReply construirá
-          // el prompt con esa directiva incluida automáticamente (via buildSystemPrompt).
-          const resultado = await forceBotReply(phone, null);
+          // 1. Obtener contexto completo del cliente
+          const clientProfile = db.getClient(phone);
+          const clientMemory = db.getClientMemory(phone) || '';
+          const history = db.getConversationHistory(phone, 15);
+          const clientFiles = db.getClientFiles ? db.getClientFiles(phone) : [];
+          const documentSummary = clientFiles.length > 0
+            ? clientFiles.map(f => `- ${f.tipo}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n')
+            : '';
+          const catalogSent = clientProfile && clientProfile.catalog_sent;
 
-          if (resultado.ok) {
-            console.log(`[DIRECTIVE] ✅ Directiva ejecutada para ${phone}`);
-            // Limpiar la directiva después de ejecutarla para que no se repita en el siguiente mensaje
-            db.db.prepare('UPDATE clients SET bot_directive = NULL, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phone);
-            console.log(`[DIRECTIVE] 🧹 Directiva limpiada para ${phone}`);
-          } else {
-            console.warn(`[DIRECTIVE] ⚠️ No se pudo ejecutar para ${phone}: ${resultado.message}`);
+          // 2. Construir system prompt (ya incluye la directiva via buildSystemPrompt → bot_directive)
+          const search = require('./search');
+          const allProducts = search.getAllProducts();
+          const productContext = search.formatForPrompt({
+            products: allProducts,
+            totalFound: allProducts.length,
+            strategy: 'search',
+            keywords: []
+          });
+          const { buildSystemPrompt } = require('./prompts');
+          const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile, documentSummary, catalogSent);
+
+          // 3. Construir historial de Gemini
+          const geminiHistory = [];
+          for (const m of history) {
+            if (m.role === 'system') continue;
+            if (m.role === 'admin') {
+              geminiHistory.push({
+                role: 'model',
+                parts: [{ text: `[ÁLVARO respondió directamente]: ${m.message}` }]
+              });
+            } else {
+              const role = m.role === 'assistant' ? 'model' : 'user';
+              geminiHistory.push({ role, parts: [{ text: m.message }] });
+            }
+          }
+          while (geminiHistory.length > 0 && geminiHistory[0].role !== 'user') geminiHistory.shift();
+          // Merge roles consecutivos
+          for (let i = geminiHistory.length - 1; i > 0; i--) {
+            if (geminiHistory[i].role === geminiHistory[i - 1].role) {
+              geminiHistory[i - 1].parts[0].text += '\n' + geminiHistory[i].parts[0].text;
+              geminiHistory.splice(i, 1);
+            }
           }
 
+          // 4. Enviar a Gemini con un trigger EXPLÍCITO para ejecutar la directiva
+          const triggerMessage = `[SISTEMA INTERNO — NO VISIBLE PARA EL CLIENTE]\nEl administrador Álvaro te ha dado esta ORDEN DIRECTA que debes ejecutar AHORA MISMO:\n"${directive}"\n\nGenera el mensaje correspondiente para enviarle al cliente. Ejecuta la orden tal cual. NO menciones que recibiste una orden, simplemente actúa naturalmente.`;
+
+          const contents = [
+            ...geminiHistory,
+            { role: 'user', parts: [{ text: triggerMessage }] }
+          ];
+
+          console.log(`[DIRECTIVE] 📋 Enviando a Gemini con directiva explícita para ${phone}`);
+
+          const result = await geminiGenerate('gemini-3.1-pro-preview', contents, {
+            config: { systemInstruction: systemPrompt }
+          });
+
+          let response = result.response.text();
+          if (!response || !response.trim()) {
+            console.error(`[DIRECTIVE] ⚠️ Gemini devolvió respuesta vacía para ${phone}`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, message: 'Gemini devolvió respuesta vacía' }));
+            return;
+          }
+
+          // 5. Limpiar tags internos
+          const { cleanBotTags, detectAndSendProductImages } = require('./client_flow');
+          response = response.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '$2');
+          response = cleanBotTags(response);
+
+          // 6. Enviar al cliente
+          await safeSend(phone, response);
+          db.saveMessage(phone, 'assistant', response);
+
+          // 7. Detectar y enviar imágenes de productos si las hay
+          try {
+            // Crear rawMsg mínimo para detectAndSendProductImages
+            const chatId = db.getClientChatId(phone);
+            const fakeMsg = {
+              reply: async (content) => await client.sendMessage(chatId, content),
+              from: chatId
+            };
+            await detectAndSendProductImages(response, fakeMsg, phone);
+          } catch (imgErr) {
+            console.warn(`[DIRECTIVE] ⚠️ Error enviando imágenes: ${imgErr.message}`);
+          }
+
+          console.log(`[DIRECTIVE] ✅ Directiva ejecutada para ${phone}: "${response.substring(0, 80)}"`);
+
+          // 8. Limpiar la directiva
+          db.db.prepare('UPDATE clients SET bot_directive = NULL, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phone);
+          console.log(`[DIRECTIVE] 🧹 Directiva limpiada para ${phone}`);
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(resultado));
+          res.end(JSON.stringify({ ok: true, message: 'Directiva ejecutada correctamente' }));
         } catch (e) {
           console.error('[DIRECTIVE] Error execute-directive:', e.message);
           res.writeHead(500, { 'Content-Type': 'application/json' });

@@ -4,16 +4,16 @@
 
 El Plan Pro es nuestro plan más completo. No solo te da todo el conocimiento para evitar incautaciones, sino que **te brinda respaldo jurídico integral** en caso de que un policía cometa una arbitrariedad.
 
-NO necesitas contratar un abogado externo. Nosotros hacemos todo el trabajo pesado por ti: análisis del caso, redacción de los documentos legales, radicación y seguimiento. Los trámites se presentan a tu nombre propio, cubriendo todo el proceso sin que pagues honorarios adicionales.
+NO necesitas buscar ayuda legal por fuera. Nosotros te brindamos respaldo y apoyo jurídico integral: analizamos tu caso, redactamos toda la documentación legal necesaria, y hacemos seguimiento completo. La radicación la haces tú personalmente porque el proceso va a tu nombre propio y las notificaciones oficiales deben llegar a tu correo — nosotros te entregamos todo listo para radicar.
 ## 💰 OFERTA ESPECIAL POR TIEMPO LIMITADO
 **Precio Normal:** ~~$200.000 / año~~
 **Precio Hoy:** **$150.000 / año** 
 *(¡Ahorras $50.000 de entrada!)*
 
 ## 🎁 BONUS EXCLUSIVO DE ESTA PROMOCIÓN
-🤖 **Asesor Legal IA por 6 meses ¡TOTALMENTE GRATIS!**
-*(Valor comercial: $50.000)*
-Tú tendrás el conocimiento de un abogado y además la asesoría de Inteligencia Artificial respondiendo en 10 segundos directo en tu WhatsApp.
+🤖 **Asesor Legal IA incluido ¡TOTALMENTE GRATIS!**
+*(Valor comercial: $20.000/mes)*
+Tendrás todo el conocimiento legal especializado y además la asesoría de Inteligencia Artificial respondiendo en 10 segundos directo en tu WhatsApp.
 
 ---
 
@@ -29,7 +29,7 @@ Tú tendrás el conocimiento de un abogado y además la asesoría de Inteligenci
 
 **Y ADEMÁS, NUESTRA COBERTURA ESTRELLA:**
 🔥 **DEFENSA JURÍDICA 100% GRATIS ANTE INCAUTACIÓN ILEGAL**
-Si una autoridad te retiene el arma injustamente, nuestro equipo jurídico interviene sin cobrarte ni un peso adicional por sus honorarios:
+Si una autoridad te retiene el arma injustamente, nuestro equipo te brinda respaldo jurídico completo sin cobrarte ni un peso adicional:
 * **Primera instancia ante Policía:** *(Valor comercial: $800.000)* — **GRATIS**
 * **Tutela para obligar respuesta:** *(Valor comercial: $600.000)* — **GRATIS**
 * **Nulidad del acto administrativo:** *(Valor comercial: $1.200.000)* — **GRATIS**
@@ -46,4 +46,4 @@ Realiza el pago de **$150.000** a cualquiera de nuestras cuentas oficiales y env
 - **Bre-B:** @3013981979
 - **Titular:** Alvaro Ocampo - C.C. 1.107.078.609
 
-*Contratar respaldo jurídico DESPUÉS de una incautación cuesta mínimo $800.000. Blindarte hoy con todo nuestro equipo haciendo el trabajo pesado te cuesta solo $150.000 al año. La decisión es evidente.*
+*Contratar respaldo jurídico DESPUÉS de una incautación cuesta mínimo $800.000. Blindarte hoy con todo nuestro equipo brindándote apoyo y acompañamiento te cuesta solo $150.000 al año. La decisión es evidente.*
