@@ -37,7 +37,7 @@ async function procesarClientesCalientes(clientes, mode = 'normal') {
       const historial = db.getConversationHistory(cliente.phone, 10);
       const resumenHistorial = historial.map(h => `${h.role === 'user' ? 'Cliente' : 'Bot'}: ${h.message}`).join('\n');
 
-      const reactivarModel = 'gemini-3.1-pro-preview'; // Nombre del modelo para geminiGenerate
+      const reactivarModel = 'gemini-2.5-pro'; // Nombre del modelo para geminiGenerate
 
       let promoRules = '';
       if (mode === 'ultra') {
@@ -118,7 +118,18 @@ async function forceBotReply(phone, preloadedChat = null) {
     }
 
     if (!ultimoMsgUsuario || !ultimoMsgUsuario.message) {
-      return { ok: false, message: 'No se encontró mensaje reciente del usuario en el historial.' };
+      // Fallback: cliente nuevo, nunca procesado — intentar leer lastMessage del chat de WA
+      const lastMsg = preloadedChat && preloadedChat.lastMessage;
+      if (lastMsg && !lastMsg.fromMe && lastMsg.body && lastMsg.body.trim()) {
+        const msgBody = lastMsg.body.trim();
+        // Registrar cliente y guardar su mensaje en BD
+        db.upsertClient(phone, { chat_id: preloadedChat.id._serialized || `${phone}@c.us` });
+        db.saveMessage(phone, 'user', msgBody);
+        ultimoMsgUsuario = { role: 'user', message: msgBody };
+        console.log(`[PANEL-REACTIVACION] 🆕 Cliente nuevo — mensaje obtenido de lastMessage: "${msgBody.substring(0, 80)}"`);
+      } else {
+        return { ok: false, message: 'No se encontró mensaje reciente del usuario en el historial.' };
+      }
     }
 
     const userMessageText = ultimoMsgUsuario.message.trim();
@@ -226,7 +237,7 @@ Reglas:
 
 Responde SOLO con el mensaje al cliente, sin explicaciones ni prefijos.`;
 
-    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+    const result = await geminiGenerate('gemini-2.5-pro', prompt);
     const followUpMsg = result.response.text().trim();
 
     if (!followUpMsg) {
@@ -326,8 +337,33 @@ function startReactivacionServer() {
             for (const chat of pendientes) {
               try {
                 const chatId = chat.id._serialized;
-                // Extraer número de teléfono del chatId (ej: "573101234567@c.us" → "573101234567")
-                const phone = chatId.replace('@c.us', '').replace(/\D/g, '');
+                // Extraer número de teléfono del chatId — resolver LID si es necesario
+                let phone;
+                if (chatId.includes('@lid')) {
+                  // LID: buscar en BD el teléfono real asociado a este chat_id
+                  const lidNumber = chatId.replace(/@.*/, '');
+                  const row = db.db.prepare('SELECT phone FROM clients WHERE chat_id = ? OR chat_id LIKE ?').get(chatId, '%' + lidNumber + '%');
+                  if (row) {
+                    phone = row.phone;
+                    console.log(`[NO-LEIDOS] 🔄 LID resuelto: ${lidNumber} → ${phone}`);
+                  } else {
+                    // Intentar resolver vía contacto de WhatsApp
+                    try {
+                      const contact = await chat.getContact();
+                      const realNum = (contact.number || '').replace(/\D/g, '');
+                      if (realNum && realNum.length >= 7) {
+                        phone = realNum;
+                        console.log(`[NO-LEIDOS] 🔄 LID resuelto vía contacto: ${lidNumber} → ${phone}`);
+                      }
+                    } catch (_) {}
+                    if (!phone) {
+                      console.log(`[NO-LEIDOS] ⚠️ No se pudo resolver LID ${lidNumber} — omitiendo`);
+                      continue;
+                    }
+                  }
+                } else {
+                  phone = chatId.replace('@c.us', '').replace(/\D/g, '');
+                }
 
                 // Verificar si el bot está pausado para este cliente (Álvaro está atendiendo manualmente)
                 if (isBotPaused(phone)) {
@@ -422,7 +458,7 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
 
           let mensajeIA = '';
           try {
-            const iaResult = await geminiGenerate('gemini-3.1-pro-preview', promptIA);
+            const iaResult = await geminiGenerate('gemini-2.5-pro', promptIA);
             mensajeIA = iaResult.response.text().trim();
           } catch (iaErr) {
             console.error('[AGREGAR] Error generando mensaje con IA:', iaErr.message);
@@ -552,6 +588,7 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
                 clubBody += `1. Nombre: Juan Pérez\n2. Cédula: 12345678\n3. Teléfono: 3001234567\n4. Arma: Ekol Firat Compact\n5. Serial: AB12345\n6. (Adjunta tu foto de frente)`;
               } else {
                 clubBody += `Solo necesito 1 cosa para tu carnet:\n1. 📸 Foto de frente (selfie clara, sin gafas, buena luz)`;
+                clubBody += `\n\n📝 *Adjunta directamente la foto en este chat* — selfie clara, de frente, sin gafas y con buena iluminación. ¡Así la procesamos de volada! 🚀`;
               }
 
               partes.push(clubBody);
@@ -582,6 +619,16 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
               let prodBody = `📦 *Producto / Arma${prodNameStr}:* ¡En proceso!\n\n`;
               if (prodMsgs.length > 1) {
                 prodBody += `Para el envío necesito:\n` + prodMsgs.map((req, i) => `${i + 1}. ${req}`).join('\n');
+                prodBody += `\n\n📝 *Por favor envíame los datos en este mismo formato, indicando a qué corresponde cada uno.* Ejemplo:\n`;
+                // Construir ejemplo dinámico según qué campos se están pidiendo
+                const ejemploProd = [];
+                let ejIdx = 1;
+                if (!clienteInfo.name || clienteInfo.name.trim().length < 3) ejemploProd.push(`${ejIdx++}. Nombre: Juan Pérez`);
+                if (!clienteInfo.cedula) ejemploProd.push(`${ejIdx++}. Cédula: 12345678`);
+                ejemploProd.push(`${ejIdx++}. Teléfono: 3001234567`);
+                if (!clienteInfo.direccion) ejemploProd.push(`${ejIdx++}. Dirección: Calle 10 # 5-20, Apto 301, Barrio Centro`);
+                if (!clienteInfo.ciudad) ejemploProd.push(`${ejIdx++}. Ciudad: Medellín, Antioquia`);
+                prodBody += ejemploProd.join('\n');
               } else {
                 prodBody += `¡Ya contamos con tus datos de envío registrados! 🚚`;
               }
@@ -632,6 +679,9 @@ Escribe SOLO el mensaje, sin explicaciones ni comillas.`;
             }
             if (tieneBot) {
               db.db.prepare('UPDATE clients SET has_ai_bot = 1, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phoneClean);
+            }
+            if (tieneProducto) {
+              db.db.prepare('UPDATE clients SET has_bought_gun = 1, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phoneClean);
             }
 
             const memoriaActual = db.getClientMemory(phoneClean) || '';
@@ -1213,7 +1263,7 @@ ${instruccionExtra}
 Solo escribe el mensaje, sin explicaciones.`;
 
 
-              const resumeResult = await geminiGenerate('gemini-3.1-pro-preview', resumePrompt);
+              const resumeResult = await geminiGenerate('gemini-2.5-pro', resumePrompt);
               const resumeMsg = resumeResult.response.text().trim();
 
               if (resumeMsg) {
@@ -1293,6 +1343,47 @@ Solo escribe el mensaje, sin explicaciones.`;
               nuevaMemoria = memoriaActual ? memoriaActual + `\n🪪 ESTADO DE ENTREGA: Carnet Digital Enviado` : `🪪 ESTADO DE ENTREGA: Carnet Digital Enviado`;
             }
             db.updateClientMemory(phone, nuevaMemoria);
+
+            // Actualizar campos estructurados del perfil con los datos del carnet
+            if (carnetData) {
+              // status: 'afiliado' — identifica que es miembro activo del club
+              // carnet_qr_url: marca timestamp de entrega — la lista "Sin Carnet" filtra por este campo
+              const profileUpdate = {
+                status: 'afiliado',
+                carnet_qr_url: `entregado:${new Date().toISOString()}`
+              };
+              // Acepta ambas variantes de keys (frontend usa 'nombre', backend antiguo usaba 'nombres')
+              const nombre = carnetData.nombres || carnetData.nombre;
+              const modeloArma = carnetData.arma || carnetData.modelo_arma;
+              const marcaArma = carnetData.marca || carnetData.marca_arma;
+              if (nombre) profileUpdate.name = nombre;
+              if (carnetData.cedula) profileUpdate.cedula = carnetData.cedula;
+              if (carnetData.ciudad) profileUpdate.ciudad = carnetData.ciudad;
+              if (carnetData.serial) profileUpdate.serial_arma = carnetData.serial;
+              if (modeloArma) profileUpdate.modelo_arma = modeloArma;
+              if (marcaArma) profileUpdate.marca_arma = marcaArma;
+              if (carnetData.plan_tipo) profileUpdate.club_plan = carnetData.plan_tipo;
+              if (carnetData.vigente_hasta) profileUpdate.club_vigente_hasta = carnetData.vigente_hasta;
+              db.upsertClient(phone, profileUpdate);
+              // Flags booleanos de membresía
+              if (carnetData.plan_tipo && carnetData.plan_tipo.toLowerCase().includes('pro')) {
+                db.updateClientFlag(phone, 'is_club_pro', 1);
+              } else {
+                db.updateClientFlag(phone, 'is_club_plus', 1);
+              }
+              console.log(`[CARNET] ✅ Perfil actualizado para ${phone}: afiliado + carnet_qr_url marcado`, Object.keys(profileUpdate).join(', '));
+            }
+
+            // Guardar imagen del carnet en los archivos del cliente
+            try {
+              if (imagenBase64) {
+                const planLabel = (carnetData && carnetData.plan_tipo) ? carnetData.plan_tipo : planStr;
+                db.saveClientFile(phone, 'carnet', `Carnet ${planLabel} enviado`, imagenBase64, imagenMime || 'image/png', 'panel');
+                console.log(`[CARNET] 🖼️ Imagen guardada en archivos del cliente ${phone}`);
+              }
+            } catch (fileErr) {
+              console.error(`[CARNET] ⚠️ Error guardando imagen en archivos:`, fileErr.message);
+            }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, msg: 'Carnet enviado correctamente', waSent: true }));
@@ -1487,7 +1578,7 @@ Solo escribe el mensaje, sin explicaciones.`;
 
           console.log(`[DIRECTIVE] 📋 Enviando a Gemini con directiva explícita para ${phone}`);
 
-          const result = await geminiGenerate('gemini-3.1-pro-preview', contents, {
+          const result = await geminiGenerate('gemini-2.5-pro', contents, {
             config: { systemInstruction: systemPrompt }
           });
 
@@ -1523,7 +1614,8 @@ Solo escribe el mensaje, sin explicaciones.`;
 
           console.log(`[DIRECTIVE] ✅ Directiva ejecutada para ${phone}: "${response.substring(0, 80)}"`);
 
-          // 8. Limpiar la directiva
+          // 8. Guardar en historial y limpiar la directiva
+          try { db.saveDirectiveLog(phone, directive, 'ejecutada'); } catch(e) { console.warn('[DIRECTIVE] Error guardando log:', e.message); }
           db.db.prepare('UPDATE clients SET bot_directive = NULL, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(phone);
           console.log(`[DIRECTIVE] 🧹 Directiva limpiada para ${phone}`);
 
@@ -1535,10 +1627,223 @@ Solo escribe el mensaje, sin explicaciones.`;
           res.end(JSON.stringify({ ok: false, msg: e.message }));
         }
       });
+    } else if (req.url === '/recovery-candidates' && req.method === 'GET') {
+      // ============================================
+      // CANDIDATOS DE RECUPERACIÓN (Dry Run)
+      // ============================================
+      try {
+        const { getRecoveryCandidates } = require('./agents/client_recovery');
+        const candidates = getRecoveryCandidates();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, segments: candidates }));
+      } catch (e) {
+        console.error('[RECOVERY] Error /recovery-candidates:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+
+    } else if (req.url === '/run-client-recovery' && req.method === 'POST') {
+      // ============================================
+      // EJECUTAR RECUPERACIÓN DE CLIENTES
+      // ============================================
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const opts = body ? JSON.parse(body) : {};
+          const { runClientRecovery } = require('./agents/client_recovery');
+
+          // Responder inmediato — el proceso corre en background
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, msg: 'Recuperación iniciada en background...' }));
+
+          // Ejecutar en background
+          runClientRecovery(opts).then(result => {
+            console.log(`[RECOVERY] 📊 Completado:`, JSON.stringify(result));
+          }).catch(e => console.error('[RECOVERY] Error:', e.message));
+        } catch (e) {
+          if (!res.writableEnded) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+          }
+        }
+      });
+
+    } else if (req.url.startsWith('/broadcast/')) {
+      // ============================================
+      // RUTAS DE BROADCAST MANUAL DESDE EL PANEL
+      // ============================================
+      const { sendGroupBroadcast, sendStatusBroadcast, buildImageQueue } = require('./broadcasters');
+      const fs = require('fs');
+      const path = require('path');
+      const urlObj = new URL(req.url, 'http://localhost:3001');
+      const broadcastPath = urlObj.pathname;
+
+      // ── Estado actual del broadcaster ──
+      if (broadcastPath === '/broadcast/status' && req.method === 'GET') {
+        const queuePath = path.join(__dirname, 'broadcast_queue.json');
+        let queueData = { groups: { queue: [], index: 0 }, status: { queue: [], index: 0 } };
+        try { queueData = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch(e) {}
+        const groupsRemaining = Math.max(0, (queueData.groups?.queue?.length || 0) - (queueData.groups?.index || 0));
+        const statusRemaining = Math.max(0, (queueData.status?.queue?.length || 0) - (queueData.status?.index || 0));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          groups: { total: queueData.groups?.queue?.length || 0, remaining: groupsRemaining, index: queueData.groups?.index || 0 },
+          status: { total: queueData.status?.queue?.length || 0, remaining: statusRemaining, index: queueData.status?.index || 0 },
+        }));
+
+      // ── Preview de imagen siguiente para grupos ──
+      } else if (broadcastPath === '/broadcast/groups-preview' && req.method === 'GET') {
+        const queuePath = path.join(__dirname, 'broadcast_queue.json');
+        let queueData = { groups: { queue: [], index: 0 } };
+        try { queueData = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch(e) {}
+        const gq = queueData.groups || { queue: [], index: 0 };
+        const nextItem = gq.queue && gq.index < gq.queue.length ? gq.queue[gq.index] : null;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, nextImage: nextItem ? { relativePath: nextItem.relativePath } : null, remaining: Math.max(0, (gq.queue?.length || 0) - (gq.index || 0)) }));
+
+      // ── Preview de imagen siguiente para estados ──
+      } else if (broadcastPath === '/broadcast/status-preview' && req.method === 'GET') {
+        const queuePath = path.join(__dirname, 'broadcast_queue.json');
+        let queueData = { status: { queue: [], index: 0 } };
+        try { queueData = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch(e) {}
+        const sq = queueData.status || { queue: [], index: 0 };
+        const nextItem = sq.queue && sq.index < sq.queue.length ? sq.queue[sq.index] : null;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, nextImage: nextItem ? { relativePath: nextItem.relativePath } : null, remaining: Math.max(0, (sq.queue?.length || 0) - (sq.index || 0)) }));
+
+      // ── Servir imagen de broadcast ──
+      } else if (broadcastPath === '/broadcast/image' && req.method === 'GET') {
+        const imgPath = urlObj.searchParams.get('path');
+        if (!imgPath) { res.writeHead(400); res.end('missing path'); return; }
+        const fullPath = path.join(__dirname, 'imagenes', imgPath);
+        if (!fs.existsSync(fullPath)) { res.writeHead(404); res.end('not found'); return; }
+        const ext = path.extname(fullPath).toLowerCase();
+        const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+        res.writeHead(200, { 'Content-Type': mimeMap[ext] || 'image/jpeg' });
+        fs.createReadStream(fullPath).pipe(res);
+
+      // ── Saltar imagen actual en la cola ──
+      } else if (broadcastPath === '/broadcast/skip-image' && req.method === 'POST') {
+        let body = ''; req.on('data', c => body += c);
+        req.on('end', () => {
+          try {
+            const { type } = JSON.parse(body || '{}');
+            const queuePath = path.join(__dirname, 'broadcast_queue.json');
+            let queueData = { groups: { queue: [], index: 0 }, status: { queue: [], index: 0 } };
+            try { queueData = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch(e) {}
+            const t = type === 'status' ? 'status' : 'groups';
+            if (queueData[t]) queueData[t].index = Math.min((queueData[t].index || 0) + 1, queueData[t].queue?.length || 0);
+            fs.writeFileSync(queuePath, JSON.stringify(queueData, null, 2), 'utf8');
+            const remaining = Math.max(0, (queueData[t].queue?.length || 0) - (queueData[t].index || 0));
+            const nextItem = queueData[t].queue && queueData[t].index < queueData[t].queue.length ? queueData[t].queue[queueData[t].index] : null;
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, remaining, nextImage: nextItem ? { relativePath: nextItem.relativePath } : null }));
+          } catch(e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message })); }
+        });
+
+      // ── Blast masivo al CRM (mensaje personalizado) ──
+      } else if (broadcastPath === '/broadcast/blast' && req.method === 'POST') {
+        let body = ''; req.on('data', c => body += c);
+        req.on('end', async () => {
+          try {
+            const { message, segment } = JSON.parse(body || '{}');
+            if (!message) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'message requerido' })); return; }
+            const db2 = require('./db');
+            let clientes;
+            if (segment === 'hot') {
+              clientes = db2.db.prepare("SELECT phone, name FROM clients WHERE status IN ('hot','warm') AND ignored = 0 AND spam_flag = 0").all();
+            } else if (segment === 'new') {
+              clientes = db2.db.prepare("SELECT phone, name FROM clients WHERE status = 'new' AND ignored = 0 AND spam_flag = 0").all();
+            } else if (segment === 'affiliated') {
+              clientes = db2.db.prepare("SELECT phone, name FROM clients WHERE (is_club_plus = 1 OR is_club_pro = 1) AND ignored = 0 AND spam_flag = 0").all();
+            } else if (segment === 'not_affiliated') {
+              clientes = db2.db.prepare("SELECT phone, name FROM clients WHERE is_club_plus = 0 AND is_club_pro = 0 AND ignored = 0 AND spam_flag = 0").all();
+            } else {
+              clientes = db2.db.prepare("SELECT phone, name FROM clients WHERE ignored = 0 AND spam_flag = 0").all();
+            }
+            // Responder inmediatamente para no hacer timeout
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, total: clientes.length, msg: `Enviando a ${clientes.length} clientes en background...` }));
+            // Enviar en background
+            (async () => {
+              let sent = 0, errors = 0;
+              for (const c of clientes) {
+                try {
+                  const chatId = db2.getClientChatId(c.phone);
+                  await client.sendMessage(chatId, message);
+                  db2.saveMessage(c.phone, 'assistant', message);
+                  sent++;
+                  console.log(`[BLAST] ✅ (${sent}/${clientes.length}) → ${c.name || c.phone}`);
+                  await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
+                } catch(e) {
+                  errors++;
+                  console.error(`[BLAST] ❌ Error con ${c.phone}: ${e.message}`);
+                }
+              }
+              console.log(`[BLAST] 🏁 Completado: ${sent} enviados, ${errors} errores`);
+            })().catch(e => console.error('[BLAST] Error general:', e.message));
+          } catch(e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message })); }
+        });
+
+      // ── Blast solo a clientes con compra confirmada ──
+      } else if (broadcastPath === '/broadcast/blast-confirmed' && req.method === 'POST') {
+        let body = ''; req.on('data', c => body += c);
+        req.on('end', async () => {
+          try {
+            const { message } = JSON.parse(body || '{}');
+            if (!message) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'message requerido' })); return; }
+            const db2 = require('./db');
+            const clientes = db2.db.prepare("SELECT phone, name FROM clients WHERE status = 'completed' AND ignored = 0 AND spam_flag = 0").all();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, total: clientes.length, msg: `Enviando a ${clientes.length} clientes confirmados...` }));
+            (async () => {
+              let sent = 0;
+              for (const c of clientes) {
+                try {
+                  const chatId = db2.getClientChatId(c.phone);
+                  await client.sendMessage(chatId, message);
+                  sent++;
+                  await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
+                } catch(e) { console.error(`[BLAST] ❌ ${c.phone}: ${e.message}`); }
+              }
+              console.log(`[BLAST CONFIRMED] 🏁 ${sent}/${clientes.length} enviados`);
+            })().catch(e => console.error('[BLAST CONFIRMED] Error:', e.message));
+          } catch(e) { res.writeHead(500); res.end(JSON.stringify({ ok: false, error: e.message })); }
+        });
+
+      // ── Enviar broadcast a grupos AHORA ──
+      } else if (broadcastPath === '/broadcast/groups-confirmed' && req.method === 'POST') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, msg: 'Enviando a grupos en background...' }));
+        sendGroupBroadcast().catch(e => console.error('[BROADCAST MANUAL] Error grupos:', e.message));
+
+      // ── Enviar estado/historia AHORA ──
+      } else if (broadcastPath === '/broadcast/status-confirmed' && req.method === 'POST') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, msg: 'Publicando estado en background...' }));
+        sendStatusBroadcast().catch(e => console.error('[BROADCAST MANUAL] Error status:', e.message));
+
+      // ── Guardar configuración de broadcast ──
+      } else if (broadcastPath === '/broadcast/settings' && req.method === 'POST') {
+        let body = ''; req.on('data', c => body += c);
+        req.on('end', () => {
+          // Persiste settings si se necesita en el futuro
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, msg: 'Settings guardados' }));
+        });
+
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+
     } else {
       res.writeHead(404);
       res.end();
     }
+
 
   });
 

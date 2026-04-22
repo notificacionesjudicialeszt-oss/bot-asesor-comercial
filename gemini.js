@@ -42,7 +42,7 @@ function rotateGeminiKey(reason = '') {
  * Wrapper para llamadas a Gemini con rotación automática de keys en caso de 429.
  * Compatible con la API anterior: devuelve { response: { text: () => string } }
  * 
- * @param {string} modelName - Nombre del modelo (ej: 'gemini-3.1-pro-preview')
+ * @param {string} modelName - Nombre del modelo (ej: 'gemini-2.5-pro')
  * @param {any} content - Contenido para generateContent (string, array, o array con inlineData)
  * @param {object} options - Opciones adicionales (opcional)
  * @returns {object} Resultado con .response.text() para retrocompatibilidad
@@ -80,38 +80,77 @@ async function _callGemini(modelName, content, options = {}) {
 
 async function geminiGenerate(modelName, content, options = {}) {
   let lastError;
-  const maxRetries = GEMINI_KEYS.length;
+  const maxRetries = Math.min(GEMINI_KEYS.length, 3); // máx 3 intentos para no quemar todo el quota
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await _callGemini(modelName, content, options);
     } catch (err) {
       lastError = err;
-      const is429 = err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('Too Many Requests'));
-      const isProhibited = err.message && err.message.includes('PROHIBITED_CONTENT');
+      const msg = err.message || '';
+      const is429 = msg.includes('429') || msg.includes('quota') || msg.includes('Too Many Requests');
+      const is503 = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+      const isProhibited = msg.includes('PROHIBITED_CONTENT');
 
-      if ((is429 || isProhibited) && attempt < maxRetries - 1) {
-        if (is429) console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada (429) — rotando...`);
-        if (isProhibited) console.warn(`[GEMINI] ⚠️ Contenido bloqueado (PROHIBITED_CONTENT) con key #${geminiKeyIndex + 1} — rotando key...`);
-        rotateGeminiKey(is429 ? '429 quota exceeded' : 'prohibited_content');
-        await new Promise(r => setTimeout(r, 1000));
-      } else if (isProhibited) {
-        console.error(`[GEMINI] ❌ PROHIBITED_CONTENT en todas las keys`);
-        throw err;
+      const is400Expired = msg.includes('400') || msg.includes('expired') || msg.includes('INVALID_ARGUMENT');
+
+      if (isProhibited) {
+        if (attempt < maxRetries - 1) {
+          console.warn(`[GEMINI] ⚠️ Contenido bloqueado con key #${geminiKeyIndex + 1} — rotando...`);
+          rotateGeminiKey('prohibited_content');
+          await new Promise(r => setTimeout(r, 500));
+        } else {
+          console.error(`[GEMINI] ❌ PROHIBITED_CONTENT en todas las keys`);
+          throw err;
+        }
+      } else if (is429) {
+        const waitMs = Math.min(2000 * Math.pow(2, attempt), 16000); // 2s, 4s, 8s, max 16s
+        if (attempt < maxRetries - 1) {
+          console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada (429) — esperando ${waitMs/1000}s y rotando...`);
+          await new Promise(r => setTimeout(r, waitMs));
+          rotateGeminiKey('429 quota exceeded');
+        } else {
+          break; // intentar fallback
+        }
+      } else if (is503) {
+        const waitMs = 3000 * (attempt + 1); // 3s, 6s, 9s
+        console.warn(`[GEMINI] ⚠️ Modelo sobrecargado (503) — esperando ${waitMs/1000}s...`);
+        await new Promise(r => setTimeout(r, waitMs));
+        if (attempt >= maxRetries - 1) break; // intentar fallback
+      } else if (is400Expired) {
+        if (attempt < maxRetries - 1) {
+          console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} expirada/inválida (400) — rotando a siguiente...`);
+          rotateGeminiKey('400 expired');
+        } else {
+          break;
+        }
       } else {
-        break; // Salir del loop para intentar fallback
+        break;
       }
     }
   }
 
-  // FALLBACK: Si todas las keys fallaron con 429 y el modelo es Pro, caer a Flash
-  const is429 = lastError && lastError.message && (lastError.message.includes('429') || lastError.message.includes('quota'));
-  if (is429 && modelName !== FALLBACK_MODEL && modelName.includes('pro')) {
-    console.warn(`[GEMINI] 🔄 FALLBACK: ${modelName} agotado en todas las keys → usando ${FALLBACK_MODEL}`);
+  // FALLBACK: Si el modelo primario falló, caer a Flash → Pro
+  const isRateOrUnavail = lastError && (lastError.message?.includes('429') || lastError.message?.includes('quota') || lastError.message?.includes('503') || lastError.message?.includes('UNAVAILABLE') || lastError.message?.includes('high demand'));
+  if (isRateOrUnavail && modelName !== FALLBACK_MODEL) {
+    console.warn(`[GEMINI] 🔄 FALLBACK: ${modelName} → ${FALLBACK_MODEL}`);
     try {
+      await new Promise(r => setTimeout(r, 2000));
       return await _callGemini(FALLBACK_MODEL, content, options);
     } catch (fbErr) {
       console.error(`[GEMINI] ❌ Fallback a ${FALLBACK_MODEL} también falló:`, fbErr.message?.substring(0, 100));
+      // Segundo fallback: gemini-2.5-pro
+      const FALLBACK_MODEL_2 = 'gemini-2.5-pro';
+      if (modelName !== FALLBACK_MODEL_2) {
+        console.warn(`[GEMINI] 🔄 FALLBACK-2: ${FALLBACK_MODEL} → ${FALLBACK_MODEL_2}`);
+        try {
+          await new Promise(r => setTimeout(r, 3000));
+          return await _callGemini(FALLBACK_MODEL_2, content, options);
+        } catch (fbErr2) {
+          console.error(`[GEMINI] ❌ Fallback-2 a ${FALLBACK_MODEL_2} también falló:`, fbErr2.message?.substring(0, 100));
+          throw fbErr2;
+        }
+      }
       throw fbErr;
     }
   }
@@ -179,27 +218,48 @@ function createChat(modelName, options = {}) {
 
       // Intentar con todas las keys
       let lastErr;
-      for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
+      const maxChatRetries = Math.min(GEMINI_KEYS.length, 3);
+      for (let attempt = 0; attempt < maxChatRetries; attempt++) {
         try {
           return await callModel(modelName, userParts);
         } catch (err) {
           lastErr = err;
-          const is429 = err.message && (err.message.includes('429') || err.message.includes('quota'));
-          if (is429 && attempt < GEMINI_KEYS.length - 1) {
-            console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada en chat → rotando...`);
+          const msg = err.message || '';
+          const is429 = msg.includes('429') || msg.includes('quota');
+          const is503 = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+          if (is429 && attempt < maxChatRetries - 1) {
+            const waitMs = Math.min(2000 * Math.pow(2, attempt), 16000);
+            console.warn(`[GEMINI] ⚠️ Key #${geminiKeyIndex + 1} agotada en chat — esperando ${waitMs/1000}s y rotando...`);
+            await new Promise(r => setTimeout(r, waitMs));
             rotateGeminiKey('429 in chat');
-            await new Promise(r => setTimeout(r, 500));
+          } else if (is503) {
+            const waitMs = 3000 * (attempt + 1);
+            console.warn(`[GEMINI] ⚠️ 503 en chat — esperando ${waitMs/1000}s...`);
+            await new Promise(r => setTimeout(r, waitMs));
+            if (attempt >= maxChatRetries - 1) break;
           } else {
             break;
           }
         }
       }
 
-      // FALLBACK: Si Pro agotado, caer a Flash
-      const is429 = lastErr && lastErr.message && (lastErr.message.includes('429') || lastErr.message.includes('quota'));
-      if (is429 && modelName !== FALLBACK_MODEL && modelName.includes('pro')) {
+      // FALLBACK
+      const isRateOrUnavail = lastErr && (lastErr.message?.includes('429') || lastErr.message?.includes('quota') || lastErr.message?.includes('503') || lastErr.message?.includes('UNAVAILABLE'));
+      if (isRateOrUnavail && modelName !== FALLBACK_MODEL) {
         console.warn(`[GEMINI] 🔄 FALLBACK CHAT: ${modelName} → ${FALLBACK_MODEL}`);
-        return await callModel(FALLBACK_MODEL, userParts);
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          return await callModel(FALLBACK_MODEL, userParts);
+        } catch (fbErr) {
+          console.error(`[GEMINI] ❌ Fallback chat a ${FALLBACK_MODEL} falló:`, fbErr.message?.substring(0, 80));
+          const FALLBACK_MODEL_2 = 'gemini-2.5-pro';
+          if (modelName !== FALLBACK_MODEL_2) {
+            console.warn(`[GEMINI] 🔄 FALLBACK-2 CHAT: ${FALLBACK_MODEL} → ${FALLBACK_MODEL_2}`);
+            await new Promise(r => setTimeout(r, 3000));
+            return await callModel(FALLBACK_MODEL_2, userParts);
+          }
+          throw fbErr;
+        }
       }
 
       throw lastErr;
@@ -212,9 +272,9 @@ function createChat(modelName, options = {}) {
 function getGenAICompat() {
   return {
     getGenerativeModel: (opts) => {
-      const modelName = opts.model || 'gemini-3.1-pro-preview';
+      const modelName = opts.model || 'gemini-2.5-pro';
       const systemInstruction = opts.systemInstruction || '';
-      const thinkingConfig = opts.generationConfig?.thinkingConfig || { thinkingLevel: 'HIGH' };
+      const thinkingConfig = opts.generationConfig?.thinkingConfig || { thinkingBudget: -1 };
       return {
         startChat: (chatOpts = {}) => {
           return createChat(modelName, {
@@ -235,7 +295,7 @@ module.exports = {
   geminiGenerate,
   SAFETY_SETTINGS,
   genAI: getGenAICompat,
-  geminiPro: () => getGenAICompat().getGenerativeModel({ model: 'gemini-3.1-pro-preview' }),
+  geminiPro: () => getGenAICompat().getGenerativeModel({ model: 'gemini-2.5-pro' }),
   rotateGeminiKey,
   createChat,
   runDiagnostic
@@ -268,10 +328,10 @@ async function runDiagnostic() {
   // 3. Hacer una llamada real con thinking para verificar que funciona
   try {
     const testResult = await ai.models.generateContent({
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-2.5-pro',
       contents: 'Responde SOLO con la palabra "OK". Nada más.',
       config: {
-        thinkingConfig: { thinkingLevel: 'HIGH' },
+        thinkingConfig: { thinkingBudget: -1 },
         safetySettings: SAFETY_SETTINGS,
       }
     });
@@ -291,7 +351,7 @@ async function runDiagnostic() {
       checks.push(`❌ Pensamiento extendido: respuesta VACÍA — revisar configuración`);
     }
 
-    checks.push(`✅ Modelo gemini-3.1-pro-preview: OPERATIVO`);
+    checks.push(`✅ Modelo gemini-2.5-pro: OPERATIVO`);
     checks.push(`✅ API key #1: FUNCIONAL`);
   } catch (e) {
     const msg = e.message || '';

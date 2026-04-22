@@ -315,7 +315,7 @@ MENSAJE DE ÁLVARO:
 
 Tu tarea: Genera un mensaje BREVE de seguimiento natural después de la respuesta de Álvaro. NO repitas lo que Álvaro dijo. Solo complementa si falta algo, o pregunta si el cliente tiene más dudas. Máximo 2-3 líneas, tono natural y cercano. Si Álvaro ya resolvió todo, un simple "¿Algo más en lo que te pueda ayudar?" basta.`;
 
-    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+    const result = await geminiGenerate('gemini-2.5-pro', prompt);
     const transMsg = result.response.text().trim();
 
     // Enviar directo al chatId original (evita problemas con LID)
@@ -634,18 +634,58 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
       console.log(`[BOT] 🆕 Nuevo cliente: "${profileName}" (${senderPhone}) [${chatIdFromMsg}]`);
     } else {
       const updateData = { chat_id: chatIdFromMsg };
-      const bestName = profileName || chat.name || '';
-      if (bestName && !existingClient.name) {
-        updateData.name = bestName;
+      // Si memory tiene un nombre confirmado y difiere del actual → actualizar
+      const memMatch = (existingClient.memory || '').match(/Nombre:\s*([^\n]+)/i);
+      const memoryName = memMatch ? memMatch[1].replace(/^\*+|\*+$/g, '').trim() : '';
+      if (memoryName && memoryName !== existingClient.name) {
+        updateData.name = memoryName;
+      } else {
+        // Sin nombre en memoria → usar pushname solo si el campo está vacío
+        const bestName = profileName || chat.name || '';
+        if (bestName && !existingClient.name) {
+          updateData.name = bestName;
+        }
       }
       db.upsertClient(senderPhone, updateData);
     }
 
     // 2.5 Auto-detener secuencias de follow-up si el cliente escribe
+    // Y analizar QUÉ respondió para decidir si bloquearlo de futuros follow-ups
     try {
+      // Verificar si TENÍA secuencias activas antes de detenerlas
+      const activeSeqs = db.db.prepare(
+        "SELECT COUNT(*) as c FROM followup_sequences WHERE client_phone = ? AND stopped = 0"
+      ).get(senderPhone);
+
       const stopped = db.stopAllSequencesForClient(senderPhone);
       if (stopped.changes > 0) {
         console.log(`[FOLLOWUP] 🛑 ${stopped.changes} secuencia(s) detenida(s) — ${senderPhone} respondió`);
+
+        // Analizar la respuesta del cliente en background (no bloquear el flujo)
+        setImmediate(async () => {
+          try {
+            const { analyzeClientResponse } = require('./agents/followup_engine');
+            const analysis = await analyzeClientResponse(senderPhone);
+
+            if (analysis.disposition === 'negativa') {
+              db.setFollowupOptout(senderPhone, 'desistio');
+              const mem = db.getClientMemory(senderPhone) || '';
+              if (!mem.includes('DESISTIÓ')) {
+                db.updateClientMemory(senderPhone, mem + `\n⛔ DESISTIÓ DE LA COMPRA (${new Date().toLocaleDateString('es-CO')}): ${analysis.reason || 'No quiere comprar'}. NO volver a ofrecer proactivamente.`);
+              }
+              console.log(`[FOLLOWUP] ⛔ ${senderPhone} DESISTIÓ — bloqueado. Razón: ${analysis.reason}`);
+            } else if (analysis.disposition === 'fecha_tentativa') {
+              db.setFollowupOptout(senderPhone, 'fecha_tentativa', analysis.resumeDate || null);
+              const mem = db.getClientMemory(senderPhone) || '';
+              if (!mem.includes('FECHA TENTATIVA')) {
+                db.updateClientMemory(senderPhone, mem + `\n📅 FECHA TENTATIVA (${new Date().toLocaleDateString('es-CO')}): ${analysis.reason}${analysis.resumeDate ? '. Recontactar después de ' + analysis.resumeDate : ''}.`);
+              }
+              console.log(`[FOLLOWUP] 📅 ${senderPhone} FECHA TENTATIVA — recontactar ${analysis.resumeDate || 'cuando indique'}`);
+            }
+          } catch (e) {
+            console.error('[FOLLOWUP] Error analizando respuesta:', e.message);
+          }
+        });
       }
     } catch (e) { /* silenciar si la tabla aún no existe */ }
 
@@ -702,11 +742,16 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
 
             // Obtener document summary para el expediente del cliente
             const clientFiles = db.getClientFiles ? db.getClientFiles(senderPhone) : [];
-            const documentSummary = clientFiles.length > 0
-              ? clientFiles.map(f => `- ${f.tipo}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n')
-              : '';
+            const clientComprobantes = db.getClientComprobantes ? db.getClientComprobantes(senderPhone) : [];
+            let documentSummary = '';
+            if (clientFiles.length > 0) {
+              documentSummary += clientFiles.map(f => `- 📎 ${f.tipo.toUpperCase()}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n');
+            }
+            if (clientComprobantes.length > 0) {
+              documentSummary += (documentSummary ? '\n' : '') + clientComprobantes.map(c => `- 💰 COMPROBANTE: ${c.info || 'sin detalle'} — Estado: ${c.estado} (${new Date(c.created_at).toLocaleDateString('es-CO')})`).join('\n');
+            }
             const catalogSent = clientProfile && clientProfile.catalog_sent;
-            const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile, documentSummary, catalogSent);
+            const systemPrompt = buildSystemPrompt(productContext, clientMemory, clientProfile, documentSummary, catalogSent, messageBody);
 
             // Construir historial previo para que Gemini tenga contexto de la conversación
             const geminiHistory = history
@@ -736,7 +781,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             let esCarnet = false;
             let datosCarnet = {};
             try {
-              const carnetCheckResult = await geminiGenerate('gemini-3.1-pro-preview', [
+              const carnetCheckResult = await geminiGenerate('gemini-2.5-pro', [
                 imagePart,
                 '¿Esta imagen es un CARNET del Club Zona Traumática / Carné de Tiro AML? Busca: texto "Carné de Tiro AML", logo "ZT", texto "ZONA TRAUMATICA", o referencia a "LEY 2197". Si es un carnet, extrae los campos visibles. Revisa especialmente la FECHA DE VIGENCIA o VÁLIDO HASTA. Responde SOLO con JSON: {"esCarnet": true/false, "nombre": "", "cedula": "", "vigente_hasta": "YYYY-MM-DD", "marca_arma": "", "modelo_arma": "", "serial": ""}'
               ]);
@@ -781,7 +826,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             let esComprobante = false;
             let infoComprobante = '';
             try {
-              const checkResult = await geminiGenerate('gemini-3.1-pro-preview', [
+              const checkResult = await geminiGenerate('gemini-2.5-pro', [
                 imagePart,
                 'Analiza esta imagen. ¿Es un COMPROBANTE DE PAGO real (captura de transferencia bancaria, Nequi, Bancolombia, Daviplata, Bold, PSE, etc.)? \n\nIMPORTANTE: Fotos de PRODUCTOS (armas, ropa, accesorios), selfies, memes, catálogos, o cualquier imagen que NO sea una captura de pantalla de una transacción financiera = esComprobante: false.\n\nResponde SOLO con JSON: {"esComprobante": true/false, "monto": "valor si lo ves o null", "entidad": "banco/app o null"}'
               ]);
@@ -889,7 +934,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             } else if (qrTexto) {
               // QR detectado — responder SOLO sobre el contenido del QR
               const qrPrompt = `El cliente envió una imagen con un código QR que contiene el siguiente texto: "${qrTexto}".\n\nTu tarea es informar al cliente sobre el contenido de este QR de forma amable y profesional, o responder a cualquier pregunta que haya hecho relacionada con el QR.\n\nContexto actual del asesor comercial:\n${systemPrompt}`;
-              const qrResult = await geminiGenerate('gemini-3.1-pro-preview', qrPrompt);
+              const qrResult = await geminiGenerate('gemini-2.5-pro', qrPrompt);
               reply = cleanBotTags(qrResult.response.text());
               await msg.reply(reply);
               db.saveMessage(senderPhone, 'user', `[QR escaneado: ${qrTexto.substring(0, 60)}]`);
@@ -902,7 +947,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
                 ? `El cliente envió esta imagen junto con este mensaje: "${msg.body}".\n\n⚠️ INSTRUCCIÓN CRÍTICA: Si la imagen muestra un arma traumática o producto que vendemos, IDENTIFICA la marca y modelo exacto, búscalo en tus REFERENCIAS RELEVANTES abajo, y dale al cliente el PRECIO ESPECÍFICO y detalles de ESE modelo exacto. NUNCA le des el "rango general de precios" si puedes identificar la pistola en la foto.`
                 : `El cliente envió solo esta imagen sin texto.\n\n⚠️ INSTRUCCIÓN CRÍTICA: Asume que el cliente quiere saber qué arma es o cuánto cuesta. IDENTIFICA la marca y modelo exacto en la imagen, búscalo en tus REFERENCIAS RELEVANTES abajo, y dale al cliente el PRECIO ESPECÍFICO y los detalles de ESE modelo exacto. NUNCA respondas con el "rango general de precios" si puedes identificar la pistola de la foto.`;
               const visionModel = getGenAI().getGenerativeModel({
-                model: 'gemini-3.1-pro-preview',
+                model: 'gemini-2.5-pro',
                 systemInstruction: systemPrompt,
                 safetySettings: SAFETY_SETTINGS,
               });
@@ -927,7 +972,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
               try {
                 const classResult = await geminiGenerate('gemini-2.5-flash', [
                   imagePart,
-                  'Clasifica esta imagen en una de estas categorías. Responde SOLO con JSON válido, sin markdown:\n{"tipo": "selfie|cedula|foto_arma|documento|otro", "descripcion": "descripcion breve de 5-10 palabras"}\n\n- selfie: foto de la cara/rostro de una persona\n- cedula: documento de identidad colombiano\n- foto_arma: foto de un arma traumática, pistola o similar\n- documento: otro documento escrito (recibo, factura, etc.)\n- otro: cualquier otra imagen'
+                  'Clasifica esta imagen en una de estas categorías. Responde SOLO con JSON válido, sin markdown:\n{"tipo": "selfie|cedula|foto_arma|doc_incautacion|peticion_formal|comprobante_envio|documento|otro", "descripcion": "descripcion breve de 5-10 palabras"}\n\n- selfie: foto de la cara/rostro de una persona (tipo carnet o selfie)\n- cedula: documento de identidad colombiano (cédula de ciudadanía)\n- foto_arma: foto de un arma traumática, pistola o similar\n- doc_incautacion: acta de incautación policial, orden de decomiso, boleta de retención, acta de aprehensión de policía\n- peticion_formal: derecho de petición, tutela, recurso de apelación, documento legal formal dirigido a una entidad\n- comprobante_envio: guía de envío, tracking de transportadora, recibo de mensajería\n- documento: otro documento escrito (recibo, factura, certificado, etc.)\n- otro: cualquier otra imagen (memes, paisajes, capturas de redes sociales, etc.)'
                 ]);
                 const classText = classResult.response.text().replace(/```json\n?/g, '').replace(/```/g, '').trim();
                 const classData = JSON.parse(classText);
@@ -970,11 +1015,16 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
           const clientMemory = db.getClientMemory(senderPhone);
           const clientProfile = db.getClient(senderPhone);
           const clientFiles = db.getClientFiles ? db.getClientFiles(senderPhone) : [];
-          const documentSummary = clientFiles.length > 0
-            ? clientFiles.map(f => `- ${f.tipo}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n')
-            : '';
+          const clientComprobantes = db.getClientComprobantes ? db.getClientComprobantes(senderPhone) : [];
+          let documentSummary = '';
+          if (clientFiles.length > 0) {
+            documentSummary += clientFiles.map(f => `- 📎 ${f.tipo.toUpperCase()}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n');
+          }
+          if (clientComprobantes.length > 0) {
+            documentSummary += (documentSummary ? '\n' : '') + clientComprobantes.map(c => `- 💰 COMPROBANTE: ${c.info || 'sin detalle'} — Estado: ${c.estado} (${new Date(c.created_at).toLocaleDateString('es-CO')})`).join('\n');
+          }
           const catalogSent = clientProfile && clientProfile.catalog_sent;
-          const systemPrompt = buildSystemPrompt('El cliente envió un mensaje de voz. Continúa la conversación con el contexto previo.', clientMemory, clientProfile, documentSummary, catalogSent);
+          const systemPrompt = buildSystemPrompt('El cliente envió un mensaje de voz. Continúa la conversación con el contexto previo.', clientMemory, clientProfile, documentSummary, catalogSent, messageBody);
 
           // Historial previo para mantener contexto
           const geminiHistoryAudio = [];
@@ -1006,7 +1056,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
           const textPart = 'El cliente te ha enviado este mensaje de voz. Escúchalo y respóndele directamente. IMPORTANTE: NO transcribas el audio ni repitas lo que dice. Tu única tarea es dar la respuesta correspondiente como asesor comercial.';
 
           const audioModel = getGenAI().getGenerativeModel({
-            model: 'gemini-3.1-pro-preview',
+            model: 'gemini-2.5-pro',
             systemInstruction: systemPrompt,
             safetySettings: SAFETY_SETTINGS,
           });
@@ -1059,11 +1109,16 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
           const clientMemory = db.getClientMemory(senderPhone);
           const clientProfile = db.getClient(senderPhone);
           const clientFiles = db.getClientFiles ? db.getClientFiles(senderPhone) : [];
-          const documentSummary = clientFiles.length > 0
-            ? clientFiles.map(f => `- ${f.tipo}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n')
-            : '';
+          const clientComprobantes = db.getClientComprobantes ? db.getClientComprobantes(senderPhone) : [];
+          let documentSummary = '';
+          if (clientFiles.length > 0) {
+            documentSummary += clientFiles.map(f => `- 📎 ${f.tipo.toUpperCase()}: ${f.descripcion} (${new Date(f.created_at).toLocaleDateString('es-CO')})`).join('\n');
+          }
+          if (clientComprobantes.length > 0) {
+            documentSummary += (documentSummary ? '\n' : '') + clientComprobantes.map(c => `- 💰 COMPROBANTE: ${c.info || 'sin detalle'} — Estado: ${c.estado} (${new Date(c.created_at).toLocaleDateString('es-CO')})`).join('\n');
+          }
           const catalogSent = clientProfile && clientProfile.catalog_sent;
-          const systemPrompt = buildSystemPrompt('El cliente envió un PDF. Continúa la conversación con el contexto previo.', clientMemory, clientProfile, documentSummary, catalogSent);
+          const systemPrompt = buildSystemPrompt('El cliente envió un PDF. Continúa la conversación con el contexto previo.', clientMemory, clientProfile, documentSummary, catalogSent, messageBody);
 
           // Historial previo para mantener contexto
           const geminiHistoryPdf = history
@@ -1078,7 +1133,7 @@ async function procesarMensaje(msg, chat, senderPhone, rawMsg) {
             : `El cliente envió este PDF llamado "${media.filename || 'documento.pdf'}". Analízalo y responde de forma útil según el contexto de la conversación.`;
 
           const pdfModel = getGenAI().getGenerativeModel({
-            model: 'gemini-3.1-pro-preview',
+            model: 'gemini-2.5-pro',
             systemInstruction: systemPrompt,
             safetySettings: SAFETY_SETTINGS,
           });

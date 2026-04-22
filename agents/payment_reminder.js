@@ -193,7 +193,7 @@ REGLAS:
 
 Escribe SOLO el mensaje, sin comillas ni explicaciones.`;
 
-    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+    const result = await geminiGenerate('gemini-2.5-pro', prompt);
     const mensaje = result.response.text().trim();
 
     if (!mensaje) {

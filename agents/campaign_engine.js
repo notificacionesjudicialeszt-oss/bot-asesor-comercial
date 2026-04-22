@@ -134,11 +134,32 @@ async function runCampaigns() {
       const audience = db.db.prepare(segment.query).all();
       
       // Filtrar los que ya recibieron esta campaña (en los últimos 30 días)
+      // Y también los que tienen optout activo (desistieron o fecha tentativa)
       const eligible = audience.filter(client => {
         const existing = db.db.prepare(
           "SELECT id FROM followup_sequences WHERE client_phone = ? AND type = ? AND created_at >= datetime('now', '-30 days')"
         ).get(client.phone, 'campaign_' + segment.id);
-        return !existing;
+        if (existing) return false;
+
+        // Verificar optout de follow-ups
+        const optout = db.getFollowupOptout(client.phone);
+        if (optout) {
+          if (optout.reason === 'desistio' || optout.reason === 'no_molestar') {
+            console.log(`[CAMPAIGN] 🚫 ${client.name || client.phone} — optout (${optout.reason}), excluido de campaña`);
+            return false;
+          }
+          if (optout.reason === 'fecha_tentativa' && optout.resumeDate) {
+            const resumeDate = new Date(optout.resumeDate);
+            if (resumeDate > new Date()) {
+              console.log(`[CAMPAIGN] 📅 ${client.name || client.phone} — fecha tentativa activa, excluido de campaña`);
+              return false;
+            }
+            // Fecha ya pasó — limpiar y permitir
+            db.clearFollowupOptout(client.phone);
+          }
+        }
+
+        return true;
       });
 
       if (eligible.length === 0) {
@@ -154,7 +175,7 @@ async function runCampaigns() {
 
         try {
           const prompt = segment.promptTemplate(client);
-          const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+          const result = await geminiGenerate('gemini-2.5-pro', prompt);
           const mensaje = result.response.text().trim();
 
           if (!mensaje) continue;

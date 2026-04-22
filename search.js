@@ -145,7 +145,7 @@ function extractKeywords(message) {
 // ============================================
 // BUSCAR PRODUCTOS
 // ============================================
-function searchProducts(message, maxResults = 6) {
+function searchProducts(message, maxResults = 10) {
   checkCatalogUpdate();
   if (catalogo.length === 0) {
     console.warn('[SEARCH] Catálogo vacío, recargando...');
@@ -192,11 +192,11 @@ function searchProducts(message, maxResults = 6) {
   // Si no hay un "match exacto y contundente" (score > 35), significa que el modelo exacto
   // que pidió muy probablemente está agotado, y solo encontraron migajas (ej. pura marca Ekol 
   // que por defecto suma ~34 puntos solo por la palabra clave de la marca, pero ningún "Nig 211").
-  const hasStrongMatch = results.length > 0 && results[0]._score > 35;
+  const hasStrongMatch = results.length > 0 && results[0]._score > 20;
 
   if (!hasStrongMatch) {
     // Esconder la cola de resultados basura de la misma marca y meter Highlights
-    results = results.slice(0, 3); // Dejamos máximo 3 sugerencias similares
+    results = results.slice(0, 5); // Dejamos máximo 5 sugerencias similares
 
     const highlights = getHighlightProducts();
     highlights.forEach(h => {

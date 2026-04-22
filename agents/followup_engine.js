@@ -3,7 +3,8 @@
 // ============================================
 // Envía mensajes de seguimiento personalizados con Gemini
 // a leads que dejaron de responder. Se detiene automáticamente
-// si el cliente responde.
+// si el cliente responde. Analiza la respuesta del cliente
+// para NO volver a contactar si desistió o dio fecha tentativa.
 
 const db = require('../db');
 const { CONFIG } = require('../config');
@@ -34,6 +35,62 @@ function getColombiaHour() {
   const utcMinutes = ahora.getUTCHours() * 60 + ahora.getUTCMinutes();
   const colMinutes = ((utcMinutes - 5 * 60) % (24 * 60) + 24 * 60) % (24 * 60);
   return Math.floor(colMinutes / 60);
+}
+
+/**
+ * Analiza la respuesta del cliente a un follow-up/campaña con Gemini.
+ * Determina si el cliente desistió, dio una fecha tentativa, o sigue interesado.
+ * @returns {{ disposition: 'positiva'|'negativa'|'fecha_tentativa'|'neutral', resumeDate?: string, reason?: string }}
+ */
+async function analyzeClientResponse(phone) {
+  try {
+    // Obtener los últimos mensajes del cliente DESPUÉS del último follow-up
+    const recentMsgs = db.db.prepare(`
+      SELECT role, message, created_at FROM conversations
+      WHERE client_phone = ? AND role = 'user'
+      ORDER BY created_at DESC LIMIT 3
+    `).all(phone);
+
+    if (!recentMsgs || recentMsgs.length === 0) return { disposition: 'neutral' };
+
+    const clientMessages = recentMsgs.reverse()
+      .map(m => m.message)
+      .join('\n');
+
+    // También revisar qué le enviamos (para contexto)
+    const lastBotMsg = db.db.prepare(`
+      SELECT message FROM conversations
+      WHERE client_phone = ? AND role = 'assistant'
+      ORDER BY created_at DESC LIMIT 1
+    `).get(phone);
+
+    const prompt = `Analiza la respuesta de un cliente a un mensaje de seguimiento comercial.
+
+MENSAJE QUE LE ENVIAMOS (follow-up):
+"${lastBotMsg?.message?.substring(0, 300) || 'Mensaje de seguimiento comercial'}"
+
+RESPUESTA(S) DEL CLIENTE:
+"${clientMessages.substring(0, 500)}"
+
+Clasifica la disposición del cliente en UNA de estas categorías:
+- "positiva": El cliente muestra interés, quiere comprar, pide más info, o responde favorablemente.
+- "negativa": El cliente dice que NO quiere, desistió, no le interesa, no tiene plata y NO da fecha, o pide que no le escriban más.
+- "fecha_tentativa": El cliente dice que está interesado PERO no puede ahora, y da una fecha o plazo tentativo (ej: "la próxima semana", "el otro mes", "cuando me paguen", "entre esta semana y la otra").
+- "neutral": Respuesta ambigua que no indica claramente ninguna de las anteriores.
+
+Si es "fecha_tentativa", calcula la fecha aproximada a partir de hoy (${new Date().toISOString().split('T')[0]}).
+
+Responde SOLO con JSON válido, sin markdown:
+{"disposition": "positiva|negativa|fecha_tentativa|neutral", "resumeDate": "YYYY-MM-DD o null", "reason": "explicación breve en español"}`;
+
+    const result = await geminiGenerate('gemini-2.5-flash', prompt);
+    const text = result.response.text().trim().replace(/```json|```/g, '').trim();
+    const data = JSON.parse(text);
+    return data;
+  } catch (err) {
+    console.error(`[FOLLOWUP] ⚠️ Error analizando respuesta de ${phone}:`, err.message);
+    return { disposition: 'neutral' };
+  }
 }
 
 /**
@@ -71,6 +128,25 @@ async function runFollowups() {
   for (const lead of eligibleLeads) {
     if (EXCLUDED_STATUSES.includes(lead.status)) continue;
 
+    // ── NUEVO: Verificar optout antes de cualquier acción ──
+    const optout = db.getFollowupOptout(lead.phone);
+    if (optout) {
+      if (optout.reason === 'desistio' || optout.reason === 'no_molestar') {
+        console.log(`[FOLLOWUP] 🚫 ${lead.name || lead.phone} — optout (${optout.reason}), saltando`);
+        continue;
+      }
+      if (optout.reason === 'fecha_tentativa' && optout.resumeDate) {
+        const resumeDate = new Date(optout.resumeDate);
+        if (resumeDate > new Date()) {
+          console.log(`[FOLLOWUP] 📅 ${lead.name || lead.phone} — fecha tentativa (recontactar después de ${optout.resumeDate}), saltando`);
+          continue;
+        }
+        // Ya pasó la fecha → limpiar optout y continuar
+        db.clearFollowupOptout(lead.phone);
+        console.log(`[FOLLOWUP] 📅 ${lead.name || lead.phone} — fecha tentativa expirada, reactivando`);
+      }
+    }
+
     // Verificar si el cliente respondió recientemente (después del último follow-up)
     const seq = db.getSequenceForClient(lead.phone, 'lead');
     
@@ -83,9 +159,29 @@ async function runFollowups() {
       `).get(lead.phone, seq.last_sent_at);
 
       if (clientReplied && clientReplied.c > 0) {
-        // Cliente respondió → detener secuencia
+        // ── NUEVO: Analizar QUÉ respondió antes de solo detener ──
+        const analysis = await analyzeClientResponse(lead.phone);
         db.stopSequence(seq.id);
-        console.log(`[FOLLOWUP] ✅ ${lead.name || lead.phone} respondió — secuencia detenida`);
+
+        if (analysis.disposition === 'negativa') {
+          db.setFollowupOptout(lead.phone, 'desistio');
+          // Actualizar memoria para que el bot general lo sepa
+          const currentMemory = db.getClientMemory(lead.phone) || '';
+          if (!currentMemory.includes('DESISTIÓ')) {
+            db.updateClientMemory(lead.phone, currentMemory + `\n⛔ DESISTIÓ DE LA COMPRA (${new Date().toLocaleDateString('es-CO')}): ${analysis.reason || 'Sin más detalle'}. NO volver a ofrecer proactivamente.`);
+          }
+          console.log(`[FOLLOWUP] ⛔ ${lead.name || lead.phone} DESISTIÓ — bloqueado de follow-ups. Razón: ${analysis.reason}`);
+        } else if (analysis.disposition === 'fecha_tentativa') {
+          const resumeDate = analysis.resumeDate || null;
+          db.setFollowupOptout(lead.phone, 'fecha_tentativa', resumeDate);
+          const currentMemory = db.getClientMemory(lead.phone) || '';
+          if (!currentMemory.includes('FECHA TENTATIVA')) {
+            db.updateClientMemory(lead.phone, currentMemory + `\n📅 FECHA TENTATIVA (${new Date().toLocaleDateString('es-CO')}): ${analysis.reason || 'Indicó que comprará después'}${resumeDate ? '. Recontactar después de ' + resumeDate : ''}.`);
+          }
+          console.log(`[FOLLOWUP] 📅 ${lead.name || lead.phone} dio FECHA TENTATIVA — recontactar ${resumeDate || 'cuando indique'}. Razón: ${analysis.reason}`);
+        } else {
+          console.log(`[FOLLOWUP] ✅ ${lead.name || lead.phone} respondió (${analysis.disposition}) — secuencia detenida`);
+        }
         continue;
       }
 
@@ -196,14 +292,15 @@ REGLAS ESTRICTAS:
 5. NO ofrezcas descuentos ni promos inventadas
 6. Cierra con pregunta abierta (excepto si es paso 3)
 7. ⚠️ SOLO menciona productos que aparecen en el CATÁLOGO ACTUAL. Si el cliente mencionó un producto que NO está en el catálogo de hoy, NO lo menciones — ofrece una alternativa disponible o habla en términos generales. PROHIBIDO inventar o mencionar productos fuera del catálogo actual.
+8. ⚠️ Si en el PERFIL/MEMORIA del cliente dice que DESISTIÓ, dio FECHA TENTATIVA, o pidió NO ser contactado, NO generes ningún mensaje — responde solo con "SKIP".
 
 Escribe SOLO el mensaje, sin comillas ni explicaciones.`;
 
-    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+    const result = await geminiGenerate('gemini-2.5-pro', prompt);
     const mensaje = result.response.text().trim();
 
-    if (!mensaje) {
-      console.error(`[FOLLOWUP] ⚠️ Gemini no generó respuesta para ${lead.phone}`);
+    if (!mensaje || mensaje === 'SKIP') {
+      console.log(`[FOLLOWUP] ⏸️ ${lead.name || lead.phone} — Gemini sugirió SKIP (cliente optout en memoria)`);
       return false;
     }
 
@@ -227,4 +324,4 @@ Escribe SOLO el mensaje, sin comillas ni explicaciones.`;
   }
 }
 
-module.exports = { runFollowups };
+module.exports = { runFollowups, analyzeClientResponse };

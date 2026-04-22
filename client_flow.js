@@ -46,6 +46,15 @@ function cleanBotTags(text) {
 }
 
 async function safeSend(phone, message) {
+  // Guard: si phone parece LID (13+ dígitos), intentar resolver vía BD
+  if (phone.length >= 13) {
+    const row = db.db.prepare('SELECT phone FROM clients WHERE chat_id LIKE ? AND phone != ?').get('%' + phone + '%', phone);
+    if (row) {
+      console.log(`[SEND] 🔄 LID detectado en safeSend: ${phone} → ${row.phone}`);
+      phone = row.phone;
+    }
+  }
+
   let chatId = db.getClientChatId(phone);
 
   // Guard: nunca enviar a status@broadcast ni a IDs inválidos
@@ -454,6 +463,59 @@ ${memoryForExtract}
         if (Object.keys(updateData).length > 0) {
           db.upsertClient(clientPhone, updateData);
           console.log(`[MEMORY] 📋 Datos estructurados extraídos para ${clientPhone}:`, Object.keys(updateData).join(', '));
+        }
+      }
+
+      // === EXTRACCIÓN DE FLAGS DE AFILIACIÓN/COMPRA ===
+      // Detecta si la memoria indica que el cliente ya se afilió o compró,
+      // y sincroniza los flags estructurados que el prompt usa para generar la ficha.
+      // Esto previene el bug donde memory dice "Compró / Afiliado Pro" pero los flags dicen 0.
+      const flagsNecesitan = !currentProfile?.is_club_pro && !currentProfile?.is_club_plus;
+      const armaOrigenVacio = !currentProfile?.arma_origen;
+      if (flagsNecesitan || armaOrigenVacio) {
+        try {
+          const flagResult = await geminiGenerate('gemini-2.5-flash',
+            `Analiza la memoria del CRM para determinar el ESTADO ACTUAL del cliente. Responde SOLO con JSON válido, sin markdown:
+{"plan_afiliado": null, "compro_arma_en_zt": null, "arma_es_propia": null}
+
+REGLAS ESTRICTAS:
+- "plan_afiliado": "plus" o "pro" SOLO si la memoria indica claramente que el cliente YA SE AFILIÓ y YA PAGÓ la membresía. Si solo "preguntó" o "está interesado" = null. Si dice "Plan preferido: Pro" pero no dice "Compró" o "Afiliado" = null.
+- "compro_arma_en_zt": true SOLO si la memoria indica que el cliente COMPRÓ un arma EN Zona Traumática (no solo que tiene una). false si tiene arma pero la compró en otro lado. null si no hay info.
+- "arma_es_propia": true si el cliente tiene arma que NO compró en Zona Traumática (la tenía de antes, la compró en otra tienda). false si la compró en ZT. null si no hay info.
+
+IMPORTANTE: Busca frases como "Compró", "ya pagó", "Afiliado activo", "Plan Pro", "arma propia", "NO comprada en ZT". NO asumas afiliación solo porque mencionó interés en un plan.
+
+MEMORIA:
+${memoryForExtract}`
+          );
+          const flagText = flagResult.response.text().replace(/\`\`\`json\n?/g, '').replace(/\`\`\`/g, '').trim();
+          const flags = JSON.parse(flagText);
+          const flagUpdate = {};
+          if (flags.plan_afiliado === 'pro' && !currentProfile?.is_club_pro) {
+            flagUpdate.is_club_pro = 1;
+            flagUpdate.club_plan = 'Pro';
+            flagUpdate.status = 'afiliado';
+            console.log(`[MEMORY] 🛡️ Auto-detectado: cliente ${clientPhone} es afiliado Plan Pro`);
+          } else if (flags.plan_afiliado === 'plus' && !currentProfile?.is_club_plus) {
+            flagUpdate.is_club_plus = 1;
+            flagUpdate.club_plan = 'Plus';
+            flagUpdate.status = 'afiliado';
+            console.log(`[MEMORY] 🛡️ Auto-detectado: cliente ${clientPhone} es afiliado Plan Plus`);
+          }
+          if (flags.compro_arma_en_zt === true && !currentProfile?.has_bought_gun) {
+            flagUpdate.has_bought_gun = 1;
+            flagUpdate.arma_origen = 'zt';
+            console.log(`[MEMORY] ✅ Auto-detectado: cliente ${clientPhone} compró arma en ZT`);
+          } else if (flags.arma_es_propia === true && armaOrigenVacio) {
+            flagUpdate.arma_origen = 'propia';
+            console.log(`[MEMORY] 🔫 Auto-detectado: cliente ${clientPhone} tiene arma propia`);
+          }
+          if (Object.keys(flagUpdate).length > 0) {
+            db.upsertClient(clientPhone, flagUpdate);
+            console.log(`[MEMORY] 🔄 Flags actualizados para ${clientPhone}:`, Object.keys(flagUpdate).join(', '));
+          }
+        } catch (flagErr) {
+          if (CONFIG.debug) console.log(`[MEMORY] Extracción de flags falló: ${flagErr.message}`);
         }
       }
     } catch (extractErr) {
@@ -877,7 +939,7 @@ Llévalo sutilmente y con persuasión a que apoye la causa, logrando que haga OT
         });
         console.log(SEPARATOR + '\n');
 
-        const result = await geminiGenerate('gemini-3.1-pro-preview', contents, {
+        const result = await geminiGenerate('gemini-2.5-pro', contents, {
           config: { systemInstruction: systemPrompt }
         });
 

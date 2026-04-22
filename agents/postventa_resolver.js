@@ -131,7 +131,7 @@ Categorías válidas:
 Responde SOLO con JSON:
 {"categoria": "...", "resumen": "Descripción clara y específica de qué falta resolver (max 150 chars)", "urgencia": "alta|media|baja", "accion_sugerida": "Qué debería hacer Álvaro como siguiente paso (max 100 chars)"}`;
 
-      const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+      const result = await geminiGenerate('gemini-2.5-pro', prompt);
       const responseText = result.response.text().trim().replace(/```json|```/g, '').trim();
 
       let parsed;

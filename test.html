@@ -907,7 +907,11 @@ async function selectClient(phone, isAutoRefresh = false) {
   ).join('');
 
   const chatArea = document.getElementById('chatArea');
-  const prevAdminText = document.getElementById('adminReplyInput') ? document.getElementById('adminReplyInput').value : '';
+  const oldInput = document.getElementById('adminReplyInput');
+  const prevAdminText = oldInput ? oldInput.value : '';
+  const wasFocused = oldInput && document.activeElement === oldInput;
+  const cursorStart = oldInput ? oldInput.selectionStart : 0;
+  const cursorEnd = oldInput ? oldInput.selectionEnd : 0;
 
   chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>' +
     '<div style="display:flex;gap:8px;margin-top:10px;padding:10px;background:#161b22;border-radius:8px;border:1px solid #30363d;">' +
@@ -915,7 +919,14 @@ async function selectClient(phone, isAutoRefresh = false) {
       '<button onclick="enviarMensajeAdmin()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
     '</div>';
     
-  if (prevAdminText) document.getElementById('adminReplyInput').value = prevAdminText;
+  if (prevAdminText || wasFocused) {
+    const newInput = document.getElementById('adminReplyInput');
+    if (prevAdminText) newInput.value = prevAdminText;
+    if (wasFocused) {
+      newInput.focus();
+      newInput.setSelectionRange(cursorStart, cursorEnd);
+    }
+  }
 
   if (!isAutoRefresh) {
     // Esperar a que el DOM renderice antes de hacer scroll
@@ -935,8 +946,6 @@ async function selectClient(phone, isAutoRefresh = false) {
         const tabs = document.querySelectorAll('.crm-tab');
         tabs.forEach(t => { if (t.textContent.toLowerCase().includes(activeCrmTab === 'notas' ? 'notas' : activeCrmTab === 'acciones' ? 'acciones' : 'perfil')) t.classList.add('active'); });
       }
-    }
-
     }
 
     // Cargar historial de documentos del cliente
@@ -1678,7 +1687,11 @@ async function selectClientPv(phone, isAutoRefresh = false) {
   }).join('');
   const chatArea = document.getElementById('chatAreaPv');
   // Avoid re-rendering the admin reply textarea if not necessary, but since it's mixed with chat messages we have to:
-  const prevAdminTextPv = document.getElementById('adminReplyInputPv') ? document.getElementById('adminReplyInputPv').value : '';
+  const oldInputPv = document.getElementById('adminReplyInputPv');
+  const prevAdminTextPv = oldInputPv ? oldInputPv.value : '';
+  const wasFocusedPv = oldInputPv && document.activeElement === oldInputPv;
+  const cursorStartPv = oldInputPv ? oldInputPv.selectionStart : 0;
+  const cursorEndPv = oldInputPv ? oldInputPv.selectionEnd : 0;
   
   chatArea.innerHTML = '<div class="chat-container">' + (chatHtml || '<div class="chat-empty">Sin mensajes</div>') + '</div>' +
     '<div style="display:flex;gap:8px;margin-top:10px;padding:10px;background:#161b22;border-radius:8px;border:1px solid #30363d;">' +
@@ -1686,7 +1699,14 @@ async function selectClientPv(phone, isAutoRefresh = false) {
       '<button onclick="enviarMensajeAdminPv()" style="background:#1a5276;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:bold;white-space:nowrap;">Enviar 👤</button>' +
     '</div>';
     
-  if (prevAdminTextPv) document.getElementById('adminReplyInputPv').value = prevAdminTextPv;
+  if (prevAdminTextPv || wasFocusedPv) {
+    const newInputPv = document.getElementById('adminReplyInputPv');
+    if (prevAdminTextPv) newInputPv.value = prevAdminTextPv;
+    if (wasFocusedPv) {
+      newInputPv.focus();
+      newInputPv.setSelectionRange(cursorStartPv, cursorEndPv);
+    }
+  }
 
   if (!isAutoRefresh) {
     requestAnimationFrame(() => requestAnimationFrame(() => { chatArea.scrollTop = chatArea.scrollHeight; }));

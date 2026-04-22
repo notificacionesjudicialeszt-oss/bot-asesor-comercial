@@ -88,6 +88,10 @@ function initDatabase() {
     console.log('[DB] Columna ciudad agregada');
   } catch (e) { /* ya existe */ }
   try {
+    db.exec(`ALTER TABLE clients ADD COLUMN departamento TEXT DEFAULT ''`);
+    console.log('[DB] Columna departamento agregada');
+  } catch (e) { /* ya existe */ }
+  try {
     db.exec(`ALTER TABLE clients ADD COLUMN direccion TEXT DEFAULT ''`);
     console.log('[DB] Columna direccion agregada');
   } catch (e) { /* ya existe */ }
@@ -130,6 +134,14 @@ function initDatabase() {
   try {
     db.exec(`ALTER TABLE clients ADD COLUMN bot_directive TEXT DEFAULT NULL`);
     console.log('[DB] Columna bot_directive agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN followup_optout TEXT DEFAULT NULL`);
+    console.log('[DB] Columna followup_optout agregada');
+  } catch (e) { /* ya existe */ }
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN arma_origen TEXT DEFAULT ''`);
+    console.log('[DB] Columna arma_origen agregada');
   } catch (e) { /* ya existe */ }
 
   // Tabla de empleados
@@ -261,6 +273,18 @@ function initDatabase() {
     console.log('[DB] Columna notas agregada a escalaciones');
   } catch (e) { /* ya existe */ }
 
+  // Tabla de historial de directivas (audit trail)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS directive_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_phone TEXT NOT NULL,
+      directive_text TEXT NOT NULL,
+      status TEXT DEFAULT 'ejecutada',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   console.log('[DB] Base de datos inicializada correctamente');
 }
 
@@ -300,6 +324,7 @@ function upsertClient(phone, data = {}) {
     // Nuevos campos de ficha completa
     if (data.cedula !== undefined) { fields.push('cedula = ?'); values.push(data.cedula); }
     if (data.ciudad !== undefined) { fields.push('ciudad = ?'); values.push(data.ciudad); }
+    if (data.departamento !== undefined) { fields.push('departamento = ?'); values.push(data.departamento); }
     if (data.direccion !== undefined) { fields.push('direccion = ?'); values.push(data.direccion); }
     if (data.profesion !== undefined) { fields.push('profesion = ?'); values.push(data.profesion); }
     if (data.club_plan !== undefined) { fields.push('club_plan = ?'); values.push(data.club_plan); }
@@ -311,6 +336,7 @@ function upsertClient(phone, data = {}) {
     if (data.catalog_sent !== undefined) { fields.push('catalog_sent = ?'); values.push(data.catalog_sent ? 1 : 0); }
     // Permite establecer o limpiar la directiva del admin
     if ('bot_directive' in data) { fields.push('bot_directive = ?'); values.push(data.bot_directive || null); }
+    if (data.arma_origen !== undefined) { fields.push('arma_origen = ?'); values.push(data.arma_origen); }
 
     // Siempre incrementar interacciones y actualizar fecha
     fields.push('interaction_count = interaction_count + 1');
@@ -786,6 +812,55 @@ function updateClientFlag(phone, flagName, value) {
   db.prepare(`UPDATE clients SET ${flagName} = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?`).run(value ? 1 : 0, phone);
 }
 
+// ============================================
+// DOSSIER COMPLETO DEL CLIENTE (para enriquecimiento IA)
+// ============================================
+function buildClientDossier(phone) {
+  const profile = getClient(phone);
+  if (!profile) return null;
+
+  const memory = getClientMemory(phone);
+
+  // Historial completo de conversación (últimos 100 mensajes)
+  const history = getConversationHistory(phone, 100);
+
+  // Documentos: comprobantes
+  let comprobantes = [];
+  try {
+    comprobantes = db.prepare(
+      'SELECT id, tipo, estado, info, imagen_mime, created_at FROM comprobantes WHERE client_phone = ? ORDER BY created_at DESC'
+    ).all(phone);
+  } catch (e) { /* tabla puede no existir aún */ }
+
+  // Documentos: carnets
+  let carnets = [];
+  try {
+    carnets = db.prepare(
+      'SELECT id, estado, nombre, cedula, vigente_hasta, marca_arma, modelo_arma, serial, plan_tipo, created_at FROM carnets WHERE client_phone = ? ORDER BY created_at DESC'
+    ).all(phone);
+  } catch (e) { /* tabla puede no existir aún */ }
+
+  // Archivos del cliente (selfies, fotos de arma, etc.)
+  let files = [];
+  try {
+    files = getClientFiles(phone);
+  } catch (e) { /* tabla puede no existir aún */ }
+
+  const stats = {
+    totalMessages: history.length,
+    hasComprobante: comprobantes.length > 0,
+    hasCarnet: carnets.length > 0,
+  };
+
+  return {
+    profile,
+    memory,
+    history,
+    documents: { comprobantes, carnets, files },
+    stats,
+  };
+}
+
 module.exports = {
   db,
   initDatabase,
@@ -830,6 +905,7 @@ module.exports = {
   getRecentComprobante,
   getComprobantesPendientes,
   updateComprobanteEstado,
+  getClientComprobantes,
   // Carnets
   saveCarnet,
   getCarnetsPendientes,
@@ -845,12 +921,20 @@ module.exports = {
   stopSequence,
   getSequenceForClient,
   stopAllSequencesForClient,
+  setFollowupOptout,
+  getFollowupOptout,
+  clearFollowupOptout,
   // Dashboard KPIs
   getDashboardKPIs,
   // Escalaciones
   saveEscalacion,
   getEscalacionesPendientes,
   updateEscalacionEstado,
+  // Dossier completo para enriquecimiento IA
+  buildClientDossier,
+  // Directivas
+  saveDirectiveLog,
+  getDirectiveLog,
 };
 
 // ============================================
@@ -869,6 +953,14 @@ function getRecentComprobante(phone, hoursAgo = 48) {
     WHERE client_phone = ? AND created_at > datetime('now', '-' || ? || ' hours')
     ORDER BY created_at DESC LIMIT 1
   `).get(phone, hoursAgo);
+}
+
+function getClientComprobantes(phone) {
+  const clean = phone.replace(/@.*/, '').replace(/\D/g, '');
+  return db.prepare(`
+    SELECT id, tipo, estado, info, imagen_mime, created_at, verified_at
+    FROM comprobantes WHERE client_phone = ? ORDER BY created_at DESC
+  `).all(clean);
 }
 
 function getComprobantesPendientes() {
@@ -960,6 +1052,43 @@ function stopAllSequencesForClient(phone) {
   ).run(phone);
 }
 
+/**
+ * Establece optout de follow-ups para un cliente.
+ * @param {string} phone
+ * @param {string} reason - 'desistio' | 'fecha_tentativa' | 'no_molestar'
+ * @param {string|null} resumeDate - Fecha ISO (YYYY-MM-DD) a partir de la cual se puede volver a contactar. null = indefinido.
+ */
+function setFollowupOptout(phone, reason, resumeDate = null) {
+  const data = JSON.stringify({ reason, resumeDate, setAt: new Date().toISOString() });
+  db.prepare('UPDATE clients SET followup_optout = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?').run(data, phone);
+}
+
+/**
+ * Obtiene el estado de optout de un cliente. Retorna null si no hay optout o si ya expiró.
+ */
+function getFollowupOptout(phone) {
+  const client = db.prepare('SELECT followup_optout FROM clients WHERE phone = ?').get(phone);
+  if (!client || !client.followup_optout) return null;
+  try {
+    const data = JSON.parse(client.followup_optout);
+    // Si tiene fecha de resume y ya pasó, limpiar automáticamente
+    if (data.resumeDate) {
+      const resumeDate = new Date(data.resumeDate);
+      if (resumeDate <= new Date()) {
+        clearFollowupOptout(phone);
+        return null; // Ya expiró
+      }
+    }
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearFollowupOptout(phone) {
+  db.prepare('UPDATE clients SET followup_optout = NULL WHERE phone = ?').run(phone);
+}
+
 // ============================================
 // DASHBOARD KPIs
 // ============================================
@@ -1028,4 +1157,20 @@ function getDashboardKPIs() {
     thisWeek, lastWeek, weekTrend, msgsToday,
     confirmedThisMonth, topProducts, activeSequences, scoreDistribution
   };
+}
+
+// ============================================
+// HISTORIAL DE DIRECTIVAS (audit trail)
+// ============================================
+function saveDirectiveLog(phone, directiveText, status = 'ejecutada') {
+  return db.prepare(`
+    INSERT INTO directive_log (client_phone, directive_text, status)
+    VALUES (?, ?, ?)
+  `).run(phone, directiveText, status);
+}
+
+function getDirectiveLog(phone, limit = 5) {
+  return db.prepare(`
+    SELECT * FROM directive_log WHERE client_phone = ? ORDER BY created_at DESC LIMIT ?
+  `).all(phone, limit);
 }

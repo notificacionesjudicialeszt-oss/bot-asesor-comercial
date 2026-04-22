@@ -213,24 +213,55 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Archivos de un cliente específico (con imagen_base64 para ver)
+  // Archivos de un cliente específico
   if (url.pathname === '/api/client-files') {
     const phone = url.searchParams.get('phone');
     const id = url.searchParams.get('id');
+    const tabla = url.searchParams.get('tabla') || 'client_files';
     try {
       if (id) {
-        // Un archivo específico con su imagen
-        const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(parseInt(id));
+        // Descargar imagen de una fuente específica
+        let file = null;
+        if (tabla === 'comprobantes') {
+          file = db.prepare('SELECT id, imagen_base64, imagen_mime, info as descripcion, tipo FROM comprobantes WHERE id = ?').get(parseInt(id));
+        } else if (tabla === 'carnets') {
+          file = db.prepare('SELECT id, imagen_base64, imagen_mime, nombre as descripcion FROM carnets WHERE id = ?').get(parseInt(id));
+        } else {
+          file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(parseInt(id));
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(file || null));
       } else if (phone) {
         const clean = phone.replace(/@.*/, '').replace(/\D/g, '');
-        const files = db.prepare(`
-          SELECT id, tipo, descripcion, imagen_mime, subido_por, created_at
-          FROM client_files WHERE client_phone = ? ORDER BY created_at DESC
+        // 1. Archivos propios del cliente
+        const ownFiles = db.prepare(`
+          SELECT id, tipo, descripcion, imagen_mime, subido_por, created_at, 'client_files' as tabla
+          FROM client_files WHERE client_phone = ? AND imagen_base64 != '' ORDER BY created_at DESC
         `).all(clean);
+        // 2. Comprobantes de pago (solo los que tienen imagen)
+        const comprobantes = db.prepare(`
+          SELECT id,
+            CASE tipo WHEN 'club_plus' THEN 'Comprobante Club Plus' WHEN 'club_pro' THEN 'Comprobante Club Pro' WHEN 'producto' THEN 'Comprobante Producto' WHEN 'bot_asesor' THEN 'Comprobante Bot' ELSE 'Comprobante Pago' END as descripcion,
+            imagen_mime, 'panel' as subido_por, created_at,
+            'comprobante' as tipo, 'comprobantes' as tabla,
+            estado, info
+          FROM comprobantes WHERE client_phone = ? AND imagen_base64 IS NOT NULL AND imagen_base64 != ''
+          ORDER BY created_at DESC
+        `).all(clean);
+        // 3. Carnets (propios del cliente o enviados desde el panel)
+        const carnets = db.prepare(`
+          SELECT id,
+            COALESCE(NULLIF(nombre,''), 'Carnet ' || COALESCE(NULLIF(plan_tipo,''), 'Club')) as descripcion,
+            imagen_mime, 'panel' as subido_por, created_at,
+            'carnet' as tipo, 'carnets' as tabla, estado
+          FROM carnets WHERE client_phone = ? AND imagen_base64 IS NOT NULL AND imagen_base64 != ''
+          ORDER BY created_at DESC
+        `).all(clean);
+        // Unir y ordenar por fecha desc
+        const all = [...ownFiles, ...comprobantes, ...carnets]
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(files));
+        res.end(JSON.stringify(all));
       } else {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Parámetro phone o id requerido' }));
@@ -313,10 +344,11 @@ const server = http.createServer((req, res) => {
         // Actualizar memoria si se envió nota
         let newMemory = client.memory || '';
         if (note) {
+          const noteDate = new Date().toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Bogota' });
           if (append && client.memory) {
-            newMemory = client.memory + '\n[PANEL] ' + note;
+            newMemory = client.memory + '\n[PANEL ' + noteDate + '] ' + note;
           } else if (append) {
-            newMemory = '[PANEL] ' + note;
+            newMemory = '[PANEL ' + noteDate + '] ' + note;
           } else {
             newMemory = note;
           }
@@ -2381,6 +2413,7 @@ async function selectClient(phone, isAutoRefresh = false) {
       <div class="crm-tab active" onclick="switchCrmTab('\${client.phone}','perfil',this)">📋 Perfil</div>
       <div class="crm-tab" onclick="switchCrmTab('\${client.phone}','notas',this)">🧠 Notas</div>
       <div class="crm-tab" onclick="switchCrmTab('\${client.phone}','acciones',this)">⚡ Acciones</div>
+      <div class="crm-tab" onclick="switchCrmTab('\${client.phone}','archivos',this);loadClientFiles('\${client.phone}')">📎 Archivos</div>
     </div>
 
     <!-- TAB: PERFIL -->
@@ -2398,6 +2431,7 @@ async function selectClient(phone, isAutoRefresh = false) {
         <div class="crm-field"><label>Nombre</label><input id="prof_name_\${client.phone}" type="text" value="\${client.name || ''}"></div>
         <div class="crm-field"><label>Cédula</label><input id="prof_cedula_\${client.phone}" type="text" value="\${client.cedula || ''}"></div>
         <div class="crm-field"><label>Ciudad</label><input id="prof_ciudad_\${client.phone}" type="text" value="\${client.ciudad || ''}"></div>
+        <div class="crm-field"><label>Departamento</label><input id="prof_departamento_\${client.phone}" type="text" value="\${client.departamento || ''}"><\/div>
         <div class="crm-field"><label>Dirección</label><input id="prof_direccion_\${client.phone}" type="text" value="\${client.direccion || ''}"></div>
         <div class="crm-field"><label>Profesión</label><input id="prof_profesion_\${client.phone}" type="text" value="\${client.profesion || ''}"></div>
         <div class="crm-field"><label>Status</label>
@@ -2517,6 +2551,12 @@ async function selectClient(phone, isAutoRefresh = false) {
       <div class="crm-section-title" style="margin-top:8px;">🪪 Historial de Carnets</div>
       <div id="carnetHistory_\${client.phone}"></div>
     </div>
+
+    <!-- TAB: ARCHIVOS -->
+    <div class="crm-tab-content" id="crmTab_archivos_\${client.phone}">
+      <div class="crm-section-title">📎 Archivos del Cliente</div>
+      <div id="clientFilesContainer_\${client.phone}" style="padding:4px 0;"><span style="color:#586776;font-size:12px;">Cargando...</span></div>
+    </div>
   \`;
   } else {
     const msgCountEl = document.getElementById('comMsgCount');
@@ -2561,7 +2601,10 @@ async function selectClient(phone, isAutoRefresh = false) {
         tabContent.classList.add('active');
         // Highlight the correct tab
         const tabs = document.querySelectorAll('.crm-tab');
-        tabs.forEach(t => { if (t.textContent.toLowerCase().includes(activeCrmTab === 'notas' ? 'notas' : activeCrmTab === 'acciones' ? 'acciones' : 'perfil')) t.classList.add('active'); });
+        const keyMap = { notas: 'notas', acciones: 'acciones', archivos: 'archivos' };
+        const needle = keyMap[activeCrmTab] || 'perfil';
+        tabs.forEach(t => { if (t.textContent.toLowerCase().includes(needle)) t.classList.add('active'); });
+        if (activeCrmTab === 'archivos') loadClientFiles(phone);
       }
     }
 
@@ -2767,6 +2810,7 @@ async function saveProfile(phone, btn) {
     name: document.getElementById('prof_name_' + phone)?.value.trim() || '',
     cedula: document.getElementById('prof_cedula_' + phone)?.value.trim() || '',
     ciudad: document.getElementById('prof_ciudad_' + phone)?.value.trim() || '',
+    departamento: document.getElementById('prof_departamento_' + phone)?.value.trim() || '',
     direccion: document.getElementById('prof_direccion_' + phone)?.value.trim() || '',
     profesion: document.getElementById('prof_profesion_' + phone)?.value.trim() || '',
     club_plan: document.getElementById('prof_club_plan_' + phone)?.value || '',
@@ -3322,6 +3366,7 @@ async function selectClientPv(phone, isAutoRefresh = false) {
           <div class="crm-field"><label>Nombre</label><input id="prof_name_\${client.phone}" type="text" value="\${client.name || ''}"></div>
           <div class="crm-field"><label>Cédula</label><input id="prof_cedula_\${client.phone}" type="text" value="\${client.cedula || ''}"></div>
           <div class="crm-field"><label>Ciudad</label><input id="prof_ciudad_\${client.phone}" type="text" value="\${client.ciudad || ''}"></div>
+          <div class="crm-field"><label>Departamento</label><input id="prof_departamento_\${client.phone}" type="text" value="\${client.departamento || ''}"><\/div>
           <div class="crm-field"><label>Dirección</label><input id="prof_direccion_\${client.phone}" type="text" value="\${client.direccion || ''}"></div>
           <div class="crm-field"><label>Profesión</label><input id="prof_profesion_\${client.phone}" type="text" value="\${client.profesion || ''}"></div>
         </div>
@@ -5385,7 +5430,59 @@ async function loadCarnetHistory(phone) {
   }
 }
 
+// Cargar archivos del cliente (fotos, carnets, comprobantes)
+async function loadClientFiles(phone) {
+  var container = document.getElementById('clientFilesContainer_' + phone);
+  if (!container) return;
+  container.innerHTML = '<span style="color:#586776;font-size:12px;">Cargando archivos...</span>';
+  try {
+    var r = await fetch('/api/client-files?phone=' + encodeURIComponent(phone));
+    var files = await r.json();
+    if (!files || files.length === 0) {
+      container.innerHTML = '<span style="color:#3d4f5f;font-size:12px;">Sin archivos registrados para este cliente.</span>';
+      return;
+    }
+    var tipoIcon = { foto: '\ud83e\uddd1', carnet: '\ud83e\udeaa', factura: '\ud83e\uddfe', comprobante: '\ud83d\udcb0', guia: '\ud83d\udce6', cliente: '\ud83d\udcf8' };
+    var estadoLabel = { confirmado: ' \u2705', rechazado: ' \u274c', pendiente: ' \u23f3', verificado: ' \u2705' };
+    var html = '<div style="display:flex;flex-wrap:wrap;gap:10px;padding:4px 0;">';
+    files.forEach(function(f) {
+      var icon = tipoIcon[f.tipo] || '\ud83d\udcce';
+      var fecha = f.created_at ? new Date(f.created_at).toLocaleDateString('es-CO') : '';
+      var subido = f.subido_por === 'panel' ? 'Panel' : (f.subido_por === 'bot' ? 'Bot' : 'Cliente');
+      var estado = f.estado ? (estadoLabel[f.estado] || '') : '';
+      var tabla = f.tabla || 'client_files';
+      html += '<div style="background:#0d1117;border:1px solid #1c2733;border-radius:6px;padding:10px;width:140px;display:flex;flex-direction:column;gap:6px;align-items:center;">';
+      html += '<div style="font-size:24px;">' + icon + '</div>';
+      html += '<div style="font-size:11px;color:#e6edf3;text-align:center;font-weight:600;word-break:break-word;">' + (f.descripcion || f.tipo) + estado + '</div>';
+      html += '<div style="font-size:10px;color:#586776;text-align:center;">' + fecha + '<br>' + subido + '</div>';
+      if (f.info) { html += '<div style="font-size:9px;color:#8b949e;text-align:center;word-break:break-all;">' + String(f.info).substring(0, 40) + '</div>'; }
+      html += '<button onclick="verArchivoCliente(' + f.id + ',this)" data-tabla="' + tabla + '" style="background:#238636;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer;width:100%;">&#128065; Ver</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<span style="color:#f85149;font-size:12px;">Error cargando archivos: ' + e.message + '</span>';
+  }
+}
+
+async function verArchivoCliente(id, btn) {
+  try {
+    var tabla = (btn && btn.getAttribute('data-tabla')) || 'client_files';
+    btn.textContent = '...';
+    var r = await fetch('/api/client-files?id=' + id + '&tabla=' + tabla);
+    var file = await r.json();
+    btn.textContent = '\ud83d\udc41 Ver';
+    if (!file || !file.imagen_base64) { alert('Sin imagen para este archivo'); return; }
+    var src = 'data:' + (file.imagen_mime || 'image/jpeg') + ';base64,' + file.imagen_base64;
+    openLightbox(src);
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
 // Lightbox para ver comprobante completo
+
 function openLightbox(src) {
   document.getElementById('imgLightboxImg').src = src;
   document.getElementById('imgLightbox').classList.add('open');

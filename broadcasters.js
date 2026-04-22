@@ -244,7 +244,7 @@ El mensaje debe:
 - NO repetir exactamente lo que dice la imagen
 - REGLA LEGAL ESTRICTA: Las armas traumáticas NO son armas de fuego. Según la Ley 2197 de 2022, son dispositivos MENOS LETALES. JAMÁS digas que son armas de fuego.
 Solo escribe el mensaje, sin explicaciones.`;
-    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+    const result = await geminiGenerate('gemini-2.5-pro', prompt);
     return result.response.text().trim();
   } catch (err) {
     console.error('[BROADCASTER] Error generando texto:', err.message);
@@ -352,11 +352,7 @@ function startGroupBroadcaster() {
     console.log('[BROADCASTER] ⏸️ Broadcasting a grupos DESACTIVADO (ENABLE_GROUP_BROADCAST=false)');
     return;
   }
-  const ENVIOS_POR_DIA = 16;
-  const HORA_INICIO = 7;   // 7am Colombia
-  const HORA_FIN = 23;     // 11pm Colombia
-  const VENTANA_HORAS = HORA_FIN - HORA_INICIO; // 16h activas
-  const INTERVALO_MS = Math.floor((VENTANA_HORAS * 60 * 60 * 1000) / ENVIOS_POR_DIA); // ~60 min
+  const HORAS_ENVIO = [8, 20]; // 8AM y 8PM Colombia
 
   function getColombiaHour() {
     const ahora = new Date();
@@ -365,24 +361,40 @@ function startGroupBroadcaster() {
     return Math.floor(colMinutes / 60);
   }
 
+  function getMsUntilNextHour(targetHours) {
+    const ahora = new Date();
+    const utcMinutes = ahora.getUTCHours() * 60 + ahora.getUTCMinutes();
+    const colMinutes = ((utcMinutes - 5 * 60) % (24 * 60) + 24 * 60) % (24 * 60);
+    const colHora = Math.floor(colMinutes / 60);
+    const colMin = colMinutes % 60;
+
+    let proximaHora = targetHours.find(h => h > colHora || (h === colHora && colMin === 0));
+    if (proximaHora === undefined) {
+      proximaHora = targetHours[0] + 24;
+    }
+
+    const minutosRestantes = proximaHora * 60 - colMinutes;
+    return Math.max(minutosRestantes * 60 * 1000, 60000);
+  }
+
   // Log de la cola al arrancar para confirmar que no se repiten
   const colaActual = buildImageQueue();
   console.log(`[BROADCASTER] 📦 Imágenes disponibles en cola: ${colaActual.length} (se reciclan sin repetir hasta agotar todas)`);
 
-  async function ciclo() {
-    const hora = getColombiaHour();
-    if (hora >= HORA_INICIO && hora < HORA_FIN) {
+  function scheduleNext() {
+    const msEspera = getMsUntilNextHour(HORAS_ENVIO);
+    const horasEspera = Math.floor((msEspera / 1000) / 3600);
+    const minsEspera = Math.round(((msEspera / 1000) % 3600) / 60);
+    console.log(`[BROADCASTER] ⏰ Próximo broadcast a grupos en ${horasEspera}h ${minsEspera}m`);
+
+    setTimeout(async () => {
       await sendGroupBroadcast();
-    } else {
-      console.log(`[BROADCASTER] 🌙 Fuera de horario (${hora}h Colombia) — saltando hasta las ${HORA_INICIO}h`);
-    }
-    setTimeout(ciclo, INTERVALO_MS);
+      scheduleNext();
+    }, msEspera);
   }
 
-  const intervaloMin = Math.round(INTERVALO_MS / 60000);
-  console.log(`[BROADCASTER] 🚀 Iniciado — ${ENVIOS_POR_DIA}x/día, cada ~${intervaloMin}min (${HORA_INICIO}h-${HORA_FIN}h Colombia)`);
-  // Primer envío en 2 minutos para no bloquear el arranque
-  setTimeout(ciclo, 2 * 60 * 1000);
+  console.log(`[BROADCASTER] 🚀 Iniciado — 2x/día a las ${HORAS_ENVIO.join('h y ')}h (hora Colombia)`);
+  scheduleNext();
 }
 
 // ============================================
@@ -426,7 +438,7 @@ El mensaje debe:
 - REGLA LEGAL ESTRICTA: Las armas traumáticas NO son armas de fuego. Si las mencionas, son dispositivos o armas MENOS LETALES.
 Solo escribe el texto de la historia, sin comillas ni explicaciones extra.`;
 
-    const result = await geminiGenerate('gemini-3.1-pro-preview', prompt);
+    const result = await geminiGenerate('gemini-2.5-pro', prompt);
     return result.response.text().trim();
   } catch (err) {
     console.error('[STATUS] Error generando texto:', err.message);

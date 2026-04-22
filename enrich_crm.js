@@ -95,14 +95,14 @@ REGLAS ESTRICTAS:
 Responde SOLO con JSON válido, sin explicaciones ni markdown:
 {"nombre": "string o null", "cedula": "string o null", "ciudad": "string o null", "direccion": "string o null", "profesion": "string o null", "modelo_arma": "string o null", "serial_arma": "string o null", "club_plan": "Plan Plus o Plan Pro o null", "has_bought_gun": true/false/null, "is_club_plus": true/false/null, "is_club_pro": true/false/null, "has_ai_bot": true/false/null, "status": "new/hot/warm/completed o null"}`;
 
-async function enrichClient(phone) {
+async function enrichClient(phone, forceOverwrite = false) {
     const dossier = db.buildClientDossier(phone);
     if (!dossier) return { skipped: true, reason: 'no existe' };
 
     const { profile, memory, documents, history, stats } = dossier;
 
-    // Skip si tiene muy pocos mensajes
-    if (stats.totalMessages < minMsgsArg) {
+    // Skip si tiene muy pocos mensajes (bypass si es forzado)
+    if (!forceOverwrite && stats.totalMessages < minMsgsArg) {
         return { skipped: true, reason: `solo ${stats.totalMessages} msgs (min: ${minMsgsArg})` };
     }
 
@@ -161,16 +161,18 @@ async function enrichClient(phone) {
     const updates = {};
     let changes = [];
 
-    // String fields: only update if currently empty AND extraction has a value
+    // String fields: update if currently empty OR forceOverwrite
     const stringFields = ['nombre', 'cedula', 'ciudad', 'direccion', 'profesion', 'modelo_arma', 'serial_arma'];
     for (const field of stringFields) {
         const dbField = field === 'nombre' ? 'name' : field;
         const currentVal = profile[dbField] || '';
         const newVal = extracted[field];
         if (newVal && typeof newVal === 'string' && newVal.toLowerCase() !== 'null') {
-            if (!currentVal || currentVal.trim().length < 2) {
-                updates[dbField] = newVal;
-                changes.push(`${field}: "" → "${newVal}"`);
+            if (forceOverwrite || !currentVal || currentVal.trim().length < 2) {
+                if (newVal !== currentVal) {
+                    updates[dbField] = newVal;
+                    changes.push(`${field}: "${currentVal || ''}" → "${newVal}"`);
+                }
             }
         }
     }
@@ -303,4 +305,10 @@ async function main() {
     process.exit(0);
 }
 
-main().catch(err => { console.error('❌ Error fatal:', err); process.exit(1); });
+// Only run main() when executed directly (not when required by panel.js)
+if (require.main === module) {
+    main().catch(err => { console.error('❌ Error fatal:', err); process.exit(1); });
+}
+
+// Export for use by panel.js
+module.exports = { enrichClient };
